@@ -1,0 +1,287 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.alerts (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  alert_type character varying NOT NULL,
+  severity character varying NOT NULL,
+  title character varying NOT NULL,
+  message text NOT NULL,
+  reference_id uuid,
+  reference_type character varying,
+  is_read boolean DEFAULT false,
+  is_resolved boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  resolved_at timestamp with time zone,
+  company_id uuid,
+  CONSTRAINT alerts_pkey PRIMARY KEY (id),
+  CONSTRAINT alerts_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.app_users (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  email text NOT NULL UNIQUE,
+  password_hash text NOT NULL,
+  full_name text NOT NULL,
+  role text NOT NULL DEFAULT 'user'::text CHECK (role = ANY (ARRAY['super_admin'::text, 'admin'::text, 'manager'::text, 'user'::text])),
+  company_id uuid,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  last_login timestamp with time zone,
+  CONSTRAINT app_users_pkey PRIMARY KEY (id),
+  CONSTRAINT app_users_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.cash_movements (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  register_id uuid NOT NULL,
+  type text NOT NULL CHECK (type = ANY (ARRAY['withdrawal'::text, 'deposit'::text])),
+  amount numeric NOT NULL,
+  reason text,
+  performed_by_id text NOT NULL,
+  performed_by_name text NOT NULL,
+  timestamp timestamp with time zone NOT NULL DEFAULT now(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT cash_movements_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_cash_movements_company FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT fk_cash_movements_register FOREIGN KEY (register_id) REFERENCES public.cash_registers(id)
+);
+CREATE TABLE public.cash_registers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  cashier_id text NOT NULL,
+  cashier_name text NOT NULL,
+  initial_balance numeric NOT NULL DEFAULT 0,
+  current_balance numeric NOT NULL DEFAULT 0,
+  opened_at timestamp with time zone NOT NULL DEFAULT now(),
+  closed_at timestamp with time zone,
+  status text NOT NULL DEFAULT 'open'::text CHECK (status = ANY (ARRAY['open'::text, 'closed'::text])),
+  closing_notes text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT cash_registers_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_cash_registers_company FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.companies (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  cnpj text,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  is_active boolean DEFAULT true,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  status text DEFAULT 'active'::text,
+  CONSTRAINT companies_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.company_credentials (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL UNIQUE,
+  admin_email text NOT NULL UNIQUE,
+  admin_password_hash text NOT NULL,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT company_credentials_pkey PRIMARY KEY (id),
+  CONSTRAINT company_credentials_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.kv_store_8a20b27d (
+  key text NOT NULL,
+  value jsonb NOT NULL,
+  CONSTRAINT kv_store_8a20b27d_pkey PRIMARY KEY (key)
+);
+CREATE TABLE public.price_history (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  product_id uuid NOT NULL,
+  supplier_id uuid,
+  price numeric NOT NULL,
+  price_type character varying NOT NULL,
+  change_percentage numeric,
+  effective_date timestamp with time zone DEFAULT now(),
+  created_at timestamp with time zone DEFAULT now(),
+  company_id uuid,
+  date timestamp with time zone DEFAULT now(),
+  invoice_number text,
+  CONSTRAINT price_history_pkey PRIMARY KEY (id),
+  CONSTRAINT price_history_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT price_history_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
+  CONSTRAINT price_history_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id)
+);
+CREATE TABLE public.products (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  category character varying,
+  unit character varying NOT NULL,
+  supplier_id uuid,
+  min_stock numeric DEFAULT 0,
+  current_stock numeric DEFAULT 0,
+  cost_price numeric,
+  sale_price numeric,
+  description text,
+  image_url text,
+  status character varying DEFAULT 'active'::character varying,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  company_id uuid,
+  barcode text,
+  safety_stock numeric DEFAULT 0,
+  CONSTRAINT products_pkey PRIMARY KEY (id),
+  CONSTRAINT products_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT products_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id)
+);
+CREATE TABLE public.recipe_ingredients (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  recipe_id uuid NOT NULL,
+  product_id uuid NOT NULL,
+  quantity numeric NOT NULL,
+  unit character varying NOT NULL,
+  cost numeric DEFAULT 0,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  company_id uuid NOT NULL,
+  CONSTRAINT recipe_ingredients_pkey PRIMARY KEY (id),
+  CONSTRAINT recipe_ingredients_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT recipe_ingredients_recipe_id_fkey FOREIGN KEY (recipe_id) REFERENCES public.recipes(id),
+  CONSTRAINT recipe_ingredients_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
+);
+CREATE TABLE public.recipes (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  description text,
+  category character varying,
+  serving_size character varying,
+  prep_time integer,
+  total_cost numeric DEFAULT 0,
+  sale_price numeric,
+  profit_margin numeric,
+  image_url text,
+  instructions text,
+  status character varying DEFAULT 'active'::character varying,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  company_id uuid NOT NULL,
+  CONSTRAINT recipes_pkey PRIMARY KEY (id),
+  CONSTRAINT recipes_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.sale_items (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  sale_id uuid NOT NULL,
+  company_id uuid NOT NULL,
+  product_id uuid,
+  recipe_id uuid,
+  quantity numeric NOT NULL,
+  unit_price numeric NOT NULL,
+  total_price numeric NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT sale_items_pkey PRIMARY KEY (id),
+  CONSTRAINT sale_items_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT sale_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
+  CONSTRAINT sale_items_recipe_id_fkey FOREIGN KEY (recipe_id) REFERENCES public.recipes(id)
+);
+CREATE TABLE public.sales (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  register_id uuid NOT NULL,
+  cashier_id text NOT NULL,
+  cashier_name text NOT NULL,
+  total numeric NOT NULL,
+  payment_method text NOT NULL CHECK (payment_method = ANY (ARRAY['money'::text, 'pix'::text, 'credit'::text, 'debit'::text])),
+  payment_details jsonb,
+  items jsonb NOT NULL,
+  timestamp timestamp with time zone NOT NULL DEFAULT now(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT sales_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_sales_company FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT fk_sales_register FOREIGN KEY (register_id) REFERENCES public.cash_registers(id)
+);
+CREATE TABLE public.stock_entries (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  product_id uuid NOT NULL,
+  supplier_id uuid,
+  quantity numeric NOT NULL,
+  unit_cost numeric NOT NULL,
+  total_cost numeric NOT NULL,
+  batch_number character varying,
+  expiry_date date,
+  entry_date timestamp with time zone DEFAULT now(),
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  company_id uuid,
+  expiration_date timestamp with time zone,
+  user_id text,
+  CONSTRAINT stock_entries_pkey PRIMARY KEY (id),
+  CONSTRAINT stock_entries_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT stock_entries_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id),
+  CONSTRAINT stock_entries_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id)
+);
+CREATE TABLE public.stock_movements (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  product_id uuid NOT NULL,
+  movement_type character varying NOT NULL,
+  quantity numeric NOT NULL,
+  unit_cost numeric,
+  total_value numeric,
+  reference_id uuid,
+  notes text,
+  movement_date timestamp with time zone DEFAULT now(),
+  created_by uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  company_id uuid,
+  sale_id uuid,
+  recipe_id uuid,
+  type text DEFAULT 'ajuste'::text,
+  reason text,
+  waste_reason text,
+  cost numeric,
+  batch_number text,
+  date timestamp with time zone DEFAULT now(),
+  user_id text,
+  CONSTRAINT stock_movements_pkey PRIMARY KEY (id),
+  CONSTRAINT stock_movements_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT stock_movements_recipe_id_fkey FOREIGN KEY (recipe_id) REFERENCES public.recipes(id),
+  CONSTRAINT stock_movements_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
+);
+CREATE TABLE public.suppliers (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  contact character varying,
+  email character varying,
+  phone character varying,
+  rating numeric CHECK (rating >= 0::numeric AND rating <= 5::numeric),
+  reliability integer CHECK (reliability >= 0 AND reliability <= 100),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  company_id uuid,
+  CONSTRAINT suppliers_pkey PRIMARY KEY (id),
+  CONSTRAINT suppliers_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.user_companies (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  company_id uuid NOT NULL,
+  role text DEFAULT 'admin'::text,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT user_companies_pkey PRIMARY KEY (id),
+  CONSTRAINT user_companies_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT user_companies_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.zig_configurations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL UNIQUE,
+  store_id text NOT NULL,
+  rede_id text,
+  last_sync timestamp with time zone,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT zig_configurations_pkey PRIMARY KEY (id),
+  CONSTRAINT zig_configurations_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
+CREATE TABLE public.zig_processed_transactions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  transaction_id text NOT NULL,
+  processed_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT zig_processed_transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT zig_processed_transactions_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
