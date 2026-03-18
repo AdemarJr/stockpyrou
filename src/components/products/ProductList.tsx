@@ -4,6 +4,7 @@ import type { Product } from '../../types';
 import { formatCurrency, getStockStatus } from '../../utils/calculations';
 import { EmptyState } from '../EmptyState';
 import { StockAdjustmentModal } from '../inventory/StockAdjustmentModal';
+import { ProductImport } from './ProductImport';
 import { useIsMobile } from '../ui/use-mobile';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Button } from '../ui/button';
@@ -16,15 +17,18 @@ interface ProductListProps {
   onAdd: () => void;
   onDuplicate?: (product: Product) => void;
   onBulkImport?: () => void;
+  onImportFromFile?: (products: any[]) => void;
+  categories: any[];
   canDelete: boolean;
 }
 
-export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDuplicate, onBulkImport, canDelete }: ProductListProps) {
+export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDuplicate, onBulkImport, onImportFromFile, categories, canDelete }: ProductListProps) {
   const isMobile = useIsMobile();
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   
   // Filter products
   const filteredProducts = products.filter(product => {
@@ -42,7 +46,7 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
   });
   
   // Get unique categories
-  const categories = Array.from(new Set(products.map(p => p.category)));
+  const uniqueCategories = Array.from(new Set(products.map(p => p.category)));
   
   const getStatusBadge = (product: Product) => {
     const status = getStockStatus(product.currentStock, product.minStock, product.safetyStock);
@@ -101,14 +105,14 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
           </p>
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto">
-          {onBulkImport && (
+          {onImportFromFile && (
             <button
-              onClick={onBulkImport}
+              onClick={() => setImportDialogOpen(true)}
               className="flex-1 md:flex-none bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 transition-colors"
-              title="Importar múltiplos produtos via CSV"
+              title="Importar produtos via CSV ou XML da NF-e"
             >
               <Upload className="w-5 h-5" />
-              <span className="hidden sm:inline">Importar CSV</span>
+              <span className="hidden sm:inline">Importar NF-e</span>
             </button>
           )}
           <button
@@ -143,7 +147,7 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">Todas as Categorias</option>
-            {categories.map(cat => (
+            {uniqueCategories.map(cat => (
               <option key={cat} value={cat}>{getCategoryLabel(cat)}</option>
             ))}
           </select>
@@ -433,6 +437,17 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
             // Idealmente passaríamos um callback para refrescar os dados aqui
             window.location.reload(); 
           }}
+        />
+      )}
+      
+      {/* Product Import Dialog */}
+      {onImportFromFile && (
+        <ProductImport
+          open={importDialogOpen}
+          onOpenChange={setImportDialogOpen}
+          products={products}
+          categories={categories}
+          onImport={onImportFromFile}
         />
       )}
     </div>

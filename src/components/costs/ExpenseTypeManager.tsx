@@ -1,0 +1,384 @@
+import { useState, useEffect } from 'react';
+import { useCompany } from '../../contexts/CompanyContext';
+import { Card } from '../ui/card';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
+import { Switch } from '../ui/switch';
+import { Plus, Tag, Edit2, Trash2 } from 'lucide-react';
+import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import type { ExpenseType, CostCenter } from '../../types/costs';
+
+export function ExpenseTypeManager() {
+  const { currentCompany } = useCompany();
+  const [types, setTypes] = useState<any[]>([]);
+  const [centers, setCenters] = useState<CostCenter[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingType, setEditingType] = useState<any | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    category: 'fixo' as const,
+    costCenterId: '',
+    isRecurring: false,
+    recurrenceDay: ''
+  });
+
+  useEffect(() => {
+    if (currentCompany?.id) {
+      loadData();
+    }
+  }, [currentCompany?.id]);
+
+  const loadData = async () => {
+    if (!currentCompany?.id) return;
+
+    setLoading(true);
+    try {
+      const [typesRes, centersRes] = await Promise.all([
+        fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types`,
+          {
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'X-Company-Id': currentCompany.id
+            }
+          }
+        ),
+        fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/centers`,
+          {
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'X-Company-Id': currentCompany.id
+            }
+          }
+        )
+      ]);
+
+      const typesData = await typesRes.json();
+      const centersData = await centersRes.json();
+
+      setTypes(typesData.types || []);
+      setCenters(centersData.centers || []);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast.error('Erro ao carregar dados');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentCompany?.id) return;
+
+    try {
+      const url = editingType
+        ? `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types/${editingType.id}`
+        : `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types`;
+
+      const payload = {
+        company_id: currentCompany.id,
+        name: formData.name,
+        category: formData.category,
+        cost_center_id: formData.costCenterId,
+        is_recurring: formData.isRecurring,
+        recurrence_day: formData.recurrenceDay ? parseInt(formData.recurrenceDay) : null,
+        is_active: true
+      };
+
+      const res = await fetch(url, {
+        method: editingType ? 'PUT' : 'POST',
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+          'X-Company-Id': currentCompany.id
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('Save expense type API error:', errorData);
+        throw new Error(errorData.error || 'Failed to save expense type');
+      }
+
+      toast.success(
+        editingType
+          ? 'Tipo de despesa atualizado!'
+          : 'Tipo de despesa criado!'
+      );
+
+      setDialogOpen(false);
+      resetForm();
+      loadData();
+    } catch (error: any) {
+      console.error('Error saving expense type:', error);
+      toast.error(`Erro ao salvar tipo de despesa: ${error.message}`);
+    }
+  };
+
+  const handleEdit = (type: any) => {
+    setEditingType(type);
+    setFormData({
+      name: type.name,
+      category: type.category,
+      costCenterId: type.cost_center_id,
+      isRecurring: type.is_recurring || false,
+      recurrenceDay: type.recurrence_day?.toString() || ''
+    });
+    setDialogOpen(true);
+  };
+
+  const handleDelete = async (type: any) => {
+    if (!currentCompany?.id) return;
+    
+    if (!confirm(`Tem certeza que deseja excluir o tipo de despesa "${type.name}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types/${type.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'X-Company-Id': currentCompany.id
+          }
+        }
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('Delete expense type API error:', errorData);
+        throw new Error(errorData.error || 'Failed to delete expense type');
+      }
+
+      toast.success('Tipo de despesa excluído!');
+      loadData();
+    } catch (error: any) {
+      console.error('Error deleting expense type:', error);
+      toast.error(`Erro ao excluir tipo de despesa: ${error.message}`);
+    }
+  };
+
+  const resetForm = () => {
+    setEditingType(null);
+    setFormData({
+      name: '',
+      category: 'fixo',
+      costCenterId: '',
+      isRecurring: false,
+      recurrenceDay: ''
+    });
+  };
+
+  const getCategoryLabel = (category: string) => {
+    const labels: Record<string, string> = {
+      fixo: 'Fixo',
+      variavel: 'Variável',
+      semi_variavel: 'Semi-variável'
+    };
+    return labels[category] || category;
+  };
+
+  const getCategoryColor = (category: string) => {
+    const colors: Record<string, string> = {
+      fixo: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      variavel: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+      semi_variavel: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+    };
+    return colors[category] || 'bg-gray-100 text-gray-700';
+  };
+
+  if (loading) {
+    return (
+      <Card className="p-6">
+        <p className="text-center text-gray-500">Carregando...</p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+            Tipos de Despesa
+          </h2>
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Novo Tipo
+          </Button>
+        </div>
+
+        {types.length === 0 ? (
+          <div className="text-center py-8">
+            <Tag className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+            <p className="text-gray-500 dark:text-gray-400">
+              Nenhum tipo de despesa cadastrado
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {types.map((type: any) => (
+              <Card key={type.id} className="p-4 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                      {type.name}
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {type.cost_centers_8a20b27d?.name}
+                    </p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEdit(type)}
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(type)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-xs px-2 py-1 rounded-full ${getCategoryColor(type.category)}`}>
+                    {getCategoryLabel(type.category)}
+                  </span>
+                  {type.is_recurring && (
+                    <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                      Recorrente (dia {type.recurrence_day})
+                    </span>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Dialog Form */}
+      <Dialog open={dialogOpen} onOpenChange={(open) => {
+        setDialogOpen(open);
+        if (!open) resetForm();
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingType ? 'Editar Tipo de Despesa' : 'Novo Tipo de Despesa'}
+            </DialogTitle>
+            <DialogDescription>
+              {editingType ? 'Atualize as informações do tipo de despesa.' : 'Crie um novo tipo de despesa para categorizar seus gastos.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="name">Nome *</Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="Ex: Aluguel, Energia, Salários"
+                required
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="category">Categoria *</Label>
+              <Select
+                value={formData.category}
+                onValueChange={(value: any) => setFormData({ ...formData, category: value })}
+                required
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixo">Fixo</SelectItem>
+                  <SelectItem value="variavel">Variável</SelectItem>
+                  <SelectItem value="semi_variavel">Semi-variável</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500 mt-1">
+                Fixo: valor constante | Variável: varia com produção | Semi-variável: misto
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="costCenter">Centro de Custo *</Label>
+              <Select
+                value={formData.costCenterId}
+                onValueChange={(value) => setFormData({ ...formData, costCenterId: value })}
+                required
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  {centers.map((center) => (
+                    <SelectItem key={center.id} value={center.id}>
+                      {center.name} ({center.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <div>
+                <Label htmlFor="recurring">Despesa Recorrente</Label>
+                <p className="text-xs text-gray-500">
+                  Despesa que se repete mensalmente
+                </p>
+              </div>
+              <Switch
+                id="recurring"
+                checked={formData.isRecurring}
+                onCheckedChange={(checked) => setFormData({ ...formData, isRecurring: checked })}
+              />
+            </div>
+
+            {formData.isRecurring && (
+              <div>
+                <Label htmlFor="recurrenceDay">Dia do Vencimento</Label>
+                <Input
+                  id="recurrenceDay"
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={formData.recurrenceDay}
+                  onChange={(e) => setFormData({ ...formData, recurrenceDay: e.target.value })}
+                  placeholder="Ex: 5 (todo dia 5 do mês)"
+                />
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">
+                {editingType ? 'Atualizar' : 'Criar'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

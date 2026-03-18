@@ -30,6 +30,7 @@ import { LandingPage } from './components/landing/LandingPage';
 import { AdminSaaS } from './components/admin/AdminSaaS';
 import { QuickSearch } from './components/QuickSearch';
 import { PWAUpdateNotifier } from './components/PWAUpdateNotifier';
+import { CostDashboard } from './components/costs/CostDashboard';
 
 // Icons
 import { 
@@ -62,7 +63,7 @@ import { toast } from 'sonner@2.0.3';
 import { useIsMobile } from './components/ui/use-mobile';
 import logoImg from './public/logo.svg';
 
-type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'users' | 'admin';
+type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'users' | 'admin' | 'costs';
 
 function MainApp() {
   const { user, logout } = useAuth();
@@ -227,6 +228,15 @@ function MainApp() {
   const [priceHistory, setPriceHistory] = useState<PriceHistory[]>([]);
   const [recipes] = useState<any[]>([]); // Recipes removed, keeping empty array for compatibility
   
+  // Categories
+  const categories = [
+    { id: 'alimento', name: 'Alimento' },
+    { id: 'bebida', name: 'Bebida' },
+    { id: 'descartavel', name: 'Descartável' },
+    { id: 'limpeza', name: 'Limpeza' },
+    { id: 'outro', name: 'Outro' },
+  ];
+  
   // Define refreshData function
   const refreshData = async () => {
     if (!currentCompany) {
@@ -352,6 +362,69 @@ function MainApp() {
       console.log('🎉 Bulk import completed successfully');
     } catch (error: any) {
       console.error('💥 Error bulk importing products:', error);
+      toast.error(`Erro ao importar produtos: ${error.message}`);
+      throw error;
+    }
+  };
+  
+  const handleImportProductsFromFile = async (importRows: any[]) => {
+    try {
+      console.log('📄 handleImportProductsFromFile called with', importRows.length, 'rows');
+      console.log('🏢 Current company:', currentCompany.id, currentCompany.name);
+      
+      const loadingToast = toast.loading(`Processando ${importRows.length} produtos...`);
+      
+      const createdProducts = [];
+      const updatedProducts = [];
+      
+      for (const row of importRows) {
+        console.log('📦 Processing product:', row.name);
+        
+        const productData = {
+          name: row.name,
+          category: row.category,
+          isPerishable: false,
+          measurementUnit: row.measurementUnit || 'UN',
+          minStock: row.minStock || 5,
+          safetyStock: row.safetyStock || 10,
+          currentStock: 0, // Starts with 0, must receive stock later
+          averageCost: row.costPrice || 0,
+          sellingPrice: row.unitPrice || 0,
+          barcode: row.barcode || undefined,
+          supplierId: undefined,
+          shelfLife: undefined,
+        };
+        
+        // Check if we should update an existing product
+        if (row.status === 'exists' && row.shouldUpdate && row.existingProduct) {
+          console.log('🔄 Updating existing product:', row.existingProduct.id);
+          const updated = await ProductService.updateProduct(row.existingProduct.id, productData);
+          updatedProducts.push(updated);
+        } else if (row.status === 'new') {
+          console.log('➕ Creating new product:', row.name);
+          const newProduct = await ProductService.createProduct(productData, currentCompany.id);
+          createdProducts.push(newProduct);
+        }
+      }
+      
+      // Update state
+      setProducts(prev => {
+        // Remove updated products from list
+        let updated = prev.filter(p => !updatedProducts.find(u => u.id === p.id));
+        // Add updated products back
+        updated = [...updated, ...updatedProducts];
+        // Add new products
+        return [...updated, ...createdProducts];
+      });
+      
+      const totalImported = createdProducts.length + updatedProducts.length;
+      toast.success(
+        `${totalImported} produtos processados! ${createdProducts.length} novos, ${updatedProducts.length} atualizados.`,
+        { id: loadingToast }
+      );
+      console.log('🎉 Import from file completed successfully');
+    } catch (error: any) {
+      console.error('💥 Error importing products from file:', error);
       toast.error(`Erro ao importar produtos: ${error.message}`);
       throw error;
     }
@@ -502,10 +575,13 @@ function MainApp() {
       nav.push({ id: 'stock-entry', name: 'Recebimento', icon: TrendingUp });
       nav.push({ id: 'stock-balance', name: 'Balanço', icon: Barcode });
       nav.push({ id: 'pos', name: 'Venda / Baixa', icon: ShoppingCart });
-      nav.push({ id: 'cashier', name: 'Caixa', icon: DollarSign });
+      nav.push({ id: 'cashier', name: 'PDV', icon: DollarSign });
       nav.push({ id: 'suppliers', name: 'Fornecedores', icon: Truck });
     }
-    if (user.permissions.canViewReports) nav.push({ id: 'reports', name: 'Relatórios', icon: FileText });
+    if (user.permissions.canViewReports) {
+      nav.push({ id: 'reports', name: 'Relatórios', icon: FileText });
+      nav.push({ id: 'costs', name: 'Custos', icon: DollarSign });
+    }
     if (user.permissions.canManageUsers) nav.push({ id: 'users', name: 'Usuários', icon: Users });
     return nav;
   };
@@ -571,7 +647,7 @@ function MainApp() {
             </>
           ) : (
             <>
-              <button onClick={toggleTheme} className="w-full flex items-center justify-center p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" title={theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}>
+              <button onClick={toggleTheme} className="w-full flex items-center justify-center p-2 text-gray-700 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-100 rounded-lg transition-colors" title={theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}>
                 {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
               </button>
               <button onClick={logout} className="w-full flex items-center justify-center p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" title="Sair">
@@ -631,6 +707,8 @@ function MainApp() {
                 onAdd={() => { setEditingProduct(null); setShowQuickProductForm(true); }}
                 onDuplicate={handleDuplicateProduct}
                 onBulkImport={() => setShowBulkImport(true)}
+                onImportFromFile={handleImportProductsFromFile}
+                categories={categories}
                 canDelete={user.permissions.canDeleteProducts}
               />
               {showProductForm && (
@@ -713,6 +791,9 @@ function MainApp() {
           )}
           {currentPage === 'reports' && user.permissions.canViewReports && (
              <Reports products={products} movements={movements} recipes={[]} suppliers={suppliers} priceHistory={priceHistory} />
+          )}
+          {currentPage === 'costs' && user.permissions.canViewReports && (
+             <CostDashboard />
           )}
           {currentPage === 'users' && user.permissions.canManageUsers && <UserManagement />}
         </main>

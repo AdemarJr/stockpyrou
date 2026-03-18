@@ -31,6 +31,37 @@ CREATE TABLE public.app_users (
   CONSTRAINT app_users_pkey PRIMARY KEY (id),
   CONSTRAINT app_users_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
 );
+CREATE TABLE public.budget_items (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  budget_id uuid NOT NULL,
+  cost_center_id uuid NOT NULL,
+  expense_type_id uuid,
+  allocated_amount numeric NOT NULL CHECK (allocated_amount >= 0::numeric),
+  spent_amount numeric DEFAULT 0 CHECK (spent_amount >= 0::numeric),
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT budget_items_pkey PRIMARY KEY (id),
+  CONSTRAINT budget_items_budget_id_fkey FOREIGN KEY (budget_id) REFERENCES public.budgets(id),
+  CONSTRAINT budget_items_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES public.cost_centers(id),
+  CONSTRAINT budget_items_expense_type_id_fkey FOREIGN KEY (expense_type_id) REFERENCES public.expense_types(id)
+);
+CREATE TABLE public.budgets (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  name text NOT NULL,
+  period_type text NOT NULL CHECK (period_type = ANY (ARRAY['monthly'::text, 'quarterly'::text, 'yearly'::text])),
+  start_date date NOT NULL,
+  end_date date NOT NULL,
+  total_budget numeric NOT NULL CHECK (total_budget >= 0::numeric),
+  status text DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'active'::text, 'closed'::text])),
+  notes text,
+  created_by text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT budgets_pkey PRIMARY KEY (id),
+  CONSTRAINT budgets_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
+);
 CREATE TABLE public.cash_movements (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   company_id uuid NOT NULL,
@@ -83,10 +114,84 @@ CREATE TABLE public.company_credentials (
   CONSTRAINT company_credentials_pkey PRIMARY KEY (id),
   CONSTRAINT company_credentials_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
 );
+CREATE TABLE public.cost_centers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  name text NOT NULL,
+  code text NOT NULL,
+  description text,
+  parent_id uuid,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT cost_centers_pkey PRIMARY KEY (id),
+  CONSTRAINT cost_centers_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT cost_centers_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.cost_centers(id)
+);
+CREATE TABLE public.cost_targets (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  target_type text NOT NULL CHECK (target_type = ANY (ARRAY['waste_reduction'::text, 'cost_per_product'::text, 'operational_limit'::text, 'profit_margin'::text])),
+  cost_center_id uuid,
+  product_id uuid,
+  target_value numeric NOT NULL,
+  current_value numeric DEFAULT 0,
+  period_type text NOT NULL CHECK (period_type = ANY (ARRAY['daily'::text, 'weekly'::text, 'monthly'::text, 'yearly'::text])),
+  start_date date NOT NULL,
+  end_date date,
+  alert_threshold numeric CHECK (alert_threshold >= 0::numeric AND alert_threshold <= 100::numeric),
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT cost_targets_pkey PRIMARY KEY (id),
+  CONSTRAINT cost_targets_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT cost_targets_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES public.cost_centers(id),
+  CONSTRAINT cost_targets_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
+);
+CREATE TABLE public.expense_types (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  name text NOT NULL,
+  category text NOT NULL CHECK (category = ANY (ARRAY['fixo'::text, 'variavel'::text, 'semi_variavel'::text])),
+  cost_center_id uuid NOT NULL,
+  is_recurring boolean DEFAULT false,
+  recurrence_day integer CHECK (recurrence_day >= 1 AND recurrence_day <= 31),
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT expense_types_pkey PRIMARY KEY (id),
+  CONSTRAINT expense_types_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT expense_types_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES public.cost_centers(id)
+);
 CREATE TABLE public.kv_store_8a20b27d (
   key text NOT NULL,
   value jsonb NOT NULL,
   CONSTRAINT kv_store_8a20b27d_pkey PRIMARY KEY (key)
+);
+CREATE TABLE public.operational_expenses (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL,
+  expense_type_id uuid NOT NULL,
+  cost_center_id uuid NOT NULL,
+  amount numeric NOT NULL CHECK (amount >= 0::numeric),
+  description text,
+  reference_number text,
+  due_date date,
+  payment_date date,
+  payment_status text DEFAULT 'pending'::text CHECK (payment_status = ANY (ARRAY['pending'::text, 'paid'::text, 'overdue'::text, 'cancelled'::text])),
+  payment_method text CHECK (payment_method = ANY (ARRAY['money'::text, 'pix'::text, 'credit'::text, 'debit'::text, 'bank_transfer'::text, 'boleto'::text])),
+  supplier_id uuid,
+  user_id text NOT NULL,
+  attachments jsonb,
+  tags ARRAY,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT operational_expenses_pkey PRIMARY KEY (id),
+  CONSTRAINT operational_expenses_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
+  CONSTRAINT operational_expenses_expense_type_id_fkey FOREIGN KEY (expense_type_id) REFERENCES public.expense_types(id),
+  CONSTRAINT operational_expenses_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES public.cost_centers(id),
+  CONSTRAINT operational_expenses_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id)
 );
 CREATE TABLE public.price_history (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -284,111 +389,4 @@ CREATE TABLE public.zig_processed_transactions (
   processed_at timestamp with time zone DEFAULT now(),
   CONSTRAINT zig_processed_transactions_pkey PRIMARY KEY (id),
   CONSTRAINT zig_processed_transactions_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id)
-);
-CREATE TABLE public.cost_centers (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  company_id uuid NOT NULL,
-  name text NOT NULL,
-  code text NOT NULL,
-  description text,
-  parent_id uuid,
-  is_active boolean DEFAULT true,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT cost_centers_pkey PRIMARY KEY (id),
-  CONSTRAINT cost_centers_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
-  CONSTRAINT cost_centers_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.cost_centers(id),
-  CONSTRAINT cost_centers_unique_code UNIQUE (company_id, code)
-);
-CREATE TABLE public.expense_types (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  company_id uuid NOT NULL,
-  name text NOT NULL,
-  category text NOT NULL CHECK (category = ANY (ARRAY['fixo'::text, 'variavel'::text, 'semi_variavel'::text])),
-  cost_center_id uuid NOT NULL,
-  is_recurring boolean DEFAULT false,
-  recurrence_day integer CHECK (recurrence_day >= 1 AND recurrence_day <= 31),
-  is_active boolean DEFAULT true,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT expense_types_pkey PRIMARY KEY (id),
-  CONSTRAINT expense_types_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
-  CONSTRAINT expense_types_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES public.cost_centers(id)
-);
-CREATE TABLE public.operational_expenses (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  company_id uuid NOT NULL,
-  expense_type_id uuid NOT NULL,
-  cost_center_id uuid NOT NULL,
-  amount numeric NOT NULL CHECK (amount >= 0),
-  description text,
-  reference_number text,
-  due_date date,
-  payment_date date,
-  payment_status text DEFAULT 'pending'::text CHECK (payment_status = ANY (ARRAY['pending'::text, 'paid'::text, 'overdue'::text, 'cancelled'::text])),
-  payment_method text CHECK (payment_method = ANY (ARRAY['money'::text, 'pix'::text, 'credit'::text, 'debit'::text, 'bank_transfer'::text, 'boleto'::text])),
-  supplier_id uuid,
-  user_id text NOT NULL,
-  attachments jsonb,
-  tags text[],
-  notes text,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT operational_expenses_pkey PRIMARY KEY (id),
-  CONSTRAINT operational_expenses_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
-  CONSTRAINT operational_expenses_expense_type_id_fkey FOREIGN KEY (expense_type_id) REFERENCES public.expense_types(id),
-  CONSTRAINT operational_expenses_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES public.cost_centers(id),
-  CONSTRAINT operational_expenses_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id)
-);
-CREATE TABLE public.budgets (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  company_id uuid NOT NULL,
-  name text NOT NULL,
-  period_type text NOT NULL CHECK (period_type = ANY (ARRAY['monthly'::text, 'quarterly'::text, 'yearly'::text])),
-  start_date date NOT NULL,
-  end_date date NOT NULL,
-  total_budget numeric NOT NULL CHECK (total_budget >= 0),
-  status text DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'active'::text, 'closed'::text])),
-  notes text,
-  created_by text NOT NULL,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT budgets_pkey PRIMARY KEY (id),
-  CONSTRAINT budgets_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
-  CONSTRAINT budgets_dates_check CHECK (end_date > start_date)
-);
-CREATE TABLE public.budget_items (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  budget_id uuid NOT NULL,
-  cost_center_id uuid NOT NULL,
-  expense_type_id uuid,
-  allocated_amount numeric NOT NULL CHECK (allocated_amount >= 0),
-  spent_amount numeric DEFAULT 0 CHECK (spent_amount >= 0),
-  notes text,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT budget_items_pkey PRIMARY KEY (id),
-  CONSTRAINT budget_items_budget_id_fkey FOREIGN KEY (budget_id) REFERENCES public.budgets(id),
-  CONSTRAINT budget_items_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES public.cost_centers(id),
-  CONSTRAINT budget_items_expense_type_id_fkey FOREIGN KEY (expense_type_id) REFERENCES public.expense_types(id)
-);
-CREATE TABLE public.cost_targets (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  company_id uuid NOT NULL,
-  target_type text NOT NULL CHECK (target_type = ANY (ARRAY['waste_reduction'::text, 'cost_per_product'::text, 'operational_limit'::text, 'profit_margin'::text])),
-  cost_center_id uuid,
-  product_id uuid,
-  target_value numeric NOT NULL,
-  current_value numeric DEFAULT 0,
-  period_type text NOT NULL CHECK (period_type = ANY (ARRAY['daily'::text, 'weekly'::text, 'monthly'::text, 'yearly'::text])),
-  start_date date NOT NULL,
-  end_date date,
-  alert_threshold numeric CHECK (alert_threshold >= 0 AND alert_threshold <= 100),
-  is_active boolean DEFAULT true,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT cost_targets_pkey PRIMARY KEY (id),
-  CONSTRAINT cost_targets_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.companies(id),
-  CONSTRAINT cost_targets_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES public.cost_centers(id),
-  CONSTRAINT cost_targets_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
 );

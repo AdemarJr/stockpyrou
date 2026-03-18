@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Package, Calendar, FileText, AlertCircle, Trash2, Edit2, Camera, X, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Plus, Package, Calendar, FileText, AlertCircle, Trash2, Edit2, Camera, X, RefreshCw, AlertTriangle, Upload } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { toast } from 'sonner@2.0.3';
 import type { Product, Supplier, StockEntry } from '../../types';
 import { formatCurrency, formatDateTime, calculateWeightedAverageCost } from '../../utils/calculations';
+import { StockEntryImport } from './StockEntryImport';
 
 interface StockEntryFormProps {
   products: Product[];
@@ -35,6 +36,7 @@ export function StockEntryForm({
   const [isScanning, setIsScanning] = useState(false);
   const [isLoadingCamera, setIsLoadingCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(() => {
@@ -152,6 +154,36 @@ export function StockEntryForm({
       toast.error(`Produto com código ${barcode} não cadastrado.`);
     }
   };
+
+  const handleImportItems = (rows: any[]) => {
+    // For each valid row, submit an entry
+    rows.forEach((row) => {
+      if (row.matchedProduct) {
+        const totalPrice = row.quantity * row.unitPrice;
+        const newAvgCost = calculateWeightedAverageCost(
+          row.matchedProduct.currentStock,
+          row.matchedProduct.averageCost,
+          row.quantity,
+          row.unitPrice
+        );
+
+        const entry: Omit<StockEntry, 'id' | 'entryDate' | 'userId'> = {
+          productId: row.matchedProduct.id,
+          supplierId: formData.supplierId, // Use the selected supplier from form
+          quantity: row.quantity,
+          unitPrice: row.unitPrice,
+          totalPrice,
+          batchNumber: row.batchNumber || undefined,
+          expirationDate: row.expirationDate ? new Date(row.expirationDate) : undefined,
+          notes: `Importado via CSV - Linha ${row.line}`,
+        };
+
+        onSubmit(entry, newAvgCost);
+      }
+    });
+
+    toast.success(`${rows.length} itens importados com sucesso!`);
+  };
   
   const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -232,33 +264,44 @@ export function StockEntryForm({
     <div className="space-y-6">
       {/* Header */}
       {!isEditing && (
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold text-gray-800">Recebimento de Estoque</h2>
-            <p className="text-gray-600 mt-1">
-              Registre a entrada de novos produtos no estoque
-            </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-800">Recebimento de Estoque</h2>
+              <p className="text-gray-600 mt-1">
+                Registre a entrada de novos produtos no estoque
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setImportDialogOpen(true)}
+                className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-md bg-green-600 text-white hover:bg-green-700"
+              >
+                <Upload className="w-5 h-5" /> Importar NF-e
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isScanning) {
+                    stopScanner();
+                  } else {
+                    setCameraError(null);
+                    setIsScanning(true);
+                  }
+                }}
+                className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-md ${
+                  isScanning ? 'bg-red-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                {isScanning ? (
+                  <><X className="w-5 h-5" /> Cancelar Scanner</>
+                ) : (
+                  <><Camera className="w-5 h-5" /> Escanear Código</>
+                )}
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (isScanning) {
-                stopScanner();
-              } else {
-                setCameraError(null);
-                setIsScanning(true);
-              }
-            }}
-            className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-md ${
-              isScanning ? 'bg-red-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
-          >
-            {isScanning ? (
-              <><X className="w-5 h-5" /> Cancelar Scanner</>
-            ) : (
-              <><Camera className="w-5 h-5" /> Escanear Código</>
-            )}
-          </button>
         </div>
       )}
 
@@ -476,6 +519,16 @@ export function StockEntryForm({
           </div>
         </form>
       </div>
+
+      {/* Import Dialog */}
+      <StockEntryImport
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        products={products}
+        suppliers={suppliers}
+        selectedSupplier={formData.supplierId}
+        onImport={handleImportItems}
+      />
     </div>
   );
 }
