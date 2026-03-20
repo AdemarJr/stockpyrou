@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { RefreshCw, Store, Check, AlertCircle, Settings, Network, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
@@ -39,6 +39,29 @@ interface PendingSale {
   isAddition?: boolean;
 }
 
+type RecipeIngredientTotal = {
+  productId: string;
+  productName: string;
+  unit: string;
+  quantityNeeded: number;
+};
+
+interface PendingSaleGroup {
+  groupKey: string;
+  saleDate: string;
+  productSku: string;
+  productName: string;
+  quantity: number;
+  totalValue: number;
+  systemProduct: PendingSale['systemProduct'];
+  notFound: boolean;
+  matchType: PendingSale['matchType'];
+  transactionIds: string[];
+  hasRecipe: boolean;
+  recipeIngredients: RecipeIngredientTotal[];
+  hasAddition: boolean;
+}
+
 export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void }) {
   const { currentCompany } = useCompany();
   
@@ -62,6 +85,107 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
   const [confirming, setConfirming] = useState(false);
   const [selectedSales, setSelectedSales] = useState<string[]>([]);
   const [expandedDates, setExpandedDates] = useState<string[]>([]);
+
+  const groupedSalesByDate = useMemo(() => {
+    const result: Record<string, PendingSaleGroup[]> = {};
+
+    for (const [date, dateSales] of Object.entries(salesByDate)) {
+      const groupMap = new Map<
+        string,
+        {
+          groupKey: string;
+          saleDate: string;
+          productSku: string;
+          productName: string;
+          quantity: number;
+          totalValue: number;
+          systemProduct: PendingSale['systemProduct'];
+          notFound: boolean;
+          matchType: PendingSale['matchType'];
+          transactionIds: string[];
+          ingredientTotals: Map<string, RecipeIngredientTotal>;
+          hasRecipe: boolean;
+          hasAddition: boolean;
+        }
+      >();
+
+      for (const sale of dateSales) {
+        const sku = sale.productSku;
+        if (!sku) continue;
+
+        // Agrupa por produto (SKU) dentro do mesmo dia
+        const groupKey = `${date}|${sku}`;
+
+        if (!groupMap.has(groupKey)) {
+          groupMap.set(groupKey, {
+            groupKey,
+            saleDate: date,
+            productSku: sku,
+            productName: sale.productName,
+            quantity: 0,
+            totalValue: 0,
+            systemProduct: sale.systemProduct,
+            notFound: !!sale.notFound,
+            matchType: sale.matchType,
+            transactionIds: [],
+            ingredientTotals: new Map(),
+            hasRecipe: !!sale.hasRecipe,
+            hasAddition: !!sale.isAddition,
+          });
+        }
+
+        const g = groupMap.get(groupKey)!;
+        g.quantity += sale.quantity || 0;
+        g.totalValue += sale.totalValue || 0;
+        g.transactionIds.push(sale.transactionId);
+        g.notFound = g.notFound && !!sale.notFound;
+        g.hasRecipe = g.hasRecipe || !!sale.hasRecipe;
+        g.hasAddition = g.hasAddition || !!sale.isAddition;
+
+        // Se algum item do grupo tiver match com o produto do sistema, preserva
+        if (!g.systemProduct && sale.systemProduct) {
+          g.systemProduct = sale.systemProduct;
+        }
+
+        // Mantém o melhor tipo de match disponível
+        if (g.matchType === 'none' && sale.matchType !== 'none') {
+          g.matchType = sale.matchType;
+        }
+
+        // Receita precisa ser somada com base na quantidade total do lote
+        if (sale.recipe?.ingredients?.length) {
+          for (const ing of sale.recipe.ingredients) {
+            const prev = g.ingredientTotals.get(ing.productId);
+            const nextQty = (prev?.quantityNeeded || 0) + (ing.quantityNeeded || 0);
+            g.ingredientTotals.set(ing.productId, {
+              productId: ing.productId,
+              productName: ing.productName,
+              unit: ing.unit,
+              quantityNeeded: nextQty,
+            });
+          }
+        }
+      }
+
+      result[date] = Array.from(groupMap.values()).map(g => ({
+        groupKey: g.groupKey,
+        saleDate: g.saleDate,
+        productSku: g.productSku,
+        productName: g.productName,
+        quantity: g.quantity,
+        totalValue: g.totalValue,
+        systemProduct: g.systemProduct,
+        notFound: g.notFound,
+        matchType: g.matchType,
+        transactionIds: Array.from(new Set(g.transactionIds)),
+        hasRecipe: g.hasRecipe,
+        recipeIngredients: Array.from(g.ingredientTotals.values()),
+        hasAddition: g.hasAddition,
+      }));
+    }
+
+    return result;
+  }, [salesByDate]);
 
   const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 
@@ -322,24 +446,27 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
     }
   };
 
-  const toggleSaleSelection = (transactionId: string) => {
-    setSelectedSales(prev => 
-      prev.includes(transactionId) 
-        ? prev.filter(id => id !== transactionId)
-        : [...prev, transactionId]
-    );
+  const toggleGroupSelection = (group: PendingSaleGroup) => {
+    setSelectedSales(prev => {
+      const allSelected = group.transactionIds.every(id => prev.includes(id));
+      if (allSelected) {
+        return prev.filter(id => !group.transactionIds.includes(id));
+      }
+      return [...new Set([...prev, ...group.transactionIds])];
+    });
   };
 
   const toggleDateSelection = (date: string) => {
-    const dateSales = salesByDate[date] || [];
-    const validDateSales = dateSales.filter(s => !s.notFound).map(s => s.transactionId);
-    
-    const allSelected = validDateSales.every(id => selectedSales.includes(id));
-    
+    const dateGroups = groupedSalesByDate[date] || [];
+    const dateTransactionIds = dateGroups.flatMap(g => g.transactionIds);
+    if (dateTransactionIds.length === 0) return;
+
+    const allSelected = dateTransactionIds.every(id => selectedSales.includes(id));
+
     if (allSelected) {
-      setSelectedSales(prev => prev.filter(id => !validDateSales.includes(id)));
+      setSelectedSales(prev => prev.filter(id => !dateTransactionIds.includes(id)));
     } else {
-      setSelectedSales(prev => [...new Set([...prev, ...validDateSales])]);
+      setSelectedSales(prev => [...new Set([...prev, ...dateTransactionIds])]);
     }
   };
 
@@ -361,15 +488,17 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
     });
   };
 
-  const getTotalSales = () => {
-    return Object.values(salesByDate).flat().length;
-  };
+  const allGroups = Object.values(groupedSalesByDate).flat();
+  const totalGroups = allGroups.length;
+  const selectedGroupCount = allGroups.filter(g =>
+    g.transactionIds.every(id => selectedSales.includes(id))
+  ).length;
 
   const getDateSummary = (date: string) => {
-    const dateSales = salesByDate[date] || [];
-    const validCount = dateSales.filter(s => !s.notFound).length;
-    const notFoundCount = dateSales.filter(s => s.notFound).length;
-    const totalValue = dateSales.reduce((sum, s) => sum + (s.totalValue || 0), 0);
+    const dateGroups = groupedSalesByDate[date] || [];
+    const validCount = dateGroups.filter(g => !g.notFound).length;
+    const notFoundCount = dateGroups.filter(g => g.notFound).length;
+    const totalValue = dateGroups.reduce((sum, g) => sum + (g.totalValue || 0), 0);
     
     return { validCount, notFoundCount, totalValue };
   };
@@ -462,7 +591,7 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
                   <option value="">{stores.length === 0 ? 'Busque as lojas primeiro' : 'Selecione uma loja...'}</option>
                   {stores.map(store => (
                     <option key={store.id} value={store.id}>{store.name}</option>
-                  ))}</ select>
+                  ))}</select>
                 <button
                   onClick={handleSaveConfig}
                   disabled={loading || !selectedStore}
@@ -593,7 +722,7 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
                   Vendas Pendentes - Agrupadas por Dia
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
-                  {getTotalSales()} vendas em {Object.keys(salesByDate).length} dias • {selectedSales.length} selecionadas
+                  {totalGroups} produtos em {Object.keys(groupedSalesByDate).length} dias • {selectedGroupCount} selecionados
                 </p>
               </div>
               <button 
@@ -606,12 +735,13 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
             
             <div className="p-6 overflow-y-auto flex-1">
               <div className="space-y-4">
-                {Object.keys(salesByDate).sort((a, b) => b.localeCompare(a)).map((date) => {
-                  const dateSales = salesByDate[date];
+                {Object.keys(groupedSalesByDate).sort((a, b) => b.localeCompare(a)).map((date) => {
+                  const dateGroups = groupedSalesByDate[date] || [];
                   const { validCount, notFoundCount, totalValue } = getDateSummary(date);
                   const isExpanded = expandedDates.includes(date);
-                  const dateSalesIds = dateSales.filter(s => !s.notFound).map(s => s.transactionId);
-                  const allSelected = dateSalesIds.every(id => selectedSales.includes(id));
+                  const dateTransactionIds = dateGroups.flatMap(g => g.transactionIds);
+                  const allSelected = dateTransactionIds.length > 0 && dateTransactionIds.every(id => selectedSales.includes(id));
+                  const hasAny = dateTransactionIds.length > 0;
                   
                   return (
                     <div key={date} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
@@ -620,14 +750,14 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
                         <div className="flex items-center gap-3 flex-1">
                           <input
                             type="checkbox"
-                            checked={allSelected && dateSalesIds.length > 0}
+                            checked={allSelected}
                             onChange={(e) => {
                               e.stopPropagation();
                               toggleDateSelection(date);
                             }}
                             onClick={(e) => e.stopPropagation()}
                             className="w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
-                            disabled={validCount === 0}
+                            disabled={!hasAny}
                           />
                           
                           <div className="flex-1">
@@ -636,7 +766,7 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
                             </h4>
                             <div className="flex items-center gap-3 mt-1">
                               <span className="text-xs text-gray-600">
-                                {validCount} vendas válidas
+                                {validCount} produtos válidos
                               </span>
                               {notFoundCount > 0 && (
                                 <span className="text-xs text-amber-600">
@@ -661,83 +791,84 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
                       
                       {isExpanded && (
                         <div className="p-4 space-y-3 bg-gray-50">
-                          {dateSales.map((sale) => (
+                          {dateGroups.map((group) => {
+                            const isSelected = group.transactionIds.every(id => selectedSales.includes(id));
+                            return (
                             <div 
-                              key={sale.transactionId}
+                              key={group.groupKey}
                               className={`border rounded-lg p-3 transition-all ${
-                                sale.notFound 
-                                  ? 'bg-amber-50 border-amber-200' 
-                                  : selectedSales.includes(sale.transactionId)
+                                group.notFound
+                                  ? 'bg-amber-50 border-amber-200'
+                                  : isSelected
                                     ? 'bg-indigo-50 border-indigo-300 shadow-sm'
                                     : 'bg-white border-gray-200 hover:border-gray-300'
                               }`}
                             >
                               <div className="flex items-start gap-3">
-                                {!sale.notFound && (
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedSales.includes(sale.transactionId)}
-                                    onChange={() => toggleSaleSelection(sale.transactionId)}
-                                    className="mt-1 w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
-                                  />
-                                )}
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleGroupSelection(group)}
+                                  className="mt-1 w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                                />
                                 
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-start justify-between mb-2">
                                     <div className="flex-1">
                                       <h5 className="font-bold text-gray-900 text-sm flex items-center gap-2 flex-wrap">
                                         <Package className="w-4 h-4 text-gray-400" />
-                                        {sale.productName}
-                                        {sale.matchType === 'name' && (
+                                        {group.productName}
+                                        {group.matchType === 'name' && (
                                           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Match por Nome</span>
                                         )}
-                                        {sale.isAddition && (
+                                        {group.hasAddition && (
                                           <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">Adicional</span>
                                         )}
                                       </h5>
                                       <p className="text-xs text-gray-500 mt-0.5">
-                                        SKU: {sale.productSku} • {new Date(sale.transactionDate).toLocaleTimeString('pt-BR')}
+                                        SKU: {group.productSku}
                                       </p>
                                     </div>
                                     
                                     <div className="text-right ml-2">
                                       <div className="text-sm font-bold text-gray-900">
-                                        {sale.quantity} {sale.systemProduct?.unit || 'un'}
+                                        {group.quantity} {group.systemProduct?.unit || 'un'}
                                       </div>
-                                      {sale.totalValue > 0 && (
+                                      {group.totalValue > 0 && (
                                         <div className="text-xs text-gray-500">
-                                          R$ {sale.totalValue.toFixed(2)}
+                                          R$ {group.totalValue.toFixed(2)}
                                         </div>
                                       )}
                                     </div>
                                   </div>
 
-                                  {sale.notFound ? (
+                                  {group.notFound ? (
                                     <div className="bg-amber-100 border border-amber-200 rounded-lg p-2 flex items-center gap-2">
                                       <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                                       <p className="text-xs text-amber-800">
-                                        Produto não encontrado. Cadastre com SKU <strong>{sale.productSku}</strong>
+                                        Produto não encontrado. Ao processar, o sistema cadastra automaticamente e dá baixa.
+                                        SKU <strong>{group.productSku}</strong>
                                       </p>
                                     </div>
-                                  ) : sale.systemProduct && (
+                                  ) : group.systemProduct && (
                                     <div className="bg-white rounded-lg p-2 space-y-1 border border-gray-100">
                                       <div className="flex items-center justify-between text-xs">
                                         <span className="text-gray-600">Sistema:</span>
-                                        <span className="font-medium text-gray-900">{sale.systemProduct.name}</span>
+                                        <span className="font-medium text-gray-900">{group.systemProduct.name}</span>
                                       </div>
                                       <div className="flex items-center justify-between text-xs">
                                         <span className="text-gray-600">Estoque:</span>
-                                        <span className={`font-bold ${sale.systemProduct.currentStock < sale.quantity ? 'text-red-600' : 'text-green-600'}`}>
-                                          {sale.systemProduct.currentStock} {sale.systemProduct.unit}
+                                        <span className={`font-bold ${group.systemProduct.currentStock < group.quantity ? 'text-red-600' : 'text-green-600'}`}>
+                                          {group.systemProduct.currentStock} {group.systemProduct.unit}
                                         </span>
                                       </div>
                                       
-                                      {sale.hasRecipe && sale.recipe && (
+                                      {group.hasRecipe && group.recipeIngredients.length > 0 && (
                                         <div className="mt-2 pt-2 border-t border-gray-200">
                                           <p className="text-xs font-semibold text-purple-700 mb-1">📋 Receita:</p>
                                           <div className="space-y-1">
-                                            {sale.recipe.ingredients.map((ing, idx) => (
-                                              <div key={`${sale.transactionId}-ing-${idx}`} className="flex items-center justify-between text-xs bg-purple-50 p-1.5 rounded">
+                                            {group.recipeIngredients.map((ing, idx) => (
+                                              <div key={`${group.groupKey}-ing-${idx}`} className="flex items-center justify-between text-xs bg-purple-50 p-1.5 rounded">
                                                 <span className="text-gray-700">{ing.productName}</span>
                                                 <span className="font-medium text-purple-700">
                                                   -{ing.quantityNeeded} {ing.unit}
@@ -752,7 +883,8 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
                                 </div>
                               </div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -771,7 +903,7 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
               </button>
               <button
                 onClick={handleConfirmSales}
-                disabled={confirming || selectedSales.length === 0}
+                disabled={confirming || selectedGroupCount === 0}
                 className="flex-1 px-4 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {confirming ? (
@@ -782,7 +914,7 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
                 ) : (
                   <>
                     <CheckCircle2 className="w-5 h-5" />
-                    Processar Baixa em Lote ({selectedSales.length})
+                    Processar Baixa em Lote ({selectedGroupCount})
                   </>
                 )}
               </button>

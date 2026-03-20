@@ -265,7 +265,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
             id: product.id,
             name: product.name,
             currentStock: product.current_stock,
-            unit: product.measurement_unit
+            unit: product.unit
           },
           hasRecipe: !!recipe,
           matchType: productMappings[sale.productSku] ? 'manual' : 
@@ -336,7 +336,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
                 id: addProduct.id,
                 name: addProduct.name,
                 currentStock: addProduct.current_stock,
-                unit: addProduct.measurement_unit
+                unit: addProduct.unit
               },
               hasRecipe: false,
               recipe: null,
@@ -392,7 +392,7 @@ export const confirmSales = async (companyId: string, transactionIds: string[]) 
 
   let url = `${ZIG_API_URL}/erp/saida-produtos?dtinicio=${startStr}&dtfim=${endStr}&loja=${config.storeId}`;
   
-  console.log(`ZIG: Confirmando e processando ${transactionIds.length} vendas`);
+  console.log(`ZIG: Confirmando e processando ${transactionIds.length} transações (selecionadas)`);
 
   try {
     const res = await fetch(url, { 
@@ -409,14 +409,6 @@ export const confirmSales = async (companyId: string, transactionIds: string[]) 
     if (!Array.isArray(sales)) {
       throw new Error("Formato de resposta inválido da API ZIG.");
     }
-
-    // Filtrar apenas as vendas que foram confirmadas
-    const salesToProcess = sales.filter(sale => 
-      transactionIds.includes(sale.transactionId) ||
-      (sale.additions && sale.additions.some(add => 
-        transactionIds.includes(`${sale.transactionId}-add-${add.productSku}`)
-      ))
-    );
 
     const { data: products } = await supabase
       .from('products')
@@ -438,42 +430,169 @@ export const confirmSales = async (companyId: string, transactionIds: string[]) 
     } catch (e) {
       console.log("Recipes table might not exist, ignoring recipes.");
     }
-
-    let processedCount = 0;
     const processedKeyPrefix = `zig_processed:${companyId}:`;
 
-    for (const sale of salesToProcess) {
-      if (!sale.productSku) continue;
-      
-      const product = products.find(p => p.barcode === sale.productSku || (p.sku && p.sku === sale.productSku));
-      
-      if (product && transactionIds.includes(sale.transactionId)) {
-        await processStockDeduction(companyId, product, sale.count, recipesData, sale.transactionId);
-        await kv.set(`${processedKeyPrefix}${sale.transactionId}`, true);
-        processedCount++;
+    // Agrupa por SKU para baixar o estoque "uma vez por produto".
+    type DeductionGroup = {
+      productSku: string;
+      productName: string;
+      totalQty: number;
+      transactionIds: string[];
+    };
+
+    const selectedSet = new Set(transactionIds);
+    const groups = new Map<string, DeductionGroup>();
+
+    const addToGroup = (productSku: string, productName: string, qty: number, transactionId: string) => {
+      if (!productSku) return;
+      const prev = groups.get(productSku);
+      if (!prev) {
+        groups.set(productSku, {
+          productSku,
+          productName,
+          totalQty: qty || 0,
+          transactionIds: [transactionId],
+        });
+        return;
       }
-      
+
+      prev.totalQty += qty || 0;
+      if (!prev.productName && productName) prev.productName = productName;
+      prev.transactionIds.push(transactionId);
+    };
+
+    for (const sale of sales) {
+      if (sale.productSku && selectedSet.has(sale.transactionId)) {
+        addToGroup(
+          sale.productSku,
+          sale.productName,
+          sale.count,
+          sale.transactionId
+        );
+      }
+
       if (sale.additions && sale.additions.length > 0) {
         for (const addition of sale.additions) {
           if (!addition.productSku) continue;
-          
           const additionId = `${sale.transactionId}-add-${addition.productSku}`;
-          if (!transactionIds.includes(additionId)) continue;
-          
-          const addProduct = products.find(p => p.barcode === addition.productSku || (p.sku && p.sku === addition.productSku));
-          if (addProduct) {
-            await processStockDeduction(companyId, addProduct, addition.count, recipesData, additionId);
-            await kv.set(`${processedKeyPrefix}${additionId}`, true);
-          }
+          if (!selectedSet.has(additionId)) continue;
+
+          addToGroup(
+            addition.productSku,
+            `${sale.productName} (Adicional)`,
+            addition.count,
+            additionId
+          );
         }
       }
+    }
+
+    if (groups.size === 0) {
+      return { processed: 0, createdProducts: 0, message: "Nenhuma transação selecionada para processar." };
+    }
+
+    // Compartilha a lógica de match (manual/SKU/nome) para localizar ou criar produto.
+    const productMappings = await kv.get(`zig_product_mappings:${companyId}`) || {};
+
+    const normalizeName = (name: string) =>
+      name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+
+    const findProduct = (sku: string, zigName?: string) => {
+      // 1. Mapeamento manual (SKU -> productId)
+      if (productMappings && productMappings[sku]) {
+        return products.find((p: any) => p.id === productMappings[sku]);
+      }
+
+      // 2. Barcode/SKU exato
+      let product = products.find((p: any) =>
+        p.barcode === sku || (p.sku && p.sku === sku)
+      );
+
+      if (product) return product;
+
+      // 3. Match por nome similar (opcional)
+      if (!zigName) return null;
+      const zigNameNorm = normalizeName(zigName);
+      product = products.find((p: any) => {
+        const productNameNorm = normalizeName(p.name || '');
+        return (
+          productNameNorm === zigNameNorm ||
+          productNameNorm.includes(zigNameNorm) ||
+          zigNameNorm.includes(productNameNorm)
+        );
+      });
+
+      return product || null;
+    };
+
+    const createdBySku = new Map<string, any>();
+    let processedGroups = 0;
+    let createdProducts = 0;
+
+    const ensureProduct = async (productSku: string, productName: string, initialQty: number) => {
+      const alreadyCreated = createdBySku.get(productSku);
+      if (alreadyCreated) return alreadyCreated;
+
+      const existing = findProduct(productSku, productName);
+      if (existing) return existing;
+
+      // Auto-cadastro com defaults (para a baixa funcionar)
+      const { data: created, error: createError } = await supabase
+        .from('products')
+        .insert({
+          company_id: companyId,
+          name: productName || productSku,
+          category: 'outro',
+          unit: 'un', // padrão seguro do sistema
+          min_stock: 0,
+          current_stock: initialQty || 0, // evita estoque negativo após a primeira baixa
+          cost_price: 0,
+          sale_price: 0,
+          supplier_id: null,
+          barcode: productSku,
+          description: null,
+          image_url: null,
+          status: 'active',
+          safety_stock: 0,
+        })
+        .select()
+        .single();
+
+      if (createError || !created) {
+        throw new Error(createError?.message || "Erro ao criar produto no sistema.");
+      }
+
+      createdProducts++;
+      products.push(created);
+      createdBySku.set(productSku, created);
+      return created;
+    };
+
+    for (const group of groups.values()) {
+      const ref = group.transactionIds.slice(0, 5).join(', ');
+      const reason = `Venda ZIG (Lote) - Ref: ${ref}${group.transactionIds.length > 5 ? '...' : ''}`;
+
+      const product = await ensureProduct(group.productSku, group.productName, group.totalQty);
+      await processStockDeduction(companyId, product, group.totalQty, recipesData, reason);
+
+      // Marca cada transação id como processada (para não duplicar)
+      for (const id of Array.from(new Set(group.transactionIds))) {
+        await kv.set(`${processedKeyPrefix}${id}`, true);
+      }
+
+      processedGroups++;
     }
 
     await kv.set(lastSyncKey, endDate.toISOString());
 
     return { 
-      processed: processedCount,
-      message: `${processedCount} vendas processadas com sucesso.` 
+      processed: processedGroups,
+      createdProducts,
+      message: `${processedGroups} produtos baixados em lote com sucesso${createdProducts > 0 ? ` (produtos criados: ${createdProducts})` : ''}.`
     };
   } catch (error: any) {
     console.error("ZIG: Erro ao confirmar vendas:", error);
