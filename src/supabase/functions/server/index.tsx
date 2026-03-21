@@ -272,12 +272,12 @@ app.post("/make-server-8a20b27d/zig/preview", async (c) => {
 // Zig Confirm Sales (Processa vendas confirmadas)
 app.post("/make-server-8a20b27d/zig/confirm", async (c) => {
   try {
-    const { companyId, transactionIds } = await c.req.json();
+    const { companyId, transactionIds, startDate, endDate } = await c.req.json();
     if (!companyId || !transactionIds) {
       return c.json({ error: "Missing companyId or transactionIds" }, 400);
     }
     
-    const result = await zig.confirmSales(companyId, transactionIds);
+    const result = await zig.confirmSales(companyId, transactionIds, startDate, endDate);
     return c.json(result);
   } catch (error: any) {
     console.error("Zig Confirm Error:", error);

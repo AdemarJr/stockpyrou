@@ -39,6 +39,83 @@ const getHeaders = (token: string) => {
   };
 };
 
+/** A API ZIG limita a **5 dias por chamada** (dias corridos inclusivos entre dtinicio e dtfim). */
+const ZIG_MAX_DAYS_PER_REQUEST = 5;
+
+function parseDateOnly(iso: string): Date {
+  const part = iso.trim().split("T")[0];
+  const [y, m, d] = part.split("-").map((x) => parseInt(x, 10));
+  if (!y || !m || !d) return new Date(iso);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function formatDateOnly(d: Date): string {
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+function* zigInclusiveDateChunks(
+  start: Date,
+  end: Date,
+): Generator<{ dtinicio: string; dtfim: string }> {
+  let cur = new Date(start.getTime());
+  const endT = end.getTime();
+  while (cur.getTime() <= endT) {
+    const chunkEnd = new Date(cur.getTime());
+    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + (ZIG_MAX_DAYS_PER_REQUEST - 1));
+    if (chunkEnd.getTime() > endT) {
+      chunkEnd.setTime(endT);
+    }
+    yield { dtinicio: formatDateOnly(cur), dtfim: formatDateOnly(chunkEnd) };
+    cur.setUTCDate(chunkEnd.getUTCDate() + 1);
+  }
+}
+
+/**
+ * Busca saída de produtos em um intervalo qualquer, fazendo várias chamadas de até 5 dias
+ * e mesclando os resultados (dedupe por transactionId).
+ */
+async function fetchZigSaidaProdutosRange(
+  token: string,
+  storeId: string,
+  startIso: string,
+  endIso: string,
+): Promise<ZigSale[]> {
+  const start = parseDateOnly(startIso);
+  const end = parseDateOnly(endIso);
+  if (start.getTime() > end.getTime()) {
+    return [];
+  }
+
+  const merged = new Map<string, ZigSale>();
+
+  for (const { dtinicio, dtfim } of zigInclusiveDateChunks(start, end)) {
+    const url =
+      `${ZIG_API_URL}/erp/saida-produtos?dtinicio=${dtinicio}&dtfim=${dtfim}&loja=${storeId}`;
+    console.log(`ZIG: sainda-produtos ${dtinicio} → ${dtfim} (loja ${storeId})`);
+
+    const res = await fetch(url, { headers: getHeaders(token) });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Falha ao buscar vendas ZIG (${res.status}): ${txt}`);
+    }
+
+    const chunk: ZigSale[] = await res.json();
+    if (!Array.isArray(chunk)) continue;
+
+    for (const sale of chunk) {
+      if (sale?.transactionId && !merged.has(sale.transactionId)) {
+        merged.set(sale.transactionId, sale);
+      }
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
 export const getStores = async (redeId?: string): Promise<ZigStore[]> => {
   const token = Deno.env.get("ZIG_API_KEY") || FALLBACK_TOKEN;
   
@@ -125,44 +202,36 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
     throw new Error("Integração ZIG não configurada. Selecione uma loja nas configurações.");
   }
 
-  // Se não fornecido, busca últimos 5 dias (respeitando limite da API)
+  // Intervalo: períodos longos são buscados em várias chamadas (máx. 5 dias cada — regra ZIG).
   let apiStartDate: Date;
   let apiEndDate: Date;
-  
+
   if (startDate && endDate) {
-    apiStartDate = new Date(startDate);
-    apiEndDate = new Date(endDate);
+    apiStartDate = parseDateOnly(startDate);
+    apiEndDate = parseDateOnly(endDate);
   } else {
-    apiEndDate = new Date();
-    apiStartDate = new Date();
-    apiStartDate.setDate(apiStartDate.getDate() - 5);
+    const now = new Date();
+    apiEndDate = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    apiStartDate = new Date(apiEndDate);
+    apiStartDate.setUTCDate(apiStartDate.getUTCDate() - 4); // 5 dias inclusivos até hoje
   }
 
-  // Validar limite de 5 dias da API ZIG
-  const daysDiff = Math.ceil((apiEndDate.getTime() - apiStartDate.getTime()) / (1000 * 60 * 60 * 24));
-  
-  if (daysDiff > 5) {
-    throw new Error(`A API ZIG permite buscar no máximo 5 dias por vez. Você selecionou ${daysDiff} dias. Por favor, selecione um período menor.`);
-  }
+  const startStr = formatDateOnly(apiStartDate);
+  const endStr = formatDateOnly(apiEndDate);
 
-  const startStr = apiStartDate.toISOString().split('T')[0];
-  const endStr = apiEndDate.toISOString().split('T')[0];
-
-  let url = `${ZIG_API_URL}/erp/saida-produtos?dtinicio=${startStr}&dtfim=${endStr}&loja=${config.storeId}`;
-  
-  console.log(`ZIG: Buscando vendas pendentes da loja ${config.storeId} (${startStr} a ${endStr})`);
+  console.log(
+    `ZIG: Buscando vendas pendentes da loja ${config.storeId} (${startStr} a ${endStr}, com chunks de ${ZIG_MAX_DAYS_PER_REQUEST} dias)`,
+  );
 
   try {
-    const res = await fetch(url, { 
-      headers: getHeaders(token)
-    });
-
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Falha ao buscar vendas ZIG (${res.status}): ${txt}`);
-    }
-
-    const sales: ZigSale[] = await res.json();
+    const sales: ZigSale[] = await fetchZigSaidaProdutosRange(
+      token,
+      config.storeId,
+      startStr,
+      endStr,
+    );
     
     if (!Array.isArray(sales)) {
       return { sales: [], salesByDate: {}, totalSales: 0, totalValue: 0 };
@@ -365,7 +434,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
 };
 
 // Confirm and Process Sales (Dar baixa efetivamente)
-export const confirmSales = async (companyId: string, transactionIds: string[]) => {
+export const confirmSales = async (companyId: string, transactionIds: string[], startDate?: string, endDate?: string) => {
   const token = Deno.env.get("ZIG_API_KEY") || FALLBACK_TOKEN;
 
   const config = await kv.get(`zig_config:${companyId}`);
@@ -373,38 +442,35 @@ export const confirmSales = async (companyId: string, transactionIds: string[]) 
     throw new Error("Integração ZIG não configurada.");
   }
 
-  const lastSyncKey = `zig_last_sync:${companyId}`;
-  const lastSyncVal = await kv.get(lastSyncKey);
-  
-  let startDate = new Date();
-  startDate.setHours(startDate.getHours() - 24); 
-  
-  if (lastSyncVal) {
-    startDate = new Date(lastSyncVal);
+  let apiStartDate: Date;
+  let apiEndDate: Date;
+
+  if (startDate && endDate) {
+    apiStartDate = parseDateOnly(startDate);
+    apiEndDate = parseDateOnly(endDate);
+  } else {
+    const now = new Date();
+    apiEndDate = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    apiStartDate = new Date(apiEndDate);
+    apiStartDate.setUTCDate(apiStartDate.getUTCDate() - 1);
   }
-  
-  const apiStartDate = new Date(startDate);
-  apiStartDate.setDate(apiStartDate.getDate() - 1);
 
-  const endDate = new Date();
-  const startStr = apiStartDate.toISOString().split('T')[0];
-  const endStr = endDate.toISOString().split('T')[0];
+  const startStr = formatDateOnly(apiStartDate);
+  const endStr = formatDateOnly(apiEndDate);
 
-  let url = `${ZIG_API_URL}/erp/saida-produtos?dtinicio=${startStr}&dtfim=${endStr}&loja=${config.storeId}`;
-  
-  console.log(`ZIG: Confirmando e processando ${transactionIds.length} transações (selecionadas)`);
+  console.log(
+    `ZIG: Confirmando e processando ${transactionIds.length} transações (selecionadas); intervalo ${startStr} → ${endStr}`,
+  );
 
   try {
-    const res = await fetch(url, { 
-      headers: getHeaders(token)
-    });
-
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Falha ao buscar vendas ZIG (${res.status}): ${txt}`);
-    }
-
-    const sales: ZigSale[] = await res.json();
+    const sales: ZigSale[] = await fetchZigSaidaProdutosRange(
+      token,
+      config.storeId,
+      startStr,
+      endStr,
+    );
     
     if (!Array.isArray(sales)) {
       throw new Error("Formato de resposta inválido da API ZIG.");
@@ -587,8 +653,6 @@ export const confirmSales = async (companyId: string, transactionIds: string[]) 
       processedGroups++;
     }
 
-    await kv.set(lastSyncKey, endDate.toISOString());
-
     return { 
       processed: processedGroups,
       createdProducts,
@@ -624,24 +688,18 @@ export const syncSales = async (companyId: string) => {
   apiStartDate.setDate(apiStartDate.getDate() - 1);
 
   const endDate = new Date();
-  const startStr = apiStartDate.toISOString().split('T')[0];
-  const endStr = endDate.toISOString().split('T')[0];
+  const startStr = apiStartDate.toISOString().split("T")[0];
+  const endStr = endDate.toISOString().split("T")[0];
 
-  let url = `${ZIG_API_URL}/erp/saida-produtos?dtinicio=${startStr}&dtfim=${endStr}&loja=${config.storeId}`;
-  
-  console.log(`ZIG: Sincronizando vendas da loja ${config.storeId}`);
+  console.log(`ZIG: Sincronizando vendas da loja ${config.storeId} (${startStr} → ${endStr})`);
 
   try {
-    const res = await fetch(url, { 
-      headers: getHeaders(token)
-    });
-
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Falha ao buscar vendas ZIG (${res.status}): ${txt}`);
-    }
-
-    const sales: ZigSale[] = await res.json();
+    const sales: ZigSale[] = await fetchZigSaidaProdutosRange(
+      token,
+      config.storeId,
+      startStr,
+      endStr,
+    );
     
     if (!Array.isArray(sales)) {
       return { processed: 0, message: "Nenhuma venda retornada." };

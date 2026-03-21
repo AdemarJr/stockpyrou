@@ -74,7 +74,7 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
   const [configLoaded, setConfigLoaded] = useState(false);
   
   // Date selection
-  const [dateFilter, setDateFilter] = useState<'yesterday' | 'today' | 'last3' | 'last5' | 'custom'>('yesterday');
+  const [dateFilter, setDateFilter] = useState<'yesterday' | 'today' | 'last3' | 'custom'>('yesterday');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   
@@ -85,6 +85,9 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
   const [confirming, setConfirming] = useState(false);
   const [selectedSales, setSelectedSales] = useState<string[]>([]);
   const [expandedDates, setExpandedDates] = useState<string[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [showOnlyNotFound, setShowOnlyNotFound] = useState(false);
+  const [previewRange, setPreviewRange] = useState<{ start: string; end: string } | null>(null);
 
   const groupedSalesByDate = useMemo(() => {
     const result: Record<string, PendingSaleGroup[]> = {};
@@ -209,12 +212,6 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
         const threeDaysAgo = new Date(today);
         threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
         start = threeDaysAgo.toISOString().split('T')[0];
-        end = today.toISOString().split('T')[0];
-        break;
-      case 'last5':
-        const fiveDaysAgo = new Date(today);
-        fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-        start = fiveDaysAgo.toISOString().split('T')[0];
         end = today.toISOString().split('T')[0];
         break;
       case 'custom':
@@ -379,6 +376,9 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
       
       if (data.salesByDate && Object.keys(data.salesByDate).length > 0) {
         setSalesByDate(data.salesByDate);
+        setPreviewRange({ start, end });
+        setProductSearch('');
+        setShowOnlyNotFound(false);
         
         // Selecionar automaticamente vendas válidas
         const allValidSales = data.sales.filter((s: PendingSale) => !s.notFound).map((s: PendingSale) => s.transactionId);
@@ -420,7 +420,9 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
         },
         body: JSON.stringify({
           companyId: currentCompany.id,
-          transactionIds: selectedSales
+          transactionIds: selectedSales,
+          startDate: previewRange?.start,
+          endDate: previewRange?.end
         })
       });
 
@@ -435,6 +437,9 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
       setShowPreview(false);
       setSalesByDate({});
       setSelectedSales([]);
+      setPreviewRange(null);
+      setProductSearch('');
+      setShowOnlyNotFound(false);
       
       if (onSyncComplete) onSyncComplete();
       
@@ -490,17 +495,26 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
 
   const allGroups = Object.values(groupedSalesByDate).flat();
   const totalGroups = allGroups.length;
+  const query = productSearch.trim().toLowerCase();
+
+  const matchesGroupFilters = (group: PendingSaleGroup) => {
+    if (showOnlyNotFound && !group.notFound) return false;
+    if (!query) return true;
+    return (
+      group.productName.toLowerCase().includes(query) ||
+      group.productSku.toLowerCase().includes(query) ||
+      (group.systemProduct?.name || '').toLowerCase().includes(query)
+    );
+  };
+
+  const filteredGroupsCount = allGroups.filter(matchesGroupFilters).length;
   const selectedGroupCount = allGroups.filter(g =>
     g.transactionIds.every(id => selectedSales.includes(id))
   ).length;
 
-  const getDateSummary = (date: string) => {
+  const getFilteredGroupsByDate = (date: string) => {
     const dateGroups = groupedSalesByDate[date] || [];
-    const validCount = dateGroups.filter(g => !g.notFound).length;
-    const notFoundCount = dateGroups.filter(g => g.notFound).length;
-    const totalValue = dateGroups.reduce((sum, g) => sum + (g.totalValue || 0), 0);
-    
-    return { validCount, notFoundCount, totalValue };
+    return dateGroups.filter(matchesGroupFilters);
   };
 
   useEffect(() => {
@@ -615,7 +629,7 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
             Selecione o Período das Vendas
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <button
               onClick={() => setDateFilter('yesterday')}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -647,16 +661,6 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
               3 dias
             </button>
             <button
-              onClick={() => setDateFilter('last5')}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                dateFilter === 'last5'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'bg-white text-gray-700 border border-gray-200 hover:border-indigo-300'
-              }`}
-            >
-              5 dias
-            </button>
-            <button
               onClick={() => setDateFilter('custom')}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                 dateFilter === 'custom'
@@ -669,35 +673,26 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
           </div>
 
           {dateFilter === 'custom' && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-indigo-700 mb-1">Data Inicial</label>
-                  <input
-                    type="date"
-                    value={customStartDate}
-                    onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="w-full rounded-lg border-indigo-200 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-indigo-700 mb-1">Data Final</label>
-                  <input
-                    type="date"
-                    value={customEndDate}
-                    onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="w-full rounded-lg border-indigo-200 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-                  />
-                </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-indigo-700 mb-1">Data Inicial</label>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="w-full rounded-lg border-indigo-200 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                />
               </div>
-              
-              <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg flex gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800">
-                  <strong>Limite da API ZIG:</strong> Máximo de 5 dias por consulta. Se selecionar um período maior, receberá um erro.
-                </p>
+              <div>
+                <label className="block text-xs font-medium text-indigo-700 mb-1">Data Final</label>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="w-full rounded-lg border-indigo-200 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                />
               </div>
-            </>
+            </div>
           )}
 
           <button
@@ -722,11 +717,14 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
                   Vendas Pendentes - Agrupadas por Dia
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
-                  {totalGroups} produtos em {Object.keys(groupedSalesByDate).length} dias • {selectedGroupCount} selecionados
+                  {filteredGroupsCount} de {totalGroups} produtos • {selectedGroupCount} selecionados
                 </p>
               </div>
               <button 
-                onClick={() => setShowPreview(false)}
+                onClick={() => {
+                  setShowPreview(false);
+                  setShowOnlyNotFound(false);
+                }}
                 className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -734,10 +732,30 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
             </div>
             
             <div className="p-6 overflow-y-auto flex-1">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Filtrar por produto, SKU ou nome no sistema..."
+                  className="w-full flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-indigo-500 focus:ring-indigo-500"
+                />
+                <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none text-sm text-gray-700 whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={showOnlyNotFound}
+                    onChange={(e) => setShowOnlyNotFound(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span>Somente não cadastrados</span>
+                </label>
+              </div>
               <div className="space-y-4">
                 {Object.keys(groupedSalesByDate).sort((a, b) => b.localeCompare(a)).map((date) => {
-                  const dateGroups = groupedSalesByDate[date] || [];
-                  const { validCount, notFoundCount, totalValue } = getDateSummary(date);
+                  const dateGroups = getFilteredGroupsByDate(date);
+                  const validCount = dateGroups.filter(g => !g.notFound).length;
+                  const notFoundCount = dateGroups.filter(g => g.notFound).length;
+                  const totalValue = dateGroups.reduce((sum, g) => sum + (g.totalValue || 0), 0);
                   const isExpanded = expandedDates.includes(date);
                   const dateTransactionIds = dateGroups.flatMap(g => g.transactionIds);
                   const allSelected = dateTransactionIds.length > 0 && dateTransactionIds.every(id => selectedSales.includes(id));
@@ -895,7 +913,10 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
             
             <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
               <button
-                onClick={() => setShowPreview(false)}
+                onClick={() => {
+                  setShowPreview(false);
+                  setShowOnlyNotFound(false);
+                }}
                 className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
                 disabled={confirming}
               >
