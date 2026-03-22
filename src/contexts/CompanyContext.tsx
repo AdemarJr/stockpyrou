@@ -4,6 +4,7 @@ import { CompanyRepository } from '../repositories/CompanyRepository';
 import { useAuth } from './AuthContext';
 import { toast } from 'sonner@2.0.3';
 import { projectId } from '../utils/supabase/info';
+import { fetchCompanyStatusJson, fetchWithTimeout } from '../utils/fetchWithTimeout';
 
 interface CompanyContextType {
   currentCompany: Company | null;
@@ -66,14 +67,18 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
           const token = user.accessToken || localStorage.getItem('pyroustock_custom_token');
           
           if (token) {
-            const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/companies/me`, {
-              headers: { 
-                'Authorization': `Bearer ${token}`,
-                'X-Custom-Token': token
+            const response = await fetchWithTimeout(
+              `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/companies/me`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'X-Custom-Token': token
+                },
+                timeoutMs: 12000
               }
-            });
-            
-            if (response.ok) {
+            );
+
+            if (response?.ok) {
               const { company } = await response.json();
               if (company) {
                 console.log('[CompanyContext] Found company via Server API:', company.name);
@@ -86,7 +91,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
                 }];
               }
             } else {
-               console.warn('[CompanyContext] Server API fallback failed:', response.status);
+              console.warn('[CompanyContext] Server API fallback failed:', response?.status ?? 'no response');
             }
           }
         } catch (serverError) {
@@ -100,13 +105,14 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
       if (user.companyId && user.role !== 'superadmin') {
         const userCompany = data.find(c => c.id === user.companyId);
         if (userCompany) {
-          // Check status on server
-          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/companies/${user.companyId}/status`);
-          const { status } = await response.json();
-          if (status === 'active') {
+          const statusJson = await fetchCompanyStatusJson(projectId, user.companyId);
+          const status = statusJson?.status;
+          if (status === 'inactive') {
+            toast.error('Empresa desativada. Selecione outra empresa ou contate o suporte.');
+          } else if (status === 'active' || statusJson == null) {
+            // null = timeout/erro na API: libera uso para não travar a tela inicial
             setCurrentCompany(userCompany);
             localStorage.setItem('stockwise_last_company_id', user.companyId);
-            setIsLoading(false);
             return;
           }
         }
@@ -123,13 +129,12 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         if (savedCompanyId) {
           const savedCompany = data.find(c => c.id === savedCompanyId);
           if (savedCompany) {
-            // Check status of saved company
-            const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/companies/${savedCompanyId}/status`);
-            const { status } = await response.json();
-            if (status === 'active') {
-              setCurrentCompany(savedCompany);
-            } else {
+            const statusJson = await fetchCompanyStatusJson(projectId, savedCompanyId);
+            const status = statusJson?.status;
+            if (status === 'inactive') {
               localStorage.removeItem('stockwise_last_company_id');
+            } else if (status === 'active' || statusJson == null) {
+              setCurrentCompany(savedCompany);
             }
           }
         }
@@ -153,9 +158,8 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      // Check company status on server
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/companies/${companyId}/status`);
-      const { status } = await response.json();
+      const statusJson = await fetchCompanyStatusJson(projectId, companyId);
+      const status = statusJson?.status;
 
       if (status === 'inactive') {
         toast.error('Acesso bloqueado: Esta empresa está desativada no sistema. Entre em contato com o suporte.');

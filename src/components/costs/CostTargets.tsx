@@ -3,8 +3,8 @@ import { useCompany } from '../../contexts/CompanyContext';
 import { Card } from '../ui/card';
 import { Target, TrendingUp, TrendingDown } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
+import { CostRepository } from '../../repositories/CostRepository';
 import { Progress } from '../ui/progress';
 
 export function CostTargets() {
@@ -23,20 +23,8 @@ export function CostTargets() {
 
     setLoading(true);
     try {
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/targets?isActive=true`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Company-Id': currentCompany.id
-          }
-        }
-      );
-
-      if (!res.ok) throw new Error('Failed to load targets');
-
-      const data = await res.json();
-      setTargets(data.targets || []);
+      const rows = await CostRepository.findAllCostTargets(currentCompany.id, true);
+      setTargets(rows as any[]);
     } catch (error) {
       console.error('Error loading targets:', error);
       toast.error('Erro ao carregar metas');

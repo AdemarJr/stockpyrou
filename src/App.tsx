@@ -247,25 +247,33 @@ function MainApp() {
 
     try {
       setLoading(true);
-      const [
-        productsData,
-        suppliersData,
-        stockEntriesData,
-        movementsData,
-        priceHistoryData,
-      ] = await Promise.all([
+      const results = await Promise.allSettled([
         ProductService.getAllProducts(currentCompany.id),
         SupplierRepository.findAll(currentCompany.id),
         StockService.getAllEntries(currentCompany.id),
         StockService.getAllMovements(currentCompany.id),
         PriceHistoryRepository.findAll(currentCompany.id),
       ]);
-      
-      setProducts(productsData);
-      setSuppliers(suppliersData);
-      setStockEntries(stockEntriesData);
-      setMovements(movementsData);
-      setPriceHistory(priceHistoryData);
+
+      const pick = <T,>(i: number, empty: T): T => {
+        const r = results[i];
+        if (r.status === 'fulfilled') return r.value as T;
+        console.error('[refreshData] Falha ao carregar índice', i, r.reason);
+        return empty;
+      };
+
+      setProducts(pick(0, [] as Product[]));
+      setSuppliers(pick(1, [] as Supplier[]));
+      setStockEntries(pick(2, [] as StockEntry[]));
+      setMovements(pick(3, [] as StockMovement[]));
+      setPriceHistory(pick(4, [] as PriceHistory[]));
+
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length > 0) {
+        toast.error(
+          'Alguns dados não carregaram. Verifique a conexão e tente atualizar a página.'
+        );
+      }
     } catch (error: any) {
       console.error('Error loading data:', error);
       toast.error(`Erro ao carregar dados: ${error.message}`);

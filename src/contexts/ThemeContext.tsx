@@ -19,11 +19,8 @@ export function useTheme() {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>('light');
-  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-    
     // Check localStorage first
     const savedTheme = localStorage.getItem('pyroustock_theme') as Theme | null;
     
@@ -60,11 +57,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('pyroustock_theme', newTheme);
     applyTheme(newTheme);
   };
-
-  // Prevent flash of unstyled content
-  if (!mounted) {
-    return null;
-  }
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

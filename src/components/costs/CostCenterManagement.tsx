@@ -9,8 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Plus, Edit2, Trash2, Folder, Tag } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import type { CostCenter } from '../../types/costs';
+import { CostRepository } from '../../repositories/CostRepository';
 import { ExpenseTypeManager } from './ExpenseTypeManager';
 
 export function CostCenterManagement() {
@@ -36,24 +36,8 @@ export function CostCenterManagement() {
 
     setLoading(true);
     try {
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/centers`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Company-Id': currentCompany.id
-          }
-        }
-      );
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.error('Cost centers API error:', errorData);
-        throw new Error(errorData.error || 'Failed to load cost centers');
-      }
-
-      const data = await res.json();
-      setCenters(data.centers || []);
+      const list = await CostRepository.findAllCostCenters(currentCompany.id);
+      setCenters(list);
     } catch (error) {
       console.error('Error loading cost centers:', error);
       toast.error('Erro ao carregar centros de custo');
@@ -67,40 +51,22 @@ export function CostCenterManagement() {
     if (!currentCompany?.id) return;
 
     try {
-      const url = editingCenter
-        ? `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/centers/${editingCenter.id}`
-        : `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/centers`;
-
-      const payload = editingCenter
-        ? formData
-        : {
-            company_id: currentCompany.id,
-            ...formData,
-            is_active: true
-          };
-
-      console.log('Submitting cost center:', { url, method: editingCenter ? 'PUT' : 'POST', payload });
-
-      const res = await fetch(url, {
-        method: editingCenter ? 'PUT' : 'POST',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json',
-          'X-Company-Id': currentCompany.id
-        },
-        body: JSON.stringify(payload)
-      });
-
-      console.log('Response status:', res.status);
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.error('Save cost center API error:', errorData);
-        throw new Error(errorData.error || 'Failed to save cost center');
+      if (editingCenter) {
+        await CostRepository.updateCostCenter(editingCenter.id, {
+          name: formData.name,
+          code: formData.code,
+          description: formData.description || undefined
+        });
+      } else {
+        await CostRepository.createCostCenter({
+          companyId: currentCompany.id,
+          name: formData.name,
+          code: formData.code,
+          description: formData.description || undefined,
+          parentId: undefined,
+          isActive: true
+        });
       }
-
-      const responseData = await res.json();
-      console.log('Cost center saved successfully:', responseData);
 
       toast.success(
         editingCenter
@@ -111,9 +77,10 @@ export function CostCenterManagement() {
       setDialogOpen(false);
       resetForm();
       loadCostCenters();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error saving cost center:', error);
-      toast.error(`Erro ao salvar centro de custo: ${error.message}`);
+      const msg = error instanceof Error ? error.message : 'Erro ao salvar';
+      toast.error(`Erro ao salvar centro de custo: ${msg}`);
     }
   };
 
@@ -131,24 +98,13 @@ export function CostCenterManagement() {
     if (!confirm('Deseja realmente excluir este centro de custo?')) return;
 
     try {
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/centers/${id}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Company-Id': currentCompany?.id || ''
-          }
-        }
-      );
-
-      if (!res.ok) throw new Error('Failed to delete cost center');
-
+      await CostRepository.deleteCostCenter(id);
       toast.success('Centro de custo excluído com sucesso!');
       loadCostCenters();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error deleting cost center:', error);
-      toast.error('Erro ao excluir centro de custo');
+      const msg = error instanceof Error ? error.message : 'Erro ao excluir';
+      toast.error(`Erro ao excluir centro de custo: ${msg}`);
     }
   };
 

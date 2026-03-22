@@ -9,8 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Switch } from '../ui/switch';
 import { Plus, Tag, Edit2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import type { ExpenseType, CostCenter } from '../../types/costs';
+import type { ExpenseCategory, CostCenter } from '../../types/costs';
+import { CostRepository } from '../../repositories/CostRepository';
 
 export function ExpenseTypeManager() {
   const { currentCompany } = useCompany();
@@ -38,32 +38,13 @@ export function ExpenseTypeManager() {
 
     setLoading(true);
     try {
-      const [typesRes, centersRes] = await Promise.all([
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        ),
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/centers`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        )
+      const [typesList, centersList] = await Promise.all([
+        CostRepository.findAllExpenseTypes(currentCompany.id),
+        CostRepository.findAllCostCenters(currentCompany.id)
       ]);
 
-      const typesData = await typesRes.json();
-      const centersData = await centersRes.json();
-
-      setTypes(typesData.types || []);
-      setCenters(centersData.centers || []);
+      setTypes(typesList as any[]);
+      setCenters(centersList);
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Erro ao carregar dados');
@@ -77,34 +58,29 @@ export function ExpenseTypeManager() {
     if (!currentCompany?.id) return;
 
     try {
-      const url = editingType
-        ? `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types/${editingType.id}`
-        : `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types`;
+      const recurrenceDay = formData.recurrenceDay
+        ? parseInt(formData.recurrenceDay, 10)
+        : undefined;
 
-      const payload = {
-        company_id: currentCompany.id,
-        name: formData.name,
-        category: formData.category,
-        cost_center_id: formData.costCenterId,
-        is_recurring: formData.isRecurring,
-        recurrence_day: formData.recurrenceDay ? parseInt(formData.recurrenceDay) : null,
-        is_active: true
-      };
-
-      const res = await fetch(url, {
-        method: editingType ? 'PUT' : 'POST',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json',
-          'X-Company-Id': currentCompany.id
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.error('Save expense type API error:', errorData);
-        throw new Error(errorData.error || 'Failed to save expense type');
+      if (editingType) {
+        await CostRepository.updateExpenseType(editingType.id, {
+          name: formData.name,
+          category: formData.category as ExpenseCategory,
+          costCenterId: formData.costCenterId,
+          isRecurring: formData.isRecurring,
+          recurrenceDay: formData.isRecurring ? recurrenceDay : undefined,
+          isActive: true
+        });
+      } else {
+        await CostRepository.createExpenseType({
+          companyId: currentCompany.id,
+          name: formData.name,
+          category: formData.category as ExpenseCategory,
+          costCenterId: formData.costCenterId,
+          isRecurring: formData.isRecurring,
+          recurrenceDay: formData.isRecurring ? recurrenceDay : undefined,
+          isActive: true
+        });
       }
 
       toast.success(
@@ -116,20 +92,23 @@ export function ExpenseTypeManager() {
       setDialogOpen(false);
       resetForm();
       loadData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error saving expense type:', error);
-      toast.error(`Erro ao salvar tipo de despesa: ${error.message}`);
+      const msg = error instanceof Error ? error.message : 'Erro ao salvar';
+      toast.error(`Erro ao salvar tipo de despesa: ${msg}`);
     }
   };
 
   const handleEdit = (type: any) => {
     setEditingType(type);
+    const ccId = type.cost_center_id ?? type.costCenterId ?? '';
     setFormData({
       name: type.name,
       category: type.category,
-      costCenterId: type.cost_center_id,
-      isRecurring: type.is_recurring || false,
-      recurrenceDay: type.recurrence_day?.toString() || ''
+      costCenterId: ccId,
+      isRecurring: type.is_recurring ?? type.isRecurring ?? false,
+      recurrenceDay:
+        (type.recurrence_day ?? type.recurrenceDay)?.toString?.() || ''
     });
     setDialogOpen(true);
   };
@@ -142,28 +121,13 @@ export function ExpenseTypeManager() {
     }
 
     try {
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types/${type.id}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Company-Id': currentCompany.id
-          }
-        }
-      );
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.error('Delete expense type API error:', errorData);
-        throw new Error(errorData.error || 'Failed to delete expense type');
-      }
-
+      await CostRepository.deleteExpenseType(type.id);
       toast.success('Tipo de despesa excluído!');
       loadData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting expense type:', error);
-      toast.error(`Erro ao excluir tipo de despesa: ${error.message}`);
+      const msg = error instanceof Error ? error.message : 'Erro ao excluir';
+      toast.error(`Erro ao excluir tipo de despesa: ${msg}`);
     }
   };
 
@@ -234,7 +198,7 @@ export function ExpenseTypeManager() {
                       {type.name}
                     </h3>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {type.cost_centers_8a20b27d?.name}
+                      {type.cost_centers?.name ?? type.cost_centers_8a20b27d?.name}
                     </p>
                   </div>
                   <div className="flex gap-1">

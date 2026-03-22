@@ -5,8 +5,8 @@ import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
 import { PieChart, TrendingUp, AlertCircle } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
+import { CostRepository } from '../../repositories/CostRepository';
 
 export function BudgetManagement() {
   const { currentCompany } = useCompany();
@@ -25,32 +25,15 @@ export function BudgetManagement() {
 
     setLoading(true);
     try {
-      const [budgetsRes, analysisRes] = await Promise.all([
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/budgets`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        ),
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/analytics/budget-analysis`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        )
-      ]);
+      const budgetsList = await CostRepository.findAllBudgets(currentCompany.id);
+      setBudgets(budgetsList as any[]);
 
-      const budgetsData = await budgetsRes.json();
-      const analysisData = await analysisRes.json();
-
-      setBudgets(budgetsData.budgets || []);
-      setAnalysis(analysisData.analysis || []);
+      try {
+        const analysisRows = await CostRepository.getBudgetAnalysis(currentCompany.id);
+        setAnalysis(Array.isArray(analysisRows) ? analysisRows : []);
+      } catch {
+        setAnalysis([]);
+      }
     } catch (error) {
       console.error('Error loading budgets:', error);
       toast.error('Erro ao carregar orçamentos');
@@ -74,15 +57,29 @@ export function BudgetManagement() {
           Orçamentos
         </h2>
 
-        {analysis.length === 0 ? (
+        {analysis.length === 0 && budgets.length === 0 ? (
           <div className="text-center py-8">
             <PieChart className="w-12 h-12 mx-auto text-gray-400 mb-3" />
             <p className="text-gray-500 dark:text-gray-400">
-              Nenhum orçamento configurado
+              Nenhum orçamento cadastrado
             </p>
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
-              Funcionalidade em desenvolvimento
-            </p>
+          </div>
+        ) : analysis.length === 0 && budgets.length > 0 ? (
+          <div className="space-y-3">
+            {budgets.map((b: any) => (
+              <Card key={b.id} className="p-4">
+                <h3 className="font-semibold text-gray-900 dark:text-white">{b.name}</h3>
+                <p className="text-sm text-gray-500">
+                  {new Date(b.start_date).toLocaleDateString('pt-BR')} —{' '}
+                  {new Date(b.end_date).toLocaleDateString('pt-BR')}
+                </p>
+                <p className="text-sm mt-2">
+                  Valor total: <span className="font-semibold">{formatCurrency(parseFloat(b.total_budget ?? 0))}</span>
+                  {' · '}
+                  Status: {b.status}
+                </p>
+              </Card>
+            ))}
           </div>
         ) : (
           <div className="space-y-4">

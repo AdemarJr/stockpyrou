@@ -15,7 +15,7 @@ import {
   Settings
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { CostRepository } from '../../repositories/CostRepository';
 import { CostCenterManagement } from './CostCenterManagement';
 import { ExpenseManagement } from './ExpenseManagement';
 import { BudgetManagement } from './BudgetManagement';
@@ -56,39 +56,16 @@ export function CostDashboard() {
 
     setLoading(true);
     try {
-      // Load multiple data sources in parallel
-      const [expensesRes, budgetsRes, summaryRes] = await Promise.all([
-        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expenses`, {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Company-Id': currentCompany.id
-          }
-        }),
-        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/budgets`, {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Company-Id': currentCompany.id
-          }
-        }),
-        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/analytics/centers-summary`, {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Company-Id': currentCompany.id
-          }
-        })
+      const [expenses, budgetsList] = await Promise.all([
+        CostRepository.findAllExpenses(currentCompany.id),
+        CostRepository.findAllBudgets(currentCompany.id)
       ]);
 
-      const expensesData = await expensesRes.json();
-      const budgetsData = await budgetsRes.json();
-      const summaryData = await summaryRes.json();
+      const budgets = budgetsList as any[];
 
       // Calculate metrics
       const now = new Date();
       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      
-      const expenses = expensesData.expenses || [];
-      const budgets = budgetsData.budgets || [];
-
       const monthlyExpenses = expenses
         .filter((e: any) => new Date(e.due_date) >= firstDayOfMonth)
         .reduce((sum: number, e: any) => sum + parseFloat(e.amount), 0);
@@ -130,24 +107,13 @@ export function CostDashboard() {
     if (!currentCompany?.id) return;
 
     try {
-      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/initialize`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ companyId: currentCompany.id })
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.error('Initialize error response:', errorData);
-        throw new Error(errorData.error || `HTTP ${res.status}: Failed to initialize`);
+      const { created } = await CostRepository.seedDefaultCostCentersIfEmpty(currentCompany.id);
+      if (created === 0) {
+        toast.info('Já existem centros de custo cadastrados.');
+        return;
       }
 
-      const data = await res.json();
-      console.log('Initialize success:', data);
-      toast.success('Centros de custo inicializados com sucesso!');
+      toast.success('Centros de custo padrão criados no banco de dados.');
       loadDashboardData();
     } catch (error) {
       console.error('Error initializing cost centers:', error);

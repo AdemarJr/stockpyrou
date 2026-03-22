@@ -10,8 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Plus, FileText, DollarSign, Calendar, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import type { OperationalExpense, CostCenter, ExpenseType } from '../../types/costs';
+import type { CostCenter, ExpenseType, PaymentMethod } from '../../types/costs';
+import type { Supplier } from '../../types';
+import { SupplierRepository } from '../../repositories/SupplierRepository';
+import { CostRepository } from '../../repositories/CostRepository';
 
 export function ExpenseManagement() {
   const { currentCompany } = useCompany();
@@ -19,6 +21,7 @@ export function ExpenseManagement() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [filter, setFilter] = useState('all');
@@ -31,7 +34,8 @@ export function ExpenseManagement() {
     dueDate: '',
     paymentDate: '',
     paymentStatus: 'pending' as const,
-    paymentMethod: ''
+    paymentMethod: '',
+    supplierId: ''
   });
 
   useEffect(() => {
@@ -45,47 +49,19 @@ export function ExpenseManagement() {
 
     setLoading(true);
     try {
-      const [expensesRes, centersRes, typesRes] = await Promise.all([
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expenses${
-            filter !== 'all' ? `?paymentStatus=${filter}` : ''
-          }`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        ),
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/centers`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        ),
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expense-types`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        )
+      const [expensesList, centersList, typesList, suppliersList] = await Promise.all([
+        CostRepository.findAllExpenses(currentCompany.id, {
+          paymentStatus: filter !== 'all' ? filter : undefined
+        }),
+        CostRepository.findAllCostCenters(currentCompany.id),
+        CostRepository.findAllExpenseTypes(currentCompany.id),
+        SupplierRepository.findAll(currentCompany.id)
       ]);
 
-      const [expensesData, centersData, typesData] = await Promise.all([
-        expensesRes.json(),
-        centersRes.json(),
-        typesRes.json()
-      ]);
-
-      setExpenses(expensesData.expenses || []);
-      setCostCenters(centersData.centers || []);
-      setExpenseTypes(typesData.types || []);
+      setExpenses(expensesList as any[]);
+      setCostCenters(centersList);
+      setExpenseTypes(typesList);
+      setSuppliers(suppliersList);
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Erro ao carregar dados');
@@ -99,70 +75,48 @@ export function ExpenseManagement() {
     if (!currentCompany?.id || !user?.id) return;
 
     try {
-      const payload = {
-        company_id: currentCompany.id,
-        expense_type_id: formData.expenseTypeId,
-        cost_center_id: formData.costCenterId,
+      const paymentMethod = formData.paymentMethod?.trim();
+      await CostRepository.createExpense({
+        companyId: currentCompany.id,
+        expenseTypeId: formData.expenseTypeId,
+        costCenterId: formData.costCenterId,
         amount: parseFloat(formData.amount),
-        description: formData.description,
-        reference_number: formData.referenceNumber,
-        due_date: formData.dueDate,
-        payment_date: formData.paymentDate || null,
-        payment_status: formData.paymentStatus,
-        payment_method: formData.paymentMethod || null,
-        user_id: user.id
-      };
-
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expenses`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-            'X-Company-Id': currentCompany.id
-          },
-          body: JSON.stringify(payload)
-        }
-      );
-
-      if (!res.ok) throw new Error('Failed to create expense');
+        description: formData.description.trim() || undefined,
+        referenceNumber: formData.referenceNumber.trim() || undefined,
+        dueDate: formData.dueDate,
+        paymentDate: formData.paymentDate || undefined,
+        paymentStatus: formData.paymentStatus,
+        paymentMethod: paymentMethod
+          ? (paymentMethod as PaymentMethod)
+          : undefined,
+        supplierId: formData.supplierId || undefined,
+        userId: user.id
+      });
 
       toast.success('Despesa registrada com sucesso!');
       setDialogOpen(false);
       resetForm();
       loadData();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error creating expense:', error);
-      toast.error('Erro ao registrar despesa');
+      const msg = error instanceof Error ? error.message : 'Erro ao registrar despesa';
+      toast.error(msg);
     }
   };
 
   const markAsPaid = async (expenseId: string) => {
     try {
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/expenses/${expenseId}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-            'X-Company-Id': currentCompany?.id || ''
-          },
-          body: JSON.stringify({
-            payment_status: 'paid',
-            payment_date: new Date().toISOString().split('T')[0]
-          })
-        }
-      );
-
-      if (!res.ok) throw new Error('Failed to update expense');
+      await CostRepository.updateExpense(expenseId, {
+        paymentStatus: 'paid',
+        paymentDate: new Date().toISOString().split('T')[0]
+      });
 
       toast.success('Despesa marcada como paga!');
       loadData();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error updating expense:', error);
-      toast.error('Erro ao atualizar despesa');
+      const msg = error instanceof Error ? error.message : 'Erro ao atualizar despesa';
+      toast.error(msg);
     }
   };
 
@@ -176,7 +130,8 @@ export function ExpenseManagement() {
       dueDate: '',
       paymentDate: '',
       paymentStatus: 'pending',
-      paymentMethod: ''
+      paymentMethod: '',
+      supplierId: ''
     });
   };
 
@@ -253,6 +208,7 @@ export function ExpenseManagement() {
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Descrição</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Centro</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Tipo</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Fornecedor</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-500">Valor</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Vencimento</th>
                   <th className="text-center py-3 px-4 text-sm font-medium text-gray-500">Ações</th>
@@ -278,6 +234,9 @@ export function ExpenseManagement() {
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-sm">{expense.expense_types?.name || '-'}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="text-sm">{expense.suppliers?.name || '-'}</span>
                     </td>
                     <td className="py-3 px-4 text-right">
                       <span className="text-sm font-semibold">{formatCurrency(parseFloat(expense.amount))}</span>
@@ -401,6 +360,33 @@ export function ExpenseManagement() {
                 onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
                 placeholder="NF, Recibo, etc."
               />
+            </div>
+
+            <div>
+              <Label htmlFor="supplier">Fornecedor</Label>
+              <Select
+                value={formData.supplierId || 'none'}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, supplierId: value === 'none' ? '' : value })
+                }
+              >
+                <SelectTrigger id="supplier">
+                  <SelectValue placeholder="Selecione (opcional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem fornecedor</SelectItem>
+                  {suppliers.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {suppliers.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Cadastre fornecedores em Fornecedores para associar aqui.
+                </p>
+              )}
             </div>
 
             <div className="flex gap-2 justify-end">

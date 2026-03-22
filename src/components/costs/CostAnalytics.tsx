@@ -4,8 +4,8 @@ import { Card } from '../ui/card';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TrendingUp, DollarSign, Package, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
+import { CostRepository } from '../../repositories/CostRepository';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -27,43 +27,15 @@ export function CostAnalytics() {
 
     setLoading(true);
     try {
-      const [centersRes, productsRes, wasteRes] = await Promise.all([
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/analytics/centers-summary`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        ),
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/analytics/product-costs`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        ),
-        fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/costs/analytics/waste`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Company-Id': currentCompany.id
-            }
-          }
-        )
+      const [centersRows, productRows, wasteRows] = await Promise.all([
+        CostRepository.getCostCenterSummary(currentCompany.id).catch(() => []),
+        CostRepository.getProductCostAnalysis(currentCompany.id).catch(() => []),
+        CostRepository.getWasteAnalysis(currentCompany.id).catch(() => [])
       ]);
 
-      const centersData = await centersRes.json();
-      const productsData = await productsRes.json();
-      const wasteData = await wasteRes.json();
-
-      setCentersSummary(centersData.summary || []);
-      setProductCosts(productsData.analysis || []);
-      setWasteAnalysis(wasteData.analysis || []);
+      setCentersSummary(Array.isArray(centersRows) ? centersRows : []);
+      setProductCosts(Array.isArray(productRows) ? productRows : []);
+      setWasteAnalysis(Array.isArray(wasteRows) ? wasteRows : []);
     } catch (error) {
       console.error('Error loading analytics:', error);
       toast.error('Erro ao carregar análises');

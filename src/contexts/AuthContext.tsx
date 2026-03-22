@@ -3,6 +3,7 @@ import { supabase } from '../utils/supabase/client';
 import type { AuthUser, UserProfile } from '../types';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -24,6 +25,29 @@ export function useAuth() {
 
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 
+/** Mensagens do Supabase/servidor em inglês → português para o usuário */
+function formatLoginErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? '');
+  const t = raw.trim();
+  if (!t) return 'Não foi possível entrar. Tente novamente.';
+
+  const lower = t.toLowerCase();
+  if (
+    t === 'Invalid credentials' ||
+    lower === 'invalid login credentials' ||
+    (lower.includes('invalid') && lower.includes('credential'))
+  ) {
+    return 'E-mail ou senha incorretos. Verifique os dados ou solicite uma nova senha ao administrador.';
+  }
+  if (lower.includes('email not confirmed')) {
+    return 'Confirme seu e-mail antes de entrar.';
+  }
+  if (lower.includes('too many requests') || lower.includes('rate limit')) {
+    return 'Muitas tentativas. Aguarde um minuto e tente novamente.';
+  }
+  return t;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,40 +67,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 1. Check for Custom Token first
     const customToken = localStorage.getItem('pyroustock_custom_token');
     
-    if (customToken) {
-      console.log('🔍 Found custom token, verifying...');
-      fetch(`${API_URL}/auth/me`, {
-        headers: { 'Authorization': `Bearer ${customToken}`, 'X-Custom-Token': customToken }
-      })
-      .then(res => {
-        console.log('✅ /auth/me response status:', res.status);
-        return res.json();
-      })
-      .then(data => {
-        console.log('📊 /auth/me response data:', { hasUser: !!data.user, error: data.error });
-        if (data.user) {
-          console.log('✅ Custom token valid, setting user');
-          setUser({
-            ...data.user,
-            accessToken: customToken
-          });
-          setLoading(false);
-        } else {
-          console.log('❌ Custom token invalid, clearing and checking Supabase');
-          localStorage.removeItem('pyroustock_custom_token');
-          checkSupabaseSession();
-        }
-      })
-      .catch((err) => {
-        console.error('❌ Error verifying custom token:', err);
-        localStorage.removeItem('pyroustock_custom_token');
-        checkSupabaseSession();
-      });
-    } else {
-      console.log('🔍 No custom token, checking Supabase session');
-      checkSupabaseSession();
-    }
-
     async function checkSupabaseSession() {
       try {
         // Check active session with error handling
@@ -122,6 +112,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } finally {
         setLoading(false);
       }
+    }
+
+    if (customToken) {
+      console.log('🔍 Found custom token, verifying...');
+      void (async () => {
+        const res = await fetchWithTimeout(`${API_URL}/auth/me`, {
+          headers: { 'Authorization': `Bearer ${customToken}`, 'X-Custom-Token': customToken },
+          timeoutMs: 15000
+        });
+        if (!res?.ok) {
+          console.log('❌ /auth/me failed or timeout, clearing custom token');
+          localStorage.removeItem('pyroustock_custom_token');
+          await checkSupabaseSession();
+          return;
+        }
+        try {
+          const data = await res.json();
+          console.log('📊 /auth/me response data:', { hasUser: !!data.user, error: data.error });
+          if (data.user) {
+            setUser({
+              ...data.user,
+              accessToken: customToken
+            });
+            setLoading(false);
+          } else {
+            localStorage.removeItem('pyroustock_custom_token');
+            await checkSupabaseSession();
+          }
+        } catch (err) {
+          console.error('❌ Error parsing /auth/me:', err);
+          localStorage.removeItem('pyroustock_custom_token');
+          await checkSupabaseSession();
+        }
+      })();
+    } else {
+      console.log('🔍 No custom token, checking Supabase session');
+      void checkSupabaseSession();
     }
 
     // Listen for auth changes
@@ -250,9 +277,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('Supabase login failed, trying custom server auth...');
       return await loginCustom(email, password);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Login error:', error);
-      toast.error(error.message || 'Erro ao fazer login. Verifique suas credenciais.');
+      toast.error(formatLoginErrorMessage(error));
       return false;
     } finally {
       setLoading(false);
@@ -281,23 +308,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('🔐 Attempting custom login for:', email);
     console.log('🔐 Password length:', password?.length);
     
-    const response = await fetch(`${API_URL}/auth/login`, {
+    const response = await fetchWithTimeout(`${API_URL}/auth/login`, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json', 
+      headers: {
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${publicAnonKey}`
       },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password }),
+      timeoutMs: 25000
     });
 
-    const serverData = await response.json();
-    
-    console.log('Server response:', { 
-      ok: response.ok, 
+    if (!response) {
+      throw new Error('Servidor não respondeu a tempo. Verifique sua internet e tente novamente.');
+    }
+
+    let serverData: {
+      user?: AuthUser;
+      token?: string;
+      error?: string;
+    } = {};
+    try {
+      serverData = await response.json();
+    } catch {
+      throw new Error('Resposta inválida do servidor. Tente novamente em instantes.');
+    }
+
+    console.log('Server response:', {
+      ok: response.ok,
       status: response.status,
-      hasUser: !!serverData.user, 
+      hasUser: !!serverData.user,
       hasToken: !!serverData.token,
-      error: serverData.error 
+      error: serverData.error
     });
 
     if (response.ok && serverData.user && serverData.token) {
@@ -310,10 +351,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return true;
     }
 
-    // Show more specific error message
-    const errorMsg = serverData.error || 'Credenciais inválidas';
-    console.error('Login failed:', errorMsg);
-    throw new Error(errorMsg);
+    const serverErr = serverData.error || `Erro HTTP ${response.status}`;
+    console.error('Login failed:', serverErr);
+    throw new Error(formatLoginErrorMessage(new Error(serverErr)));
   }
 
   // Logout function

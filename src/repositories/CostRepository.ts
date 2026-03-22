@@ -1,4 +1,4 @@
-import { createClient } from '../utils/supabase/client';
+import { supabase } from '../utils/supabase/client';
 import type { 
   CostCenter, 
   ExpenseType, 
@@ -7,8 +7,6 @@ import type {
   BudgetItem,
   CostTarget 
 } from '../types/costs';
-
-const supabase = createClient();
 
 export class CostRepository {
   // ==================== COST CENTERS ====================
@@ -82,6 +80,35 @@ export class CostRepository {
     if (error) throw error;
   }
 
+  /** Cria centros padrão no Postgres se a empresa ainda não tiver nenhum ativo. */
+  static async seedDefaultCostCentersIfEmpty(companyId: string): Promise<{ created: number }> {
+    const existing = await this.findAllCostCenters(companyId);
+    if (existing.length > 0) {
+      return { created: 0 };
+    }
+
+    const defaults: Array<{ code: string; name: string; description: string }> = [
+      { code: 'PROD', name: 'Produção', description: 'Produção e manufatura' },
+      { code: 'ADM', name: 'Administrativo', description: 'Administrativo' },
+      { code: 'VEN', name: 'Vendas', description: 'Vendas e marketing' },
+      { code: 'LOG', name: 'Logística', description: 'Logística e distribuição' },
+      { code: 'TI', name: 'Tecnologia', description: 'TI e infraestrutura' }
+    ];
+
+    for (const d of defaults) {
+      await this.createCostCenter({
+        companyId,
+        name: d.name,
+        code: d.code,
+        description: d.description,
+        parentId: undefined,
+        isActive: true
+      });
+    }
+
+    return { created: defaults.length };
+  }
+
   // ==================== EXPENSE TYPES ====================
 
   static async findAllExpenseTypes(companyId: string): Promise<ExpenseType[]> {
@@ -105,7 +132,7 @@ export class CostRepository {
         category: type.category,
         cost_center_id: type.costCenterId,
         is_recurring: type.isRecurring,
-        recurrence_day: type.recurrenceDay,
+        recurrence_day: type.isRecurring ? type.recurrenceDay ?? null : null,
         is_active: type.isActive ?? true
       })
       .select()
@@ -116,23 +143,38 @@ export class CostRepository {
   }
 
   static async updateExpenseType(id: string, updates: Partial<ExpenseType>): Promise<ExpenseType> {
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString()
+    };
+    if (updates.name !== undefined) patch.name = updates.name;
+    if (updates.category !== undefined) patch.category = updates.category;
+    if (updates.costCenterId !== undefined) patch.cost_center_id = updates.costCenterId;
+    if (updates.isRecurring !== undefined) patch.is_recurring = updates.isRecurring;
+    if (updates.isRecurring === false) {
+      patch.recurrence_day = null;
+    } else if (updates.recurrenceDay !== undefined) {
+      patch.recurrence_day = updates.recurrenceDay;
+    }
+    if (updates.isActive !== undefined) patch.is_active = updates.isActive;
+
     const { data, error } = await supabase
       .from('expense_types')
-      .update({
-        name: updates.name,
-        category: updates.category,
-        cost_center_id: updates.costCenterId,
-        is_recurring: updates.isRecurring,
-        recurrence_day: updates.recurrenceDay,
-        is_active: updates.isActive,
-        updated_at: new Date().toISOString()
-      })
+      .update(patch)
       .eq('id', id)
       .select()
       .single();
 
     if (error) throw error;
     return data as ExpenseType;
+  }
+
+  static async deleteExpenseType(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('expense_types')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    if (error) throw error;
   }
 
   // ==================== OPERATIONAL EXPENSES ====================
