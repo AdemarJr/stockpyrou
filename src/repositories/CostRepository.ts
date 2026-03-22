@@ -235,6 +235,10 @@ export class CostRepository {
         payment_date: expense.paymentDate,
         payment_status: expense.paymentStatus,
         payment_method: expense.paymentMethod,
+        payment_terms_type: expense.paymentTermsType ?? 'avista',
+        invoice_days: expense.paymentTermsType === 'faturado' ? expense.invoiceDays ?? null : null,
+        installment_count:
+          expense.paymentTermsType === 'parcelado' ? expense.installmentCount ?? null : null,
         supplier_id: expense.supplierId,
         user_id: expense.userId,
         attachments: expense.attachments,
@@ -261,6 +265,13 @@ export class CostRepository {
         payment_date: updates.paymentDate,
         payment_status: updates.paymentStatus,
         payment_method: updates.paymentMethod,
+        ...(updates.paymentTermsType !== undefined && {
+          payment_terms_type: updates.paymentTermsType,
+          invoice_days:
+            updates.paymentTermsType === 'faturado' ? updates.invoiceDays ?? null : null,
+          installment_count:
+            updates.paymentTermsType === 'parcelado' ? updates.installmentCount ?? null : null
+        }),
         supplier_id: updates.supplierId,
         attachments: updates.attachments,
         tags: updates.tags,
@@ -423,23 +434,28 @@ export class CostRepository {
   // ==================== COST TARGETS ====================
 
   static async findAllCostTargets(companyId: string, isActive?: boolean): Promise<CostTarget[]> {
-    let query = supabase
-      .from('cost_targets')
-      .select(`
-        *,
-        cost_centers(name, code),
-        products(name)
-      `)
-      .eq('company_id', companyId);
+    const build = (select: string) => {
+      let q = supabase.from('cost_targets').select(select).eq('company_id', companyId);
+      if (isActive !== undefined) {
+        q = q.eq('is_active', isActive);
+      }
+      return q.order('created_at', { ascending: false });
+    };
 
-    if (isActive !== undefined) {
-      query = query.eq('is_active', isActive);
+    const withCenters = await build(`
+      *,
+      cost_centers(name, code)
+    `);
+
+    if (!withCenters.error) {
+      return withCenters.data as CostTarget[];
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    console.warn('[CostRepository] findAllCostTargets (com centro):', withCenters.error.message);
 
-    if (error) throw error;
-    return data as CostTarget[];
+    const plain = await build('*');
+    if (plain.error) throw plain.error;
+    return plain.data as CostTarget[];
   }
 
   static async createCostTarget(target: Omit<CostTarget, 'id' | 'createdAt' | 'updatedAt'>): Promise<CostTarget> {
@@ -502,8 +518,11 @@ export class CostRepository {
       .select('*')
       .eq('company_id', companyId);
 
-    if (error) throw error;
-    return data;
+    if (error) {
+      console.warn('[CostRepository] getBudgetAnalysis (view opcional):', error.message);
+      return [];
+    }
+    return data ?? [];
   }
 
   static async getProductCostAnalysis(companyId: string): Promise<any[]> {

@@ -30,6 +30,9 @@ export interface ExpenseType {
 export type PaymentStatus = 'pending' | 'paid' | 'overdue' | 'cancelled';
 export type PaymentMethod = 'money' | 'pix' | 'credit' | 'debit' | 'bank_transfer' | 'boleto';
 
+/** Condição comercial: à vista, prazo (faturado) ou parcelado. */
+export type PaymentTermsType = 'avista' | 'faturado' | 'parcelado';
+
 export interface OperationalExpense {
   id: string;
   companyId: string;
@@ -42,6 +45,12 @@ export interface OperationalExpense {
   paymentDate?: string;
   paymentStatus: PaymentStatus;
   paymentMethod?: PaymentMethod;
+  /** À vista, faturado (usar invoiceDays) ou parcelado (usar installmentCount). */
+  paymentTermsType?: PaymentTermsType;
+  /** Prazo em dias quando faturado (ex.: 30, 60). */
+  invoiceDays?: number;
+  /** Quantidade de parcelas quando parcelado. */
+  installmentCount?: number;
   supplierId?: string;
   userId: string;
   attachments?: any;

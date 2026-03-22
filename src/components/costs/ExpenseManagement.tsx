@@ -10,10 +10,47 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Plus, FileText, DollarSign, Calendar, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
-import type { CostCenter, ExpenseType, PaymentMethod } from '../../types/costs';
+import type {
+  CostCenter,
+  ExpenseType,
+  PaymentMethod,
+  PaymentStatus,
+  PaymentTermsType
+} from '../../types/costs';
 import type { Supplier } from '../../types';
 import { SupplierRepository } from '../../repositories/SupplierRepository';
 import { CostRepository } from '../../repositories/CostRepository';
+
+const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
+  { value: 'pix', label: 'PIX' },
+  { value: 'money', label: 'Dinheiro' },
+  { value: 'debit', label: 'Cartão de débito' },
+  { value: 'credit', label: 'Cartão de crédito' },
+  { value: 'bank_transfer', label: 'Transferência bancária' },
+  { value: 'boleto', label: 'Boleto' }
+];
+
+function paymentMethodLabel(method?: string | null): string {
+  if (!method) return '—';
+  const row = PAYMENT_METHOD_OPTIONS.find((o) => o.value === method);
+  return row?.label ?? method;
+}
+
+/** Linha única para listagem (snake_case do Supabase). */
+function formatPaymentTermsLine(expense: {
+  payment_terms_type?: string | null;
+  invoice_days?: number | null;
+  installment_count?: number | null;
+}): string {
+  const t = expense.payment_terms_type || 'avista';
+  if (t === 'faturado' && expense.invoice_days != null) {
+    return `Faturado ${expense.invoice_days} dia${expense.invoice_days === 1 ? '' : 's'}`;
+  }
+  if (t === 'parcelado' && expense.installment_count != null) {
+    return `Parcelado ${expense.installment_count}x`;
+  }
+  return 'À vista';
+}
 
 export function ExpenseManagement() {
   const { currentCompany } = useCompany();
@@ -33,8 +70,11 @@ export function ExpenseManagement() {
     referenceNumber: '',
     dueDate: '',
     paymentDate: '',
-    paymentStatus: 'pending' as const,
-    paymentMethod: '',
+    paymentStatus: 'pending' as PaymentStatus,
+    paymentMethod: '' as PaymentMethod | '',
+    paymentTermsType: 'avista' as PaymentTermsType,
+    invoiceDays: '',
+    installmentCount: '',
     supplierId: ''
   });
 
@@ -74,8 +114,43 @@ export function ExpenseManagement() {
     e.preventDefault();
     if (!currentCompany?.id || !user?.id) return;
 
+    if (formData.paymentTermsType === 'faturado') {
+      const d = parseInt(formData.invoiceDays, 10);
+      if (!Number.isFinite(d) || d < 1) {
+        toast.error('Informe o prazo em dias para pagamento faturado.');
+        return;
+      }
+    }
+    if (formData.paymentTermsType === 'parcelado') {
+      const n = parseInt(formData.installmentCount, 10);
+      if (!Number.isFinite(n) || n < 2) {
+        toast.error('Informe em quantas parcelas (mínimo 2).');
+        return;
+      }
+    }
+
+    if (formData.paymentStatus === 'paid') {
+      if (!formData.paymentMethod) {
+        toast.error('Informe como foi pago (forma de pagamento).');
+        return;
+      }
+      if (!formData.paymentDate) {
+        toast.error('Informe a data do pagamento.');
+        return;
+      }
+    }
+
     try {
-      const paymentMethod = formData.paymentMethod?.trim();
+      const paymentMethod =
+        formData.paymentStatus === 'paid' && formData.paymentMethod
+          ? formData.paymentMethod
+          : undefined;
+      const paymentDate =
+        formData.paymentStatus === 'paid' && formData.paymentDate
+          ? formData.paymentDate
+          : undefined;
+
+      const paymentTermsType = formData.paymentTermsType;
       await CostRepository.createExpense({
         companyId: currentCompany.id,
         expenseTypeId: formData.expenseTypeId,
@@ -84,11 +159,14 @@ export function ExpenseManagement() {
         description: formData.description.trim() || undefined,
         referenceNumber: formData.referenceNumber.trim() || undefined,
         dueDate: formData.dueDate,
-        paymentDate: formData.paymentDate || undefined,
+        paymentDate,
         paymentStatus: formData.paymentStatus,
-        paymentMethod: paymentMethod
-          ? (paymentMethod as PaymentMethod)
-          : undefined,
+        paymentMethod,
+        paymentTermsType,
+        invoiceDays:
+          paymentTermsType === 'faturado' ? parseInt(formData.invoiceDays, 10) : undefined,
+        installmentCount:
+          paymentTermsType === 'parcelado' ? parseInt(formData.installmentCount, 10) : undefined,
         supplierId: formData.supplierId || undefined,
         userId: user.id
       });
@@ -131,7 +209,30 @@ export function ExpenseManagement() {
       paymentDate: '',
       paymentStatus: 'pending',
       paymentMethod: '',
+      paymentTermsType: 'avista',
+      invoiceDays: '',
+      installmentCount: '',
       supplierId: ''
+    });
+  };
+
+  const setPaymentStatus = (status: PaymentStatus) => {
+    setFormData((prev) => {
+      if (status === 'paid') {
+        const today = new Date().toISOString().split('T')[0];
+        return {
+          ...prev,
+          paymentStatus: status,
+          paymentDate: prev.paymentDate || today,
+          paymentMethod: prev.paymentMethod || ''
+        };
+      }
+      return {
+        ...prev,
+        paymentStatus: status,
+        paymentDate: '',
+        paymentMethod: ''
+      };
     });
   };
 
@@ -211,6 +312,7 @@ export function ExpenseManagement() {
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Fornecedor</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-500">Valor</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Vencimento</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Pagamento</th>
                   <th className="text-center py-3 px-4 text-sm font-medium text-gray-500">Ações</th>
                 </tr>
               </thead>
@@ -243,6 +345,23 @@ export function ExpenseManagement() {
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-sm">{new Date(expense.due_date).toLocaleDateString('pt-BR')}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="text-sm space-y-1">
+                        <p className="text-foreground">{formatPaymentTermsLine(expense)}</p>
+                        {expense.payment_status === 'paid' ? (
+                          <>
+                            <p>{paymentMethodLabel(expense.payment_method)}</p>
+                            {expense.payment_date && (
+                              <p className="text-xs text-gray-500">
+                                Pago em {new Date(expense.payment_date).toLocaleDateString('pt-BR')}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-xs text-gray-500">Ainda não pago</p>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-center">
                       {expense.payment_status === 'pending' && (
@@ -386,6 +505,126 @@ export function ExpenseManagement() {
                 <p className="text-xs text-muted-foreground mt-1">
                   Cadastre fornecedores em Fornecedores para associar aqui.
                 </p>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-4 bg-muted/30">
+              <p className="text-sm font-medium text-foreground">Pagamento</p>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Condição negociada com o fornecedor e situação atual do título.
+              </p>
+
+              <div>
+                <Label htmlFor="paymentTermsType">Tipo de pagamento *</Label>
+                <Select
+                  value={formData.paymentTermsType}
+                  onValueChange={(v) => {
+                    const terms = v as PaymentTermsType;
+                    setFormData((prev) => ({
+                      ...prev,
+                      paymentTermsType: terms,
+                      invoiceDays: terms === 'faturado' ? prev.invoiceDays || '30' : '',
+                      installmentCount: terms === 'parcelado' ? prev.installmentCount || '2' : ''
+                    }));
+                  }}
+                >
+                  <SelectTrigger id="paymentTermsType">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="avista">À vista</SelectItem>
+                    <SelectItem value="faturado">Faturado (prazo em dias)</SelectItem>
+                    <SelectItem value="parcelado">Parcelado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.paymentTermsType === 'faturado' && (
+                <div className="max-w-xs">
+                  <Label htmlFor="invoiceDays">Prazo (dias) *</Label>
+                  <Input
+                    id="invoiceDays"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={formData.invoiceDays}
+                    onChange={(e) => setFormData({ ...formData, invoiceDays: e.target.value })}
+                    placeholder="ex.: 30, 60"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Dias para pagamento após emissão / vencimento conforme combinado.
+                  </p>
+                </div>
+              )}
+
+              {formData.paymentTermsType === 'parcelado' && (
+                <div className="max-w-xs">
+                  <Label htmlFor="installmentCount">Parcelas *</Label>
+                  <Input
+                    id="installmentCount"
+                    type="number"
+                    min={2}
+                    step={1}
+                    value={formData.installmentCount}
+                    onChange={(e) => setFormData({ ...formData, installmentCount: e.target.value })}
+                    placeholder="ex.: 3, 6, 12"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Quantidade total de parcelas.</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="paymentStatus">Situação do título *</Label>
+                  <Select value={formData.paymentStatus} onValueChange={(v) => setPaymentStatus(v as PaymentStatus)}>
+                    <SelectTrigger id="paymentStatus">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">A pagar</SelectItem>
+                      <SelectItem value="paid">Já pago</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {formData.paymentStatus === 'paid' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="paymentDate">Data do pagamento *</Label>
+                    <Input
+                      id="paymentDate"
+                      type="date"
+                      value={formData.paymentDate}
+                      onChange={(e) => setFormData({ ...formData, paymentDate: e.target.value })}
+                      required={formData.paymentStatus === 'paid'}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="paymentMethod">Forma de pagamento *</Label>
+                    <Select
+                      value={formData.paymentMethod || 'none'}
+                      onValueChange={(value) =>
+                        setFormData({
+                          ...formData,
+                          paymentMethod: value === 'none' ? '' : (value as PaymentMethod)
+                        })
+                      }
+                    >
+                      <SelectTrigger id="paymentMethod">
+                        <SelectValue placeholder="Como foi pago?" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Selecione</SelectItem>
+                        {PAYMENT_METHOD_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               )}
             </div>
 

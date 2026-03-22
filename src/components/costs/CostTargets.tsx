@@ -99,7 +99,9 @@ export function CostTargets() {
                           {getTargetTypeLabel(target.target_type)}
                         </h3>
                         <p className="text-sm text-gray-500">
-                          {target.cost_centers?.name || target.products?.name || 'Geral'}
+                          {target.cost_centers?.name ||
+                            target.products?.name ||
+                            (target.product_id ? 'Por produto' : 'Geral')}
                         </p>
                       </div>
                     </div>
