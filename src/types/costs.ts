@@ -51,7 +51,7 @@ export interface OperationalExpense {
   invoiceDays?: number;
   /** Quantidade de parcelas quando parcelado. */
   installmentCount?: number;
-  supplierId?: string;
+  supplierId?: string | null;
   userId: string;
   attachments?: any;
   tags?: string[];

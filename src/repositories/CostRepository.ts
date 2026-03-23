@@ -264,34 +264,44 @@ export class CostRepository {
   }
 
   static async updateExpense(id: string, updates: Partial<OperationalExpense>): Promise<OperationalExpense> {
-    const { data, error } = await supabase
-      .from('operational_expenses')
-      .update({
-        expense_type_id: updates.expenseTypeId,
-        cost_center_id: updates.costCenterId,
-        amount: updates.amount,
-        description: updates.description,
-        reference_number: updates.referenceNumber,
-        due_date: updates.dueDate,
-        payment_date: updates.paymentDate,
-        payment_status: updates.paymentStatus,
-        payment_method: updates.paymentMethod,
-        ...(updates.paymentTermsType !== undefined && {
-          payment_terms_type: updates.paymentTermsType,
-          invoice_days:
-            updates.paymentTermsType === 'faturado' ? updates.invoiceDays ?? null : null,
-          installment_count:
-            updates.paymentTermsType === 'parcelado' ? updates.installmentCount ?? null : null
-        }),
-        supplier_id: updates.supplierId,
-        attachments: updates.attachments,
-        tags: updates.tags,
-        notes: updates.notes,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id)
-      .select()
-      .single();
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (updates.expenseTypeId !== undefined) patch.expense_type_id = updates.expenseTypeId;
+    if (updates.costCenterId !== undefined) patch.cost_center_id = updates.costCenterId;
+    if (updates.amount !== undefined) patch.amount = updates.amount;
+    if (updates.description !== undefined) patch.description = updates.description;
+    if (updates.referenceNumber !== undefined) patch.reference_number = updates.referenceNumber;
+    if (updates.dueDate !== undefined) patch.due_date = updates.dueDate;
+
+    if (updates.paymentStatus !== undefined) {
+      patch.payment_status = updates.paymentStatus;
+      patch.payment_date =
+        updates.paymentStatus === 'paid' ? updates.paymentDate ?? null : null;
+      patch.payment_method =
+        updates.paymentStatus === 'paid' ? updates.paymentMethod ?? null : null;
+    } else {
+      if (updates.paymentDate !== undefined) patch.payment_date = updates.paymentDate;
+      if (updates.paymentMethod !== undefined) patch.payment_method = updates.paymentMethod;
+    }
+
+    if (updates.paymentTermsType !== undefined) {
+      patch.payment_terms_type = updates.paymentTermsType;
+      patch.invoice_days =
+        updates.paymentTermsType === 'faturado' ? updates.invoiceDays ?? null : null;
+      patch.installment_count =
+        updates.paymentTermsType === 'parcelado' ? updates.installmentCount ?? null : null;
+    }
+
+    if (updates.supplierId !== undefined) {
+      patch.supplier_id = updates.supplierId ?? null;
+    }
+    if (updates.attachments !== undefined) patch.attachments = updates.attachments;
+    if (updates.tags !== undefined) patch.tags = updates.tags;
+    if (updates.notes !== undefined) patch.notes = updates.notes;
+
+    const { data, error } = await supabase.from('operational_expenses').update(patch).eq('id', id).select().single();
 
     if (error) throw error;
     return data as OperationalExpense;

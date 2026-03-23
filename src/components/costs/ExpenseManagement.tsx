@@ -7,7 +7,16 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
-import { Plus, FileText, Calendar, CheckCircle, Clock, XCircle } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '../ui/alert-dialog';
+import { Plus, FileText, Calendar, CheckCircle, Clock, XCircle, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
 import type {
@@ -52,6 +61,11 @@ function formatPaymentTermsLine(expense: {
   return 'À vista';
 }
 
+function ymdFromDb(value: string | null | undefined): string {
+  if (!value) return '';
+  return value.split('T')[0];
+}
+
 export function ExpenseManagement() {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
@@ -61,6 +75,8 @@ export function ExpenseManagement() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [filter, setFilter] = useState('all');
   /** Período por data de vencimento (YYYY-MM-DD), vazio = sem filtro de datas */
   const [periodFrom, setPeriodFrom] = useState('');
@@ -162,28 +178,51 @@ export function ExpenseManagement() {
           : undefined;
 
       const paymentTermsType = formData.paymentTermsType;
-      await CostRepository.createExpense({
-        companyId: currentCompany.id,
-        expenseTypeId: formData.expenseTypeId,
-        costCenterId: formData.costCenterId,
-        amount: parseFloat(formData.amount),
-        description: formData.description.trim() || undefined,
-        referenceNumber: formData.referenceNumber.trim() || undefined,
-        dueDate: formData.dueDate,
-        paymentDate,
-        paymentStatus: formData.paymentStatus,
-        paymentMethod,
-        paymentTermsType,
-        invoiceDays:
-          paymentTermsType === 'faturado' ? parseInt(formData.invoiceDays, 10) : undefined,
-        installmentCount:
-          paymentTermsType === 'parcelado' ? parseInt(formData.installmentCount, 10) : undefined,
-        supplierId: formData.supplierId || undefined,
-        userId: user.id
-      });
 
-      toast.success('Despesa registrada com sucesso!');
+      if (editingExpenseId) {
+        await CostRepository.updateExpense(editingExpenseId, {
+          expenseTypeId: formData.expenseTypeId,
+          costCenterId: formData.costCenterId,
+          amount: parseFloat(formData.amount),
+          description: formData.description.trim() || undefined,
+          referenceNumber: formData.referenceNumber.trim() || undefined,
+          dueDate: formData.dueDate,
+          paymentDate,
+          paymentStatus: formData.paymentStatus,
+          paymentMethod,
+          paymentTermsType,
+          invoiceDays:
+            paymentTermsType === 'faturado' ? parseInt(formData.invoiceDays, 10) : undefined,
+          installmentCount:
+            paymentTermsType === 'parcelado' ? parseInt(formData.installmentCount, 10) : undefined,
+          supplierId: formData.supplierId || null
+        });
+        toast.success('Despesa atualizada!');
+      } else {
+        await CostRepository.createExpense({
+          companyId: currentCompany.id,
+          expenseTypeId: formData.expenseTypeId,
+          costCenterId: formData.costCenterId,
+          amount: parseFloat(formData.amount),
+          description: formData.description.trim() || undefined,
+          referenceNumber: formData.referenceNumber.trim() || undefined,
+          dueDate: formData.dueDate,
+          paymentDate,
+          paymentStatus: formData.paymentStatus,
+          paymentMethod,
+          paymentTermsType,
+          invoiceDays:
+            paymentTermsType === 'faturado' ? parseInt(formData.invoiceDays, 10) : undefined,
+          installmentCount:
+            paymentTermsType === 'parcelado' ? parseInt(formData.installmentCount, 10) : undefined,
+          supplierId: formData.supplierId || undefined,
+          userId: user.id
+        });
+        toast.success('Despesa registrada com sucesso!');
+      }
+
       setDialogOpen(false);
+      setEditingExpenseId(null);
       resetForm();
       loadData();
     } catch (error: unknown) {
@@ -205,6 +244,51 @@ export function ExpenseManagement() {
     } catch (error: unknown) {
       console.error('Error updating expense:', error);
       const msg = error instanceof Error ? error.message : 'Erro ao atualizar despesa';
+      toast.error(msg);
+    }
+  };
+
+  const populateFromExpense = (expense: any) => {
+    const ps = String(expense.payment_status || '');
+    const paymentStatus = (
+      ['paid', 'pending', 'overdue', 'cancelled'].includes(ps) ? ps : 'pending'
+    ) as PaymentStatus;
+
+    setFormData({
+      costCenterId: expense.cost_center_id || '',
+      expenseTypeId: expense.expense_type_id || '',
+      amount: expense.amount != null ? String(expense.amount) : '',
+      description: expense.description ?? '',
+      referenceNumber: expense.reference_number ?? '',
+      dueDate: ymdFromDb(expense.due_date),
+      paymentDate: ymdFromDb(expense.payment_date),
+      paymentStatus,
+      paymentMethod: (expense.payment_method || '') as PaymentMethod | '',
+      paymentTermsType: (expense.payment_terms_type || 'avista') as PaymentTermsType,
+      invoiceDays: expense.invoice_days != null ? String(expense.invoice_days) : '',
+      installmentCount: expense.installment_count != null ? String(expense.installment_count) : '',
+      supplierId: expense.supplier_id || ''
+    });
+    setEditingExpenseId(expense.id);
+    setDialogOpen(true);
+  };
+
+  const openNewExpense = () => {
+    setEditingExpenseId(null);
+    resetForm();
+    setDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await CostRepository.deleteExpense(deleteTarget.id);
+      toast.success('Despesa excluída.');
+      setDeleteTarget(null);
+      loadData();
+    } catch (error: unknown) {
+      console.error('Error deleting expense:', error);
+      const msg = error instanceof Error ? error.message : 'Erro ao excluir despesa';
       toast.error(msg);
     }
   };
@@ -286,7 +370,7 @@ export function ExpenseManagement() {
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">
               Despesas Operacionais
             </h2>
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button onClick={openNewExpense}>
               <Plus className="w-4 h-4 mr-2" />
               Nova Despesa
             </Button>
@@ -446,15 +530,44 @@ export function ExpenseManagement() {
                       </div>
                     </td>
                     <td className="py-3 px-4 text-center">
-                      {expense.payment_status === 'pending' && (
+                      <div className="flex flex-wrap items-center justify-center gap-1">
                         <Button
+                          type="button"
                           size="sm"
                           variant="outline"
-                          onClick={() => markAsPaid(expense.id)}
+                          className="h-8"
+                          onClick={() => populateFromExpense(expense)}
+                          title="Editar"
                         >
-                          Marcar como Pago
+                          <Pencil className="w-3.5 h-3.5" />
                         </Button>
-                      )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-destructive hover:text-destructive"
+                          onClick={() =>
+                            setDeleteTarget({
+                              id: expense.id,
+                              label: expense.description?.trim() || formatCurrency(parseFloat(expense.amount))
+                            })
+                          }
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                        {expense.payment_status === 'pending' && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-8"
+                            onClick={() => markAsPaid(expense.id)}
+                          >
+                            Marcar pago
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -464,13 +577,44 @@ export function ExpenseManagement() {
         )}
       </Card>
 
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir esta despesa? Esta ação não pode ser desfeita.
+              <span className="mt-2 block font-medium text-foreground">{deleteTarget?.label}</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel type="button">Cancelar</AlertDialogCancel>
+            <Button type="button" variant="destructive" onClick={() => void confirmDelete()}>
+              Sim, excluir
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Dialog Form */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl">
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setEditingExpenseId(null);
+            resetForm();
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Nova Despesa Operacional</DialogTitle>
+            <DialogTitle>
+              {editingExpenseId ? 'Editar despesa operacional' : 'Nova Despesa Operacional'}
+            </DialogTitle>
             <DialogDescription>
-              Registre uma nova despesa operacional para o controle de custos.
+              {editingExpenseId
+                ? 'Altere os dados da despesa e salve.'
+                : 'Registre uma nova despesa operacional para o controle de custos.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -665,6 +809,8 @@ export function ExpenseManagement() {
                     <SelectContent>
                       <SelectItem value="pending">A pagar</SelectItem>
                       <SelectItem value="paid">Já pago</SelectItem>
+                      <SelectItem value="overdue">Atrasado</SelectItem>
+                      <SelectItem value="cancelled">Cancelado</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -714,9 +860,7 @@ export function ExpenseManagement() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit">
-                Criar Despesa
-              </Button>
+              <Button type="submit">{editingExpenseId ? 'Salvar alterações' : 'Criar Despesa'}</Button>
             </div>
           </form>
         </DialogContent>
