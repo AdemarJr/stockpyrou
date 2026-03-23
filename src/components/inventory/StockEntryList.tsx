@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Package, Search, Filter, Edit2, Trash2, Calendar, FileText, MoreVertical } from 'lucide-react';
 import type { Product, Supplier, StockEntry } from '../../types';
 import { formatCurrency, formatDateTime } from '../../utils/calculations';
 import { useIsMobile } from '../ui/use-mobile';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Button } from '../ui/button';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
+import { usePagination } from '../../hooks/usePagination';
 
 interface StockEntryListProps {
   entries: StockEntry[];
@@ -19,20 +21,21 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
   
-  // Filter entries
-  const filteredEntries = entries.filter(entry => {
-    const product = products.find(p => p.id === entry.productId);
-    const supplier = suppliers.find(s => s.id === entry.supplierId);
-    
-    const matchesSearch = 
-      product?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.batchNumber?.toLowerCase().includes(searchTerm.toLowerCase());
-      
-    const matchesSupplier = filterSupplier ? entry.supplierId === filterSupplier : true;
-    
-    return matchesSearch && matchesSupplier;
-  });
+  const filteredEntries = useMemo(() => {
+    return entries.filter((entry) => {
+      const product = products.find((p) => p.id === entry.productId);
+      const matchesSearch =
+        product?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        entry.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        entry.batchNumber?.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSupplier = filterSupplier ? entry.supplierId === filterSupplier : true;
+      return matchesSearch && matchesSupplier;
+    });
+  }, [entries, products, searchTerm, filterSupplier]);
+
+  const filterKey = `${searchTerm}|${filterSupplier}`;
+  const { paginatedItems, page, setPage, totalPages, from, to, total: filteredTotal } =
+    usePagination(filteredEntries, 12, filterKey);
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm mt-8">
@@ -72,7 +75,7 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
       {isMobile ? (
         <div className="p-4 space-y-4">
           {filteredEntries.length > 0 ? (
-            filteredEntries.map((entry) => {
+            paginatedItems.map((entry) => {
               const product = products.find(p => p.id === entry.productId);
               const supplier = suppliers.find(s => s.id === entry.supplierId);
               
@@ -145,7 +148,7 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
           </thead>
           <tbody className="divide-y divide-gray-200">
             {filteredEntries.length > 0 ? (
-              filteredEntries.map((entry) => {
+              paginatedItems.map((entry) => {
                 const product = products.find(p => p.id === entry.productId);
                 const supplier = suppliers.find(s => s.id === entry.supplierId);
                 
@@ -206,8 +209,20 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
       </div>
     )}
       
-      <div className="p-4 border-t border-gray-200 text-sm text-gray-500 text-center">
-        Exibindo {filteredEntries.length} de {entries.length} registros
+      <div className="px-4 pb-2 border-t border-gray-200">
+        <p className="text-sm text-gray-500 text-center py-2">
+          Filtrados: {filteredEntries.length} de {entries.length} registros
+        </p>
+        {filteredEntries.length > 0 && (
+          <ListPaginationBar
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            from={from}
+            to={to}
+            total={filteredTotal}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { usePagination } from '../../hooks/usePagination';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -7,7 +9,7 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Switch } from '../ui/switch';
-import { Plus, Tag, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Tag, Edit2, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import type { ExpenseCategory, CostCenter } from '../../types/costs';
 import { CostRepository } from '../../repositories/CostRepository';
@@ -26,6 +28,19 @@ export function ExpenseTypeManager() {
     isRecurring: false,
     recurrenceDay: ''
   });
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const listResetKey = currentCompany?.id ?? '';
+  const {
+    paginatedItems,
+    page,
+    setPage,
+    totalPages,
+    from,
+    to,
+    total: pageTotal
+  } = usePagination(types, 9, listResetKey);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -57,6 +72,7 @@ export function ExpenseTypeManager() {
     e.preventDefault();
     if (!currentCompany?.id) return;
 
+    setSubmitLoading(true);
     try {
       const recurrenceDay = formData.recurrenceDay
         ? parseInt(formData.recurrenceDay, 10)
@@ -96,6 +112,8 @@ export function ExpenseTypeManager() {
       console.error('Error saving expense type:', error);
       const msg = error instanceof Error ? error.message : 'Erro ao salvar';
       toast.error(`Erro ao salvar tipo de despesa: ${msg}`);
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
@@ -120,6 +138,7 @@ export function ExpenseTypeManager() {
       return;
     }
 
+    setDeletingId(type.id);
     try {
       await CostRepository.deleteExpenseType(type.id);
       toast.success('Tipo de despesa excluído!');
@@ -128,6 +147,8 @@ export function ExpenseTypeManager() {
       console.error('Error deleting expense type:', error);
       const msg = error instanceof Error ? error.message : 'Erro ao excluir';
       toast.error(`Erro ao excluir tipo de despesa: ${msg}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -190,7 +211,7 @@ export function ExpenseTypeManager() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {types.map((type: any) => (
+            {paginatedItems.map((type: any) => (
               <Card key={type.id} className="p-4 hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between mb-2">
                   <div>
@@ -206,6 +227,7 @@ export function ExpenseTypeManager() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleEdit(type)}
+                      disabled={deletingId !== null}
                     >
                       <Edit2 className="w-3 h-3" />
                     </Button>
@@ -213,8 +235,13 @@ export function ExpenseTypeManager() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleDelete(type)}
+                      disabled={deletingId !== null}
                     >
-                      <Trash2 className="w-3 h-3" />
+                      {deletingId === type.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3 h-3" />
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -232,6 +259,17 @@ export function ExpenseTypeManager() {
               </Card>
             ))}
           </div>
+        )}
+        {types.length > 0 && totalPages > 1 && (
+          <ListPaginationBar
+            page={page}
+            totalPages={totalPages}
+            from={from}
+            to={to}
+            total={pageTotal}
+            onPageChange={setPage}
+            className="mt-4"
+          />
         )}
       </Card>
 
@@ -333,11 +371,20 @@ export function ExpenseTypeManager() {
             )}
 
             <div className="flex gap-2 justify-end">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={submitLoading}>
                 Cancelar
               </Button>
-              <Button type="submit">
-                {editingType ? 'Atualizar' : 'Criar'}
+              <Button type="submit" disabled={submitLoading}>
+                {submitLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    {editingType ? 'Salvando…' : 'Criando…'}
+                  </>
+                ) : editingType ? (
+                  'Atualizar'
+                ) : (
+                  'Criar'
+                )}
               </Button>
             </div>
           </form>

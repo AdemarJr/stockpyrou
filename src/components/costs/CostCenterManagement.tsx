@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { usePagination } from '../../hooks/usePagination';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -7,7 +9,7 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { Plus, Edit2, Trash2, Folder, Tag } from 'lucide-react';
+import { Plus, Edit2, Trash2, Folder, Tag, Loader2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import type { CostCenter } from '../../types/costs';
 import { CostRepository } from '../../repositories/CostRepository';
@@ -24,6 +26,19 @@ export function CostCenterManagement() {
     code: '',
     description: ''
   });
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const listResetKey = currentCompany?.id ?? '';
+  const {
+    paginatedItems,
+    page,
+    setPage,
+    totalPages,
+    from,
+    to,
+    total: pageTotal
+  } = usePagination(centers, 9, listResetKey);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -50,6 +65,7 @@ export function CostCenterManagement() {
     e.preventDefault();
     if (!currentCompany?.id) return;
 
+    setSubmitLoading(true);
     try {
       if (editingCenter) {
         await CostRepository.updateCostCenter(editingCenter.id, {
@@ -81,6 +97,8 @@ export function CostCenterManagement() {
       console.error('Error saving cost center:', error);
       const msg = error instanceof Error ? error.message : 'Erro ao salvar';
       toast.error(`Erro ao salvar centro de custo: ${msg}`);
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
@@ -97,6 +115,7 @@ export function CostCenterManagement() {
   const handleDelete = async (id: string) => {
     if (!confirm('Deseja realmente excluir este centro de custo?')) return;
 
+    setDeletingId(id);
     try {
       await CostRepository.deleteCostCenter(id);
       toast.success('Centro de custo excluído com sucesso!');
@@ -105,6 +124,8 @@ export function CostCenterManagement() {
       console.error('Error deleting cost center:', error);
       const msg = error instanceof Error ? error.message : 'Erro ao excluir';
       toast.error(`Erro ao excluir centro de custo: ${msg}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -171,7 +192,7 @@ export function CostCenterManagement() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {centers.map((center) => (
+                {paginatedItems.map((center) => (
                   <Card key={center.id} className="p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-2">
@@ -192,6 +213,7 @@ export function CostCenterManagement() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleEdit(center)}
+                          disabled={deletingId !== null}
                         >
                           <Edit2 className="w-3 h-3" />
                         </Button>
@@ -199,8 +221,14 @@ export function CostCenterManagement() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDelete(center.id)}
+                          disabled={deletingId !== null}
+                          title="Excluir"
                         >
-                          <Trash2 className="w-3 h-3 text-red-500" />
+                          {deletingId === center.id ? (
+                            <Loader2 className="w-3 h-3 text-red-500 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3 text-red-500" />
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -212,6 +240,17 @@ export function CostCenterManagement() {
                   </Card>
                 ))}
               </div>
+            )}
+            {centers.length > 0 && totalPages > 1 && (
+              <ListPaginationBar
+                page={page}
+                totalPages={totalPages}
+                from={from}
+                to={to}
+                total={pageTotal}
+                onPageChange={setPage}
+                className="mt-4"
+              />
             )}
           </Card>
 
@@ -262,11 +301,25 @@ export function CostCenterManagement() {
                 </div>
 
                 <div className="flex gap-2 justify-end">
-                  <Button type="button" variant="outline" onClick={() => handleDialogClose(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleDialogClose(false)}
+                    disabled={submitLoading}
+                  >
                     Cancelar
                   </Button>
-                  <Button type="submit">
-                    {editingCenter ? 'Atualizar' : 'Criar'}
+                  <Button type="submit" disabled={submitLoading}>
+                    {submitLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        {editingCenter ? 'Salvando…' : 'Criando…'}
+                      </>
+                    ) : editingCenter ? (
+                      'Atualizar'
+                    ) : (
+                      'Criar'
+                    )}
                   </Button>
                 </div>
               </form>

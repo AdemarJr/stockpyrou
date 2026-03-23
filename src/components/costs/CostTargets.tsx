@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { usePagination } from '../../hooks/usePagination';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
 import { Card } from '../ui/card';
 import { Target, TrendingUp, TrendingDown } from 'lucide-react';
@@ -11,6 +13,17 @@ export function CostTargets() {
   const { currentCompany } = useCompany();
   const [targets, setTargets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const listKey = currentCompany?.id ?? '';
+  const {
+    paginatedItems,
+    page,
+    setPage,
+    totalPages,
+    from,
+    to,
+    total: pageTotal
+  } = usePagination(targets, 8, listKey);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -74,7 +87,7 @@ export function CostTargets() {
           </div>
         ) : (
           <div className="space-y-4">
-            {targets.map((target: any) => {
+            {paginatedItems.map((target: any) => {
               const progress = calculateProgress(
                 parseFloat(target.current_value || 0),
                 parseFloat(target.target_value || 0)
@@ -125,6 +138,17 @@ export function CostTargets() {
                 </Card>
               );
             })}
+            {totalPages > 1 && (
+              <ListPaginationBar
+                page={page}
+                totalPages={totalPages}
+                from={from}
+                to={to}
+                total={pageTotal}
+                onPageChange={setPage}
+                className="pt-2"
+              />
+            )}
           </div>
         )}
       </Card>

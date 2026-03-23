@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Package, Search, Plus, Edit2, AlertCircle, TrendingUp, TrendingDown, Trash2, Eye, MinusCircle, MoreVertical, Upload, Copy } from 'lucide-react';
 import type { Product } from '../../types';
 import { formatCurrency, getStockStatus } from '../../utils/calculations';
@@ -8,6 +8,8 @@ import { ProductImport } from './ProductImport';
 import { useIsMobile } from '../ui/use-mobile';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Button } from '../ui/button';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
+import { usePagination } from '../../hooks/usePagination';
 
 interface ProductListProps {
   products: Product[];
@@ -30,20 +32,35 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   
-  // Filter products
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         product.barcode?.includes(searchTerm);
-    const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
-    
-    let matchesStatus = true;
-    if (statusFilter !== 'all') {
-      const status = getStockStatus(product.currentStock, product.minStock, product.safetyStock);
-      matchesStatus = status === statusFilter;
-    }
-    
-    return matchesSearch && matchesCategory && matchesStatus;
-  });
+  const filteredProducts = useMemo(
+    () =>
+      products.filter((product) => {
+        const matchesSearch =
+          product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          product.barcode?.includes(searchTerm);
+        const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
+
+        let matchesStatus = true;
+        if (statusFilter !== 'all') {
+          const status = getStockStatus(product.currentStock, product.minStock, product.safetyStock);
+          matchesStatus = status === statusFilter;
+        }
+
+        return matchesSearch && matchesCategory && matchesStatus;
+      }),
+    [products, searchTerm, categoryFilter, statusFilter]
+  );
+
+  const filterKey = `${searchTerm}|${categoryFilter}|${statusFilter}`;
+  const {
+    paginatedItems,
+    page,
+    setPage,
+    totalPages,
+    from,
+    to,
+    total: filteredTotal
+  } = usePagination(filteredProducts, 15, filterKey);
   
   // Get unique categories
   const uniqueCategories = Array.from(new Set(products.map(p => p.category)));
@@ -101,7 +118,9 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
         <div>
           <h2>Gestão de Produtos</h2>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            {filteredProducts.length} produto{filteredProducts.length !== 1 ? 's' : ''} encontrado{filteredProducts.length !== 1 ? 's' : ''}
+            {filteredProducts.length} produto{filteredProducts.length !== 1 ? 's' : ''} encontrado
+            {filteredProducts.length !== 1 ? 's' : ''}
+            {filteredProducts.length > 15 ? ` (exibindo ${from}–${to})` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto">
@@ -176,7 +195,7 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
         />
       ) : isMobile ? (
         <div className="space-y-4">
-          {filteredProducts.map((product) => {
+          {paginatedItems.map((product) => {
             const statusBadge = getStatusBadge(product);
             return (
               <div key={product.id} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
@@ -256,6 +275,16 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
               <p>Nenhum produto encontrado</p>
             </div>
           )}
+          {filteredProducts.length > 0 && (
+            <ListPaginationBar
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              from={from}
+              to={to}
+              total={filteredTotal}
+            />
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -275,7 +304,7 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredProducts.map((product) => {
+                {paginatedItems.map((product) => {
                   const totalValue = product.currentStock * product.averageCost;
                   
                   return (
@@ -388,6 +417,16 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
                 <p>Nenhum produto encontrado</p>
                 <p className="mt-2">Ajuste os filtros ou adicione novos produtos</p>
               </div>
+            )}
+            {filteredProducts.length > 0 && (
+              <ListPaginationBar
+                page={page}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                from={from}
+                to={to}
+                total={filteredTotal}
+              />
             )}
           </div>
         </div>

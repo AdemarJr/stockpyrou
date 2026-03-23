@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { usePagination } from '../../hooks/usePagination';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
 import {
   Calendar,
   TrendingUp,
@@ -27,6 +29,17 @@ export function CashierHistory() {
   const [registers, setRegisters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const listKey = currentCompany?.id ?? '';
+  const {
+    paginatedItems,
+    page,
+    setPage,
+    totalPages,
+    from,
+    to,
+    total: pageTotal
+  } = usePagination(registers, 10, listKey);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -170,7 +183,7 @@ export function CashierHistory() {
       </div>
 
       <div className="space-y-4">
-        {registers.map((register) => {
+        {paginatedItems.map((register) => {
           const isExpanded = expandedId === register.id;
           const hasDifference = Math.abs(register.difference) > 0.01;
 
@@ -430,6 +443,17 @@ export function CashierHistory() {
             </div>
           );
         })}
+        {totalPages > 1 && (
+          <ListPaginationBar
+            page={page}
+            totalPages={totalPages}
+            from={from}
+            to={to}
+            total={pageTotal}
+            onPageChange={setPage}
+            className="mt-2"
+          />
+        )}
       </div>
     </div>
   );

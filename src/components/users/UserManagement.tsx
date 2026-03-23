@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { usePagination } from '../../hooks/usePagination';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { 
   Users, 
   Plus, 
@@ -62,6 +64,20 @@ export function UserManagement() {
     role: 'visualizacao',
     position: '',
   });
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+
+  const listKey = currentCompany?.id ?? 'all';
+  const {
+    paginatedItems,
+    page,
+    setPage,
+    totalPages,
+    from,
+    to,
+    total: pageTotal
+  } = usePagination(users, 10, listKey);
 
   useEffect(() => {
     if (user?.permissions.canManageUsers && currentCompany) {
@@ -104,6 +120,7 @@ export function UserManagement() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    setSubmitLoading(true);
     try {
       if (editingUser) {
         const response = await fetch(`${API_URL}/users/${editingUser.id}`, {
@@ -149,12 +166,15 @@ export function UserManagement() {
     } catch (error: any) {
       console.error('Error saving user:', error);
       toast.error(error.message || 'Erro ao salvar usuário');
+    } finally {
+      setSubmitLoading(false);
     }
   }
 
   async function handleDelete() {
     if (!deletingUser) return;
 
+    setDeleteLoading(true);
     try {
       const response = await fetch(`${API_URL}/users/${deletingUser.id}`, {
         method: 'DELETE',
@@ -175,6 +195,8 @@ export function UserManagement() {
     } catch (error: any) {
       console.error('Error deleting user:', error);
       toast.error(error.message || 'Erro ao desativar usuário');
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -186,6 +208,7 @@ export function UserManagement() {
       return;
     }
 
+    setResetPasswordLoading(true);
     try {
       const response = await fetch(`${API_URL}/users/${resettingPassword.id}/reset-password`, {
         method: 'POST',
@@ -207,6 +230,8 @@ export function UserManagement() {
     } catch (error: any) {
       console.error('Error resetting password:', error);
       toast.error(error.message || 'Erro ao redefinir senha');
+    } finally {
+      setResetPasswordLoading(false);
     }
   }
 
@@ -289,7 +314,7 @@ export function UserManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {users.map((userItem) => (
+              {paginatedItems.map((userItem) => (
                 <tr key={userItem.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -330,23 +355,26 @@ export function UserManagement() {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => handleEdit(userItem)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
                         title="Editar usuário"
+                        disabled={submitLoading || deleteLoading || resetPasswordLoading}
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => setResettingPassword(userItem)}
-                        className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                        className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors disabled:opacity-50"
                         title="Redefinir senha"
+                        disabled={submitLoading || deleteLoading || resetPasswordLoading}
                       >
                         <Key className="w-4 h-4" />
                       </button>
                       {userItem.id !== user.id && (
                         <button
                           onClick={() => setDeletingUser(userItem)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                           title="Desativar usuário"
+                          disabled={submitLoading || deleteLoading || resetPasswordLoading}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -358,6 +386,17 @@ export function UserManagement() {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <ListPaginationBar
+            page={page}
+            totalPages={totalPages}
+            from={from}
+            to={to}
+            total={pageTotal}
+            onPageChange={setPage}
+            className="px-4 border-t border-gray-200"
+          />
+        )}
       </div>
 
       {/* User Form Modal */}
@@ -371,6 +410,8 @@ export function UserManagement() {
               <button
                 onClick={handleCloseForm}
                 className="p-2 hover:bg-gray-100 rounded-lg"
+                disabled={submitLoading}
+                type="button"
               >
                 <X className="w-5 h-5 text-gray-600" />
               </button>
@@ -453,15 +494,26 @@ export function UserManagement() {
                 <button
                   type="button"
                   onClick={handleCloseForm}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  disabled={submitLoading}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  disabled={submitLoading}
                 >
-                  {editingUser ? 'Atualizar' : 'Criar'}
+                  {submitLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {editingUser ? 'Salvando…' : 'Criando…'}
+                    </>
+                  ) : editingUser ? (
+                    'Atualizar'
+                  ) : (
+                    'Criar'
+                  )}
                 </button>
               </div>
             </form>
@@ -487,16 +539,27 @@ export function UserManagement() {
 
             <div className="flex gap-3">
               <button
+                type="button"
                 onClick={() => setDeletingUser(null)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                disabled={deleteLoading}
               >
                 Cancelar
               </button>
               <button
-                onClick={handleDelete}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                type="button"
+                onClick={() => void handleDelete()}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                disabled={deleteLoading}
               >
-                Desativar
+                {deleteLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Desativando…
+                  </>
+                ) : (
+                  'Desativar'
+                )}
               </button>
             </div>
           </div>
@@ -510,11 +573,13 @@ export function UserManagement() {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-gray-900">Redefinir Senha</h3>
               <button
+                type="button"
                 onClick={() => {
                   setResettingPassword(null);
                   setNewPassword('');
                 }}
-                className="p-2 hover:bg-gray-100 rounded-lg"
+                className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+                disabled={resetPasswordLoading}
               >
                 <X className="w-5 h-5 text-gray-600" />
               </button>
@@ -538,20 +603,30 @@ export function UserManagement() {
 
             <div className="flex gap-3">
               <button
+                type="button"
                 onClick={() => {
                   setResettingPassword(null);
                   setNewPassword('');
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                disabled={resetPasswordLoading}
               >
                 Cancelar
               </button>
               <button
-                onClick={handleResetPassword}
-                disabled={!newPassword || newPassword.length < 6}
-                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                type="button"
+                onClick={() => void handleResetPassword()}
+                disabled={!newPassword || newPassword.length < 6 || resetPasswordLoading}
+                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
               >
-                Redefinir
+                {resetPasswordLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Salvando…
+                  </>
+                ) : (
+                  'Redefinir'
+                )}
               </button>
             </div>
           </div>

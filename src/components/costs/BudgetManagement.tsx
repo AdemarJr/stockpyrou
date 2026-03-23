@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { usePagination } from '../../hooks/usePagination';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -13,6 +15,26 @@ export function BudgetManagement() {
   const [budgets, setBudgets] = useState<any[]>([]);
   const [analysis, setAnalysis] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const companyKey = currentCompany?.id ?? '';
+  const {
+    paginatedItems: paginatedBudgets,
+    page: pageBudgets,
+    setPage: setPageBudgets,
+    totalPages: totalPagesBudgets,
+    from: fromBudgets,
+    to: toBudgets,
+    total: totalBudgets
+  } = usePagination(budgets, 8, `b|${companyKey}`);
+  const {
+    paginatedItems: paginatedAnalysis,
+    page: pageAnalysis,
+    setPage: setPageAnalysis,
+    totalPages: totalPagesAnalysis,
+    from: fromAnalysis,
+    to: toAnalysis,
+    total: totalAnalysisCount
+  } = usePagination(analysis, 8, `a|${companyKey}`);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -66,7 +88,7 @@ export function BudgetManagement() {
           </div>
         ) : analysis.length === 0 && budgets.length > 0 ? (
           <div className="space-y-3">
-            {budgets.map((b: any) => (
+            {paginatedBudgets.map((b: any) => (
               <Card key={b.id} className="p-4">
                 <h3 className="font-semibold text-gray-900 dark:text-white">{b.name}</h3>
                 <p className="text-sm text-gray-500">
@@ -80,10 +102,21 @@ export function BudgetManagement() {
                 </p>
               </Card>
             ))}
+            {totalPagesBudgets > 1 && (
+              <ListPaginationBar
+                page={pageBudgets}
+                totalPages={totalPagesBudgets}
+                from={fromBudgets}
+                to={toBudgets}
+                total={totalBudgets}
+                onPageChange={setPageBudgets}
+                className="pt-2"
+              />
+            )}
           </div>
         ) : (
           <div className="space-y-4">
-            {analysis.map((budget: any) => {
+            {paginatedAnalysis.map((budget: any) => {
               const utilizationPercent = parseFloat(budget.utilization_percentage || 0);
               const isOverBudget = utilizationPercent > 100;
               const isNearLimit = utilizationPercent > 80 && utilizationPercent <= 100;
@@ -139,6 +172,17 @@ export function BudgetManagement() {
                 </Card>
               );
             })}
+            {totalPagesAnalysis > 1 && (
+              <ListPaginationBar
+                page={pageAnalysis}
+                totalPages={totalPagesAnalysis}
+                from={fromAnalysis}
+                to={toAnalysis}
+                total={totalAnalysisCount}
+                onPageChange={setPageAnalysis}
+                className="pt-2"
+              />
+            )}
           </div>
         )}
       </Card>

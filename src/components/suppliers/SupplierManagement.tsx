@@ -23,6 +23,7 @@ export function SupplierManagement({ suppliers, onSave, onUpdate, onDelete }: Su
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | undefined>(undefined);
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function handleAddNew() {
     setEditingSupplier(undefined);
@@ -36,7 +37,12 @@ export function SupplierManagement({ suppliers, onSave, onUpdate, onDelete }: Su
 
   async function handleDelete(id: string) {
     if (!confirm("Tem certeza que deseja excluir este fornecedor?")) return;
-    await onDelete(id);
+    try {
+      setDeletingId(id);
+      await onDelete(id);
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   async function handleSubmit(data: any) {
@@ -73,6 +79,7 @@ export function SupplierManagement({ suppliers, onSave, onUpdate, onDelete }: Su
         suppliers={suppliers}
         onEdit={handleEdit}
         onDelete={handleDelete}
+        deletingId={deletingId}
       />
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

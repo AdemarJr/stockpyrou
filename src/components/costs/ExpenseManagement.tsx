@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { usePagination } from '../../hooks/usePagination';
+import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Card } from '../ui/card';
@@ -16,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '../ui/alert-dialog';
-import { Plus, FileText, Calendar, CheckCircle, Clock, XCircle, Pencil, Trash2 } from 'lucide-react';
+import { Plus, FileText, Calendar, CheckCircle, Clock, Loader2, XCircle, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
 import type {
@@ -81,6 +83,21 @@ export function ExpenseManagement() {
   /** Período por data de vencimento (YYYY-MM-DD), vazio = sem filtro de datas */
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [deleteRunning, setDeleteRunning] = useState(false);
+  const [markPaidId, setMarkPaidId] = useState<string | null>(null);
+
+  const listResetKey = `${filter}|${periodFrom}|${periodTo}`;
+  const {
+    paginatedItems,
+    page,
+    setPage,
+    totalPages,
+    from,
+    to,
+    total: pageTotal
+  } = usePagination(expenses, 15, listResetKey);
+
   const [formData, setFormData] = useState({
     costCenterId: '',
     expenseTypeId: '',
@@ -167,6 +184,7 @@ export function ExpenseManagement() {
       }
     }
 
+    setSubmitLoading(true);
     try {
       const paymentMethod =
         formData.paymentStatus === 'paid' && formData.paymentMethod
@@ -229,10 +247,13 @@ export function ExpenseManagement() {
       console.error('Error creating expense:', error);
       const msg = error instanceof Error ? error.message : 'Erro ao registrar despesa';
       toast.error(msg);
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
   const markAsPaid = async (expenseId: string) => {
+    setMarkPaidId(expenseId);
     try {
       await CostRepository.updateExpense(expenseId, {
         paymentStatus: 'paid',
@@ -245,6 +266,8 @@ export function ExpenseManagement() {
       console.error('Error updating expense:', error);
       const msg = error instanceof Error ? error.message : 'Erro ao atualizar despesa';
       toast.error(msg);
+    } finally {
+      setMarkPaidId(null);
     }
   };
 
@@ -281,6 +304,7 @@ export function ExpenseManagement() {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    setDeleteRunning(true);
     try {
       await CostRepository.deleteExpense(deleteTarget.id);
       toast.success('Despesa excluída.');
@@ -290,6 +314,8 @@ export function ExpenseManagement() {
       console.error('Error deleting expense:', error);
       const msg = error instanceof Error ? error.message : 'Erro ao excluir despesa';
       toast.error(msg);
+    } finally {
+      setDeleteRunning(false);
     }
   };
 
@@ -483,7 +509,7 @@ export function ExpenseManagement() {
                 </tr>
               </thead>
               <tbody>
-                {expenses.map((expense: any) => (
+                {paginatedItems.map((expense: any) => (
                   <tr key={expense.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
@@ -538,6 +564,7 @@ export function ExpenseManagement() {
                           className="h-8"
                           onClick={() => populateFromExpense(expense)}
                           title="Editar"
+                          disabled={!!markPaidId}
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
@@ -553,6 +580,7 @@ export function ExpenseManagement() {
                             })
                           }
                           title="Excluir"
+                          disabled={!!markPaidId}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -563,8 +591,16 @@ export function ExpenseManagement() {
                             variant="secondary"
                             className="h-8"
                             onClick={() => markAsPaid(expense.id)}
+                            disabled={markPaidId !== null}
                           >
-                            Marcar pago
+                            {markPaidId === expense.id ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span className="ml-1">Salvando…</span>
+                              </>
+                            ) : (
+                              'Marcar pago'
+                            )}
                           </Button>
                         )}
                       </div>
@@ -573,6 +609,17 @@ export function ExpenseManagement() {
                 ))}
               </tbody>
             </table>
+            {totalPages > 1 && (
+              <ListPaginationBar
+                page={page}
+                totalPages={totalPages}
+                from={from}
+                to={to}
+                total={pageTotal}
+                onPageChange={setPage}
+                className="mt-4"
+              />
+            )}
           </div>
         )}
       </Card>
@@ -587,9 +634,23 @@ export function ExpenseManagement() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel type="button">Cancelar</AlertDialogCancel>
-            <Button type="button" variant="destructive" onClick={() => void confirmDelete()}>
-              Sim, excluir
+            <AlertDialogCancel type="button" disabled={deleteRunning}>
+              Cancelar
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteRunning}
+              onClick={() => void confirmDelete()}
+            >
+              {deleteRunning ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Excluindo…
+                </>
+              ) : (
+                'Sim, excluir'
+              )}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -857,10 +918,21 @@ export function ExpenseManagement() {
             </div>
 
             <div className="flex gap-2 justify-end">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={submitLoading}>
                 Cancelar
               </Button>
-              <Button type="submit">{editingExpenseId ? 'Salvar alterações' : 'Criar Despesa'}</Button>
+              <Button type="submit" disabled={submitLoading}>
+                {submitLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    {editingExpenseId ? 'Salvando…' : 'Registrando…'}
+                  </>
+                ) : editingExpenseId ? (
+                  'Salvar alterações'
+                ) : (
+                  'Criar Despesa'
+                )}
+              </Button>
             </div>
           </form>
         </DialogContent>
