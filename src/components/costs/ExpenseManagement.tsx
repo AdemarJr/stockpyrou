@@ -7,7 +7,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
-import { Plus, FileText, DollarSign, Calendar, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Plus, FileText, Calendar, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
 import type {
@@ -62,6 +62,9 @@ export function ExpenseManagement() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [filter, setFilter] = useState('all');
+  /** Período por data de vencimento (YYYY-MM-DD), vazio = sem filtro de datas */
+  const [periodFrom, setPeriodFrom] = useState('');
+  const [periodTo, setPeriodTo] = useState('');
   const [formData, setFormData] = useState({
     costCenterId: '',
     expenseTypeId: '',
@@ -82,16 +85,24 @@ export function ExpenseManagement() {
     if (currentCompany?.id) {
       loadData();
     }
-  }, [currentCompany?.id, filter]);
+  }, [currentCompany?.id, filter, periodFrom, periodTo]);
 
   const loadData = async () => {
     if (!currentCompany?.id) return;
+
+    if (periodFrom && periodTo && periodFrom > periodTo) {
+      toast.error('A data inicial do período deve ser anterior ou igual à data final.');
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
       const [expensesList, centersList, typesList, suppliersList] = await Promise.all([
         CostRepository.findAllExpenses(currentCompany.id, {
-          paymentStatus: filter !== 'all' ? filter : undefined
+          paymentStatus: filter !== 'all' ? filter : undefined,
+          dueDateFrom: periodFrom.trim() || undefined,
+          dueDateTo: periodTo.trim() || undefined
         }),
         CostRepository.findAllCostCenters(currentCompany.id),
         CostRepository.findAllExpenseTypes(currentCompany.id),
@@ -270,34 +281,105 @@ export function ExpenseManagement() {
   return (
     <div className="space-y-4">
       <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-4 mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">
               Despesas Operacionais
             </h2>
-            <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Filtrar por status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                <SelectItem value="pending">Pendentes</SelectItem>
-                <SelectItem value="paid">Pagas</SelectItem>
-                <SelectItem value="overdue">Atrasadas</SelectItem>
-              </SelectContent>
-            </Select>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Nova Despesa
+            </Button>
           </div>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Nova Despesa
-          </Button>
+
+          <div className="flex flex-wrap items-end gap-3 p-3 rounded-lg border border-border bg-muted/20">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Status</Label>
+              <Select value={filter} onValueChange={setFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="pending">Pendentes</SelectItem>
+                  <SelectItem value="paid">Pagas</SelectItem>
+                  <SelectItem value="overdue">Atrasadas</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Calendar className="w-4 h-4 shrink-0" />
+              <span className="text-sm font-medium text-foreground">Período (vencimento)</span>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="periodFrom" className="text-xs text-muted-foreground">
+                De
+              </Label>
+              <Input
+                id="periodFrom"
+                type="date"
+                className="w-[160px]"
+                value={periodFrom}
+                onChange={(e) => setPeriodFrom(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="periodTo" className="text-xs text-muted-foreground">
+                Até
+              </Label>
+              <Input
+                id="periodTo"
+                type="date"
+                className="w-[160px]"
+                value={periodTo}
+                onChange={(e) => setPeriodTo(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  const now = new Date();
+                  const y = now.getFullYear();
+                  const m = now.getMonth();
+                  const pad = (n: number) => String(n).padStart(2, '0');
+                  const first = `${y}-${pad(m + 1)}-01`;
+                  const lastDate = new Date(y, m + 1, 0);
+                  const last = `${y}-${pad(m + 1)}-${pad(lastDate.getDate())}`;
+                  setPeriodFrom(first);
+                  setPeriodTo(last);
+                }}
+              >
+                Este mês
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPeriodFrom('');
+                  setPeriodTo('');
+                }}
+              >
+                Limpar período
+              </Button>
+            </div>
+          </div>
         </div>
 
         {expenses.length === 0 ? (
           <div className="text-center py-8">
             <FileText className="w-12 h-12 mx-auto text-gray-400 mb-3" />
             <p className="text-gray-500 dark:text-gray-400">
-              Nenhuma despesa registrada
+              {periodFrom || periodTo || filter !== 'all'
+                ? 'Nenhuma despesa corresponde aos filtros (status ou período de vencimento).'
+                : 'Nenhuma despesa registrada'}
             </p>
           </div>
         ) : (

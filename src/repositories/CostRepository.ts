@@ -182,6 +182,10 @@ export class CostRepository {
   static async findAllExpenses(
     companyId: string,
     filters?: {
+      /** Inclusive, por data de vencimento (YYYY-MM-DD). Preferir a string para evitar fuso. */
+      dueDateFrom?: string;
+      /** Inclusive, por data de vencimento (YYYY-MM-DD). */
+      dueDateTo?: string;
       startDate?: Date;
       endDate?: Date;
       costCenterId?: string;
@@ -199,11 +203,18 @@ export class CostRepository {
       `)
       .eq('company_id', companyId);
 
-    if (filters?.startDate) {
-      query = query.gte('due_date', filters.startDate.toISOString().split('T')[0]);
+    const fromYmd =
+      filters?.dueDateFrom ??
+      (filters?.startDate ? filters.startDate.toISOString().split('T')[0] : undefined);
+    const toYmd =
+      filters?.dueDateTo ??
+      (filters?.endDate ? filters.endDate.toISOString().split('T')[0] : undefined);
+
+    if (fromYmd) {
+      query = query.gte('due_date', fromYmd);
     }
-    if (filters?.endDate) {
-      query = query.lte('due_date', filters.endDate.toISOString().split('T')[0]);
+    if (toYmd) {
+      query = query.lte('due_date', toYmd);
     }
     if (filters?.costCenterId) {
       query = query.eq('cost_center_id', filters.costCenterId);
