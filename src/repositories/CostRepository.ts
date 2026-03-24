@@ -190,6 +190,7 @@ export class CostRepository {
       endDate?: Date;
       costCenterId?: string;
       expenseTypeId?: string;
+      supplierId?: string;
       paymentStatus?: string;
     }
   ): Promise<OperationalExpense[]> {
@@ -221,6 +222,9 @@ export class CostRepository {
     }
     if (filters?.expenseTypeId) {
       query = query.eq('expense_type_id', filters.expenseTypeId);
+    }
+    if (filters?.supplierId) {
+      query = query.eq('supplier_id', filters.supplierId);
     }
     if (filters?.paymentStatus) {
       query = query.eq('payment_status', filters.paymentStatus);

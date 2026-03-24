@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePagination } from '../../hooks/usePagination';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
@@ -18,7 +18,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '../ui/alert-dialog';
-import { Plus, FileText, Calendar, CheckCircle, Clock, Loader2, XCircle, Pencil, Trash2 } from 'lucide-react';
+import {
+  Plus,
+  FileText,
+  Calendar,
+  CheckCircle,
+  Clock,
+  Loader2,
+  XCircle,
+  Pencil,
+  Trash2,
+  Download,
+  Printer,
+  Wallet,
+  AlertTriangle,
+  Landmark,
+  CalendarClock
+} from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
 import type {
@@ -68,6 +84,78 @@ function ymdFromDb(value: string | null | undefined): string {
   return value.split('T')[0];
 }
 
+function addDaysYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
+function expenseMatchesStatusFilter(
+  expense: { payment_status?: string; due_date?: string },
+  statusFilter: string,
+  todayYmd: string
+): boolean {
+  if (statusFilter === 'all') return true;
+  const st = String(expense.payment_status || '');
+  const due = ymdFromDb(expense.due_date);
+  if (statusFilter === 'paid') return st === 'paid';
+  if (statusFilter === 'cancelled') return st === 'cancelled';
+  if (statusFilter === 'pending') return st === 'pending';
+  if (statusFilter === 'overdue') {
+    return st === 'overdue' || (st === 'pending' && due !== '' && due < todayYmd);
+  }
+  return true;
+}
+
+function csvEscape(cell: string): string {
+  const s = String(cell ?? '');
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function buildExpenseReportCsvRows(expenses: any[]): string {
+  const header = [
+    'Status',
+    'Descrição',
+    'Ref.',
+    'Centro de custo',
+    'Tipo',
+    'Fornecedor',
+    'Valor',
+    'Vencimento',
+    'Condição',
+    'Forma pagto',
+    'Data pagamento'
+  ].join(';');
+  const lines = expenses.map((e) =>
+    [
+      getStatusLabelStatic(e.payment_status),
+      csvEscape(e.description || ''),
+      csvEscape(e.reference_number || ''),
+      csvEscape(e.cost_centers?.name || ''),
+      csvEscape(e.expense_types?.name || ''),
+      csvEscape(e.suppliers?.name || ''),
+      (parseFloat(e.amount) || 0).toFixed(2).replace('.', ','),
+      e.due_date ? ymdFromDb(e.due_date) : '',
+      csvEscape(formatPaymentTermsLine(e)),
+      paymentMethodLabel(e.payment_method),
+      e.payment_date ? ymdFromDb(e.payment_date) : ''
+    ].join(';')
+  );
+  return [header, ...lines].join('\r\n');
+}
+
+function getStatusLabelStatic(status: string): string {
+  const labels: Record<string, string> = {
+    paid: 'Pago',
+    pending: 'Pendente',
+    overdue: 'Atrasado',
+    cancelled: 'Cancelado'
+  };
+  return labels[status] || status;
+}
+
 export function ExpenseManagement() {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
@@ -83,11 +171,64 @@ export function ExpenseManagement() {
   /** Período por data de vencimento (YYYY-MM-DD), vazio = sem filtro de datas */
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
+  const [costCenterFilter, setCostCenterFilter] = useState('');
+  const [expenseTypeFilter, setExpenseTypeFilter] = useState('');
+  const [supplierFilter, setSupplierFilter] = useState('');
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deleteRunning, setDeleteRunning] = useState(false);
   const [markPaidId, setMarkPaidId] = useState<string | null>(null);
 
-  const listResetKey = `${filter}|${periodFrom}|${periodTo}`;
+  const filteredExpenses = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return expenses.filter((e) => expenseMatchesStatusFilter(e, filter, today));
+  }, [expenses, filter]);
+
+  const expenseKpis = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    let totalPaid = 0;
+    let totalOpen = 0;
+    let totalOverdue = 0;
+    let dueNext7Days = 0;
+    let totalCancelled = 0;
+    let countOpen = 0;
+    const horizon = addDaysYmd(today, 7);
+
+    for (const e of expenses) {
+      const amt = parseFloat(e.amount) || 0;
+      const st = String(e.payment_status || '');
+      const due = ymdFromDb(e.due_date);
+      if (st === 'cancelled') {
+        totalCancelled += amt;
+        continue;
+      }
+      if (st === 'paid') {
+        totalPaid += amt;
+        continue;
+      }
+      totalOpen += amt;
+      countOpen += 1;
+      const trulyOverdue = st === 'overdue' || (st === 'pending' && due !== '' && due < today);
+      if (trulyOverdue) {
+        totalOverdue += amt;
+      } else if (st === 'pending') {
+        if (due >= today && due <= horizon) {
+          dueNext7Days += amt;
+        }
+      }
+    }
+
+    return {
+      totalPaid,
+      totalOpen,
+      totalOverdue,
+      dueNext7Days,
+      totalCancelled,
+      countOpen,
+      countAll: expenses.length
+    };
+  }, [expenses]);
+
+  const listResetKey = `${filter}|${periodFrom}|${periodTo}|${costCenterFilter}|${expenseTypeFilter}|${supplierFilter}`;
   const {
     paginatedItems,
     page,
@@ -96,7 +237,7 @@ export function ExpenseManagement() {
     from,
     to,
     total: pageTotal
-  } = usePagination(expenses, 15, listResetKey);
+  } = usePagination(filteredExpenses, 15, listResetKey);
 
   const [formData, setFormData] = useState({
     costCenterId: '',
@@ -118,7 +259,7 @@ export function ExpenseManagement() {
     if (currentCompany?.id) {
       loadData();
     }
-  }, [currentCompany?.id, filter, periodFrom, periodTo]);
+  }, [currentCompany?.id, periodFrom, periodTo, costCenterFilter, expenseTypeFilter, supplierFilter]);
 
   const loadData = async () => {
     if (!currentCompany?.id) return;
@@ -133,9 +274,11 @@ export function ExpenseManagement() {
     try {
       const [expensesList, centersList, typesList, suppliersList] = await Promise.all([
         CostRepository.findAllExpenses(currentCompany.id, {
-          paymentStatus: filter !== 'all' ? filter : undefined,
           dueDateFrom: periodFrom.trim() || undefined,
-          dueDateTo: periodTo.trim() || undefined
+          dueDateTo: periodTo.trim() || undefined,
+          costCenterId: costCenterFilter || undefined,
+          expenseTypeId: expenseTypeFilter || undefined,
+          supplierId: supplierFilter || undefined
         }),
         CostRepository.findAllCostCenters(currentCompany.id),
         CostRepository.findAllExpenseTypes(currentCompany.id),
@@ -319,6 +462,114 @@ export function ExpenseManagement() {
     }
   };
 
+  const handleExportCsv = useCallback(() => {
+    if (filteredExpenses.length === 0) {
+      toast.error('Nenhuma despesa para exportar com os filtros atuais.');
+      return;
+    }
+    const csv = buildExpenseReportCsvRows(filteredExpenses);
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = (currentCompany?.name || 'empresa').replace(/[^\w\-]+/g, '_');
+    a.href = url;
+    a.download = `despesas_${safeName}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Arquivo CSV gerado.');
+  }, [filteredExpenses, currentCompany?.name]);
+
+  const handlePrint = useCallback(() => {
+    if (filteredExpenses.length === 0) {
+      toast.error('Nenhuma despesa para imprimir com os filtros atuais.');
+      return;
+    }
+    const w = window.open('', '_blank');
+    if (!w) {
+      toast.error('Permita pop-ups para imprimir o relatório.');
+      return;
+    }
+    const companyName = currentCompany?.name || 'Empresa';
+    const periodLabel =
+      periodFrom || periodTo
+        ? `Vencimento de ${periodFrom || '…'} até ${periodTo || '…'}`
+        : 'Todos os vencimentos (sem período)';
+    const filterLabel =
+      filter === 'all'
+        ? 'Todos os status'
+        : filter === 'pending'
+          ? 'Pendentes'
+          : filter === 'paid'
+            ? 'Pagas'
+            : filter === 'overdue'
+              ? 'Atrasadas'
+              : filter === 'cancelled'
+                ? 'Canceladas'
+                : filter;
+
+    const rowsHtml = filteredExpenses
+      .map((e: any) => {
+        const amt = formatCurrency(parseFloat(e.amount));
+        const due = e.due_date ? new Date(e.due_date).toLocaleDateString('pt-BR') : '—';
+        const paid = e.payment_date ? new Date(e.payment_date).toLocaleDateString('pt-BR') : '—';
+        return `<tr>
+          <td>${getStatusLabelStatic(e.payment_status)}</td>
+          <td>${(e.description || '—').replace(/</g, '&lt;')}</td>
+          <td>${(e.cost_centers?.name || '—').replace(/</g, '&lt;')}</td>
+          <td>${(e.expense_types?.name || '—').replace(/</g, '&lt;')}</td>
+          <td>${(e.suppliers?.name || '—').replace(/</g, '&lt;')}</td>
+          <td style="text-align:right">${amt}</td>
+          <td>${due}</td>
+          <td>${paid}</td>
+        </tr>`;
+      })
+      .join('');
+
+    w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Despesas — ${companyName}</title>
+      <style>
+        body { font-family: system-ui, sans-serif; padding: 24px; color: #111; }
+        h1 { font-size: 1.25rem; margin: 0 0 4px; }
+        .meta { color: #555; font-size: 0.85rem; margin-bottom: 16px; }
+        .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .kpi { border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+        .kpi span { display: block; font-size: 0.75rem; color: #666; }
+        .kpi strong { font-size: 1.1rem; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+        th { background: #f5f5f5; }
+        @media print { body { padding: 12px; } }
+      </style></head><body>
+      <h1>Relatório de despesas operacionais</h1>
+      <div class="meta">${companyName} · ${periodLabel} · ${filterLabel}</div>
+      <div class="kpis">
+        <div class="kpi"><span>Em aberto (a pagar)</span><strong>${formatCurrency(expenseKpis.totalOpen)}</strong></div>
+        <div class="kpi"><span>Já pago (período filtrado)</span><strong>${formatCurrency(expenseKpis.totalPaid)}</strong></div>
+        <div class="kpi"><span>Atrasado</span><strong>${formatCurrency(expenseKpis.totalOverdue)}</strong></div>
+        <div class="kpi"><span>Vence em 7 dias</span><strong>${formatCurrency(expenseKpis.dueNext7Days)}</strong></div>
+      </div>
+      <table><thead><tr>
+        <th>Status</th><th>Descrição</th><th>Centro</th><th>Tipo</th><th>Fornecedor</th><th>Valor</th><th>Venc.</th><th>Pago em</th>
+      </tr></thead><tbody>${rowsHtml}</tbody></table>
+      <p class="meta" style="margin-top:16px">Gerado em ${new Date().toLocaleString('pt-BR')} · ${filteredExpenses.length} título(s)</p>
+      </body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => {
+      w.print();
+      w.close();
+    }, 250);
+  }, [
+    filteredExpenses,
+    currentCompany?.name,
+    periodFrom,
+    periodTo,
+    filter,
+    expenseKpis.totalOpen,
+    expenseKpis.totalPaid,
+    expenseKpis.totalOverdue,
+    expenseKpis.dueNext7Days
+  ]);
+
   const resetForm = () => {
     setFormData({
       costCenterId: '',
@@ -393,18 +644,79 @@ export function ExpenseManagement() {
       <Card className="p-6">
         <div className="flex flex-col gap-4 mb-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-              Despesas Operacionais
-            </h2>
-            <Button onClick={openNewExpense}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nova Despesa
-            </Button>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                Despesas Operacionais
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Visão financeira por vencimento, centro de custo e status. Exporte ou imprima o que está filtrado na
+                tabela.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={handleExportCsv}>
+                <Download className="w-4 h-4 mr-2" />
+                Exportar CSV
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={handlePrint}>
+                <Printer className="w-4 h-4 mr-2" />
+                Imprimir
+              </Button>
+              <Button onClick={openNewExpense}>
+                <Plus className="w-4 h-4 mr-2" />
+                Nova Despesa
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded-lg border border-border bg-muted/30 p-4 flex gap-3">
+              <div className="p-2 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                <Wallet className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground font-medium">A pagar (em aberto)</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(expenseKpis.totalOpen)}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {expenseKpis.countOpen} título{expenseKpis.countOpen === 1 ? '' : 's'}
+                </p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/30 p-4 flex gap-3">
+              <div className="p-2 rounded-md bg-green-500/15 text-green-700 dark:text-green-400">
+                <Landmark className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground font-medium">Já pago</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(expenseKpis.totalPaid)}</p>
+                <p className="text-[11px] text-muted-foreground">No recorte filtrado acima</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/30 p-4 flex gap-3">
+              <div className="p-2 rounded-md bg-red-500/15 text-red-700 dark:text-red-400">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground font-medium">Atrasado</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(expenseKpis.totalOverdue)}</p>
+                <p className="text-[11px] text-muted-foreground">Inclui pendente com vencimento passado</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/30 p-4 flex gap-3">
+              <div className="p-2 rounded-md bg-blue-500/15 text-blue-700 dark:text-blue-400">
+                <CalendarClock className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground font-medium">Vence nos próximos 7 dias</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(expenseKpis.dueNext7Days)}</p>
+                <p className="text-[11px] text-muted-foreground">Pendentes no prazo, até a semana</p>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-end gap-3 p-3 rounded-lg border border-border bg-muted/20">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Status</Label>
+              <Label className="text-xs text-muted-foreground">Status (lista)</Label>
               <Select value={filter} onValueChange={setFilter}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Status" />
@@ -414,13 +726,74 @@ export function ExpenseManagement() {
                   <SelectItem value="pending">Pendentes</SelectItem>
                   <SelectItem value="paid">Pagas</SelectItem>
                   <SelectItem value="overdue">Atrasadas</SelectItem>
+                  <SelectItem value="cancelled">Canceladas</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Centro de custo</Label>
+              <Select
+                value={costCenterFilter || 'all'}
+                onValueChange={(v) => setCostCenterFilter(v === 'all' ? '' : v)}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {costCenters.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} ({c.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Tipo de despesa</Label>
+              <Select
+                value={expenseTypeFilter || 'all'}
+                onValueChange={(v) => setExpenseTypeFilter(v === 'all' ? '' : v)}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {expenseTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Fornecedor</Label>
+              <Select
+                value={supplierFilter || 'all'}
+                onValueChange={(v) => setSupplierFilter(v === 'all' ? '' : v)}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {suppliers.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2 text-muted-foreground ml-auto">
               <Calendar className="w-4 h-4 shrink-0" />
-              <span className="text-sm font-medium text-foreground">Período (vencimento)</span>
+              <span className="text-sm font-medium text-foreground">Vencimento</span>
             </div>
 
             <div className="space-y-1">
@@ -487,9 +860,17 @@ export function ExpenseManagement() {
           <div className="text-center py-8">
             <FileText className="w-12 h-12 mx-auto text-gray-400 mb-3" />
             <p className="text-gray-500 dark:text-gray-400">
-              {periodFrom || periodTo || filter !== 'all'
-                ? 'Nenhuma despesa corresponde aos filtros (status ou período de vencimento).'
+              {periodFrom || periodTo || costCenterFilter || expenseTypeFilter || supplierFilter
+                ? 'Nenhuma despesa corresponde ao período ou aos filtros de centro / tipo / fornecedor.'
                 : 'Nenhuma despesa registrada'}
+            </p>
+          </div>
+        ) : filteredExpenses.length === 0 ? (
+          <div className="text-center py-8">
+            <FileText className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+            <p className="text-gray-500 dark:text-gray-400">
+              Nenhuma despesa com o status selecionado. Ajuste o filtro &quot;Status (lista)&quot; ou use
+              &quot;Todas&quot;.
             </p>
           </div>
         ) : (
