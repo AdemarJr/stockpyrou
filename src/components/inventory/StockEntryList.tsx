@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 import { Package, Search, Filter, Edit2, Trash2, Calendar, FileText, MoreVertical } from 'lucide-react';
 import type { Product, Supplier, StockEntry } from '../../types';
 import { formatCurrency, formatDateTime } from '../../utils/calculations';
@@ -20,20 +22,29 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
   const isMobile = useIsMobile();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
       const product = products.find((p) => p.id === entry.productId);
+      const supplier = suppliers.find((s) => s.id === entry.supplierId);
+      const q = searchTerm.toLowerCase();
       const matchesSearch =
-        product?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        entry.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        entry.batchNumber?.toLowerCase().includes(searchTerm.toLowerCase());
+        !q ||
+        (product?.name.toLowerCase().includes(q) ?? false) ||
+        (entry.notes?.toLowerCase().includes(q) ?? false) ||
+        (entry.batchNumber?.toLowerCase().includes(q) ?? false) ||
+        (supplier?.name.toLowerCase().includes(q) ?? false);
       const matchesSupplier = filterSupplier ? entry.supplierId === filterSupplier : true;
-      return matchesSearch && matchesSupplier;
+      const entryDay = new Date(entry.entryDate).toISOString().split('T')[0];
+      const matchesFrom = !dateFrom || entryDay >= dateFrom;
+      const matchesTo = !dateTo || entryDay <= dateTo;
+      return matchesSearch && matchesSupplier && matchesFrom && matchesTo;
     });
-  }, [entries, products, searchTerm, filterSupplier]);
+  }, [entries, products, suppliers, searchTerm, filterSupplier, dateFrom, dateTo]);
 
-  const filterKey = `${searchTerm}|${filterSupplier}`;
+  const filterKey = `${searchTerm}|${filterSupplier}|${dateFrom}|${dateTo}`;
   const { paginatedItems, page, setPage, totalPages, from, to, total: filteredTotal } =
     usePagination(filteredEntries, 12, filterKey);
 
@@ -46,28 +57,60 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
             Histórico de Recebimentos
           </h3>
           
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Buscar produto, lote..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+          <div className="flex flex-col gap-4 w-full">
+            <div className="flex flex-col md:flex-row flex-wrap gap-4">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="search"
+                  placeholder="Produto, fornecedor, lote, observação..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              
+              <select
+                value={filterSupplier}
+                onChange={(e) => setFilterSupplier(e.target.value)}
+                className="pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent md:min-w-[200px]"
+              >
+                <option value="">Todos os Fornecedores</option>
+                {suppliers.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
             </div>
-            
-            <select
-              value={filterSupplier}
-              onChange={(e) => setFilterSupplier(e.target.value)}
-              className="pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Todos os Fornecedores</option>
-              {suppliers.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">Recebimento de</Label>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-[160px]"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-500">até</Label>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-[160px]"
+                />
+              </div>
+              <button
+                type="button"
+                className="text-sm text-blue-600 hover:underline px-2"
+                onClick={() => {
+                  setDateFrom('');
+                  setDateTo('');
+                }}
+              >
+                Limpar datas
+              </button>
+            </div>
           </div>
         </div>
       </div>

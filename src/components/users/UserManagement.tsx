@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { usePagination } from '../../hooks/usePagination';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { 
@@ -20,6 +20,17 @@ import { useCompany } from '../../contexts/CompanyContext';
 import type { UserProfile, UserRole } from '../../types';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { rowMatchesSearch } from '../../utils/listFilters';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
+import { Search } from 'lucide-react';
 
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 
@@ -67,8 +78,27 @@ export function UserManagement() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  const listKey = currentCompany?.id ?? 'all';
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      const matchesText = rowMatchesSearch(searchQuery, [
+        u.fullName,
+        u.email,
+        u.position,
+      ]);
+      const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+      const matchesStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'active' && u.status === 'active') ||
+        (statusFilter === 'inactive' && u.status !== 'active');
+      return matchesText && matchesRole && matchesStatus;
+    });
+  }, [users, searchQuery, roleFilter, statusFilter]);
+
+  const listKey = `${currentCompany?.id ?? 'all'}|${searchQuery}|${roleFilter}|${statusFilter}`;
   const {
     paginatedItems,
     page,
@@ -77,7 +107,7 @@ export function UserManagement() {
     from,
     to,
     total: pageTotal
-  } = usePagination(users, 10, listKey);
+  } = usePagination(filteredUsers, 10, listKey);
 
   useEffect(() => {
     if (user?.permissions.canManageUsers && currentCompany) {
@@ -299,6 +329,51 @@ export function UserManagement() {
         </button>
       </div>
 
+      <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50/80 p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="space-y-1.5 md:col-span-2">
+          <Label className="text-xs text-gray-500">Buscar cadastro</Label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              type="search"
+              placeholder="Nome, e-mail ou cargo..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 bg-white"
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs text-gray-500">Perfil</Label>
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="bg-white">
+              <SelectValue placeholder="Todos" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os perfis</SelectItem>
+              {(Object.keys(roleLabels) as UserRole[]).map((r) => (
+                <SelectItem key={r} value={r}>
+                  {roleLabels[r]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs text-gray-500">Status</Label>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="bg-white">
+              <SelectValue placeholder="Todos" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="active">Ativo</SelectItem>
+              <SelectItem value="inactive">Inativo</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {/* Users Table */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -314,7 +389,14 @@ export function UserManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {paginatedItems.map((userItem) => (
+              {filteredUsers.length === 0 && users.length > 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
+                    Nenhum usuário corresponde à busca ou aos filtros selecionados.
+                  </td>
+                </tr>
+              ) : (
+              paginatedItems.map((userItem) => (
                 <tr key={userItem.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -382,7 +464,8 @@ export function UserManagement() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>

@@ -33,7 +33,8 @@ import {
   Wallet,
   AlertTriangle,
   Landmark,
-  CalendarClock
+  CalendarClock,
+  Search
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
@@ -47,6 +48,7 @@ import type {
 import type { Supplier } from '../../types';
 import { SupplierRepository } from '../../repositories/SupplierRepository';
 import { CostRepository } from '../../repositories/CostRepository';
+import { rowMatchesSearch } from '../../utils/listFilters';
 
 const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
   { value: 'pix', label: 'PIX' },
@@ -177,11 +179,24 @@ export function ExpenseManagement() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deleteRunning, setDeleteRunning] = useState(false);
   const [markPaidId, setMarkPaidId] = useState<string | null>(null);
+  /** Busca textual na lista (descrição, ref., nomes, valor) — não altera o recorte do servidor. */
+  const [listSearch, setListSearch] = useState('');
 
   const filteredExpenses = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
-    return expenses.filter((e) => expenseMatchesStatusFilter(e, filter, today));
-  }, [expenses, filter]);
+    return expenses.filter((e: any) => {
+      if (!expenseMatchesStatusFilter(e, filter, today)) return false;
+      if (!listSearch.trim()) return true;
+      return rowMatchesSearch(listSearch, [
+        e.description,
+        e.reference_number,
+        e.cost_centers?.name,
+        e.expense_types?.name,
+        e.suppliers?.name,
+        e.amount != null ? String(e.amount) : ''
+      ]);
+    });
+  }, [expenses, filter, listSearch]);
 
   const expenseKpis = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -228,7 +243,7 @@ export function ExpenseManagement() {
     };
   }, [expenses]);
 
-  const listResetKey = `${filter}|${periodFrom}|${periodTo}|${costCenterFilter}|${expenseTypeFilter}|${supplierFilter}`;
+  const listResetKey = `${filter}|${periodFrom}|${periodTo}|${costCenterFilter}|${expenseTypeFilter}|${supplierFilter}|${listSearch}`;
   const {
     paginatedItems,
     page,
@@ -715,6 +730,22 @@ export function ExpenseManagement() {
           </div>
 
           <div className="flex flex-wrap items-end gap-3 p-3 rounded-lg border border-border bg-muted/20">
+            <div className="w-full min-w-0 space-y-1">
+              <Label htmlFor="expenseListSearch" className="text-xs text-muted-foreground">
+                Buscar na listagem (nome, ref., fornecedor, valor…)
+              </Label>
+              <div className="relative max-w-xl">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="expenseListSearch"
+                  type="search"
+                  placeholder="Filtra os resultados já carregados…"
+                  value={listSearch}
+                  onChange={(e) => setListSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Status (lista)</Label>
               <Select value={filter} onValueChange={setFilter}>

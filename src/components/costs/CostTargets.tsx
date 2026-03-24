@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePagination } from '../../hooks/usePagination';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
 import { Card } from '../ui/card';
-import { Target, TrendingUp, TrendingDown } from 'lucide-react';
+import { Target, TrendingUp, TrendingDown, Search } from 'lucide-react';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { rowMatchesSearch } from '../../utils/listFilters';
 import { formatCurrency } from '../../utils/calculations';
 import { toast } from 'sonner@2.0.3';
 import { CostRepository } from '../../repositories/CostRepository';
@@ -13,8 +17,31 @@ export function CostTargets() {
   const { currentCompany } = useCompany();
   const [targets, setTargets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  const listKey = currentCompany?.id ?? '';
+  const getTargetTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      waste_reduction: 'Redução de Desperdício',
+      cost_per_product: 'Custo por Produto',
+      operational_limit: 'Limite Operacional',
+      profit_margin: 'Margem de Lucro'
+    };
+    return labels[type] || type;
+  };
+
+  const filteredTargets = useMemo(() => {
+    return targets.filter((t: any) => {
+      const typeLabel = getTargetTypeLabel(t.target_type);
+      const scope =
+        t.cost_centers?.name || t.products?.name || (t.product_id ? 'Por produto' : 'Geral');
+      const matchesText = rowMatchesSearch(searchQuery, [typeLabel, scope, String(t.target_type)]);
+      const matchesType = typeFilter === 'all' || String(t.target_type) === typeFilter;
+      return matchesText && matchesType;
+    });
+  }, [targets, searchQuery, typeFilter]);
+
+  const listKey = `${currentCompany?.id ?? ''}|${searchQuery}|${typeFilter}`;
   const {
     paginatedItems,
     page,
@@ -23,7 +50,7 @@ export function CostTargets() {
     from,
     to,
     total: pageTotal
-  } = usePagination(targets, 8, listKey);
+  } = usePagination(filteredTargets, 8, listKey);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -46,16 +73,6 @@ export function CostTargets() {
     }
   };
 
-  const getTargetTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      waste_reduction: 'Redução de Desperdício',
-      cost_per_product: 'Custo por Produto',
-      operational_limit: 'Limite Operacional',
-      profit_margin: 'Margem de Lucro'
-    };
-    return labels[type] || type;
-  };
-
   const calculateProgress = (current: number, target: number) => {
     return Math.min((current / target) * 100, 100);
   };
@@ -71,9 +88,39 @@ export function CostTargets() {
   return (
     <div className="space-y-4">
       <Card className="p-6">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
           Metas de Custo
         </h2>
+        <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Buscar</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Tipo, centro, produto…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Tipo de meta</Label>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="waste_reduction">Redução de Desperdício</SelectItem>
+                <SelectItem value="cost_per_product">Custo por Produto</SelectItem>
+                <SelectItem value="operational_limit">Limite Operacional</SelectItem>
+                <SelectItem value="profit_margin">Margem de Lucro</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         {targets.length === 0 ? (
           <div className="text-center py-8">
@@ -85,6 +132,8 @@ export function CostTargets() {
               Funcionalidade em desenvolvimento
             </p>
           </div>
+        ) : filteredTargets.length === 0 ? (
+          <p className="text-center py-8 text-muted-foreground">Nenhuma meta corresponde aos filtros.</p>
         ) : (
           <div className="space-y-4">
             {paginatedItems.map((target: any) => {
@@ -138,7 +187,7 @@ export function CostTargets() {
                 </Card>
               );
             })}
-            {totalPages > 1 && (
+            {filteredTargets.length > 0 && totalPages > 1 && (
               <ListPaginationBar
                 page={page}
                 totalPages={totalPages}

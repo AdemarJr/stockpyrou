@@ -11,6 +11,14 @@ import { Button } from '../ui/button';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { usePagination } from '../../hooks/usePagination';
 
+const CATEGORY_LABELS: Record<string, string> = {
+  alimento: 'Alimento',
+  bebida: 'Bebida',
+  descartavel: 'Descartável',
+  limpeza: 'Limpeza',
+  outro: 'Outro',
+};
+
 interface ProductListProps {
   products: Product[];
   onEdit: (product: Product) => void;
@@ -35,9 +43,13 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
   const filteredProducts = useMemo(
     () =>
       products.filter((product) => {
+        const q = searchTerm.toLowerCase();
+        const catLabel = CATEGORY_LABELS[product.category] || product.category;
         const matchesSearch =
-          product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          product.barcode?.includes(searchTerm);
+          product.name.toLowerCase().includes(q) ||
+          !!product.barcode?.toLowerCase().includes(q) ||
+          catLabel.toLowerCase().includes(q) ||
+          product.measurementUnit.toLowerCase().includes(q);
         const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
 
         let matchesStatus = true;
@@ -100,16 +112,7 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
     }
   };
   
-  const getCategoryLabel = (category: string) => {
-    const labels: Record<string, string> = {
-      alimento: 'Alimento',
-      bebida: 'Bebida',
-      descartavel: 'Descartável',
-      limpeza: 'Limpeza',
-      outro: 'Outro',
-    };
-    return labels[category] || category;
-  };
+  const getCategoryLabel = (category: string) => CATEGORY_LABELS[category] || category;
   
   return (
     <div className="space-y-6">
@@ -152,7 +155,7 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Buscar por nome ou código..."
+              placeholder="Nome, código de barras, categoria ou unidade..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"

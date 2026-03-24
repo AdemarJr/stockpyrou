@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePagination } from '../../hooks/usePagination';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
@@ -9,7 +9,8 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { Plus, Edit2, Trash2, Folder, Tag, Loader2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Folder, Tag, Loader2, Search } from 'lucide-react';
+import { rowMatchesSearch } from '../../utils/listFilters';
 import { toast } from 'sonner@2.0.3';
 import type { CostCenter } from '../../types/costs';
 import { CostRepository } from '../../repositories/CostRepository';
@@ -28,8 +29,15 @@ export function CostCenterManagement() {
   });
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const listResetKey = currentCompany?.id ?? '';
+  const filteredCenters = useMemo(() => {
+    return centers.filter((c) =>
+      rowMatchesSearch(searchQuery, [c.name, c.code, c.description])
+    );
+  }, [centers, searchQuery]);
+
+  const listResetKey = `${currentCompany?.id ?? ''}|${searchQuery}`;
   const {
     paginatedItems,
     page,
@@ -38,7 +46,7 @@ export function CostCenterManagement() {
     from,
     to,
     total: pageTotal
-  } = usePagination(centers, 9, listResetKey);
+  } = usePagination(filteredCenters, 9, listResetKey);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -169,7 +177,7 @@ export function CostCenterManagement() {
 
         <TabsContent value="centers">
           <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                 Centros de Custo
               </h2>
@@ -177,6 +185,20 @@ export function CostCenterManagement() {
                 <Plus className="w-4 h-4 mr-2" />
                 Novo Centro
               </Button>
+            </div>
+
+            <div className="mb-4 space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Buscar cadastro</Label>
+              <div className="relative max-w-lg">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Nome, código ou descrição..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
             </div>
 
             {centers.length === 0 ? (
@@ -189,6 +211,10 @@ export function CostCenterManagement() {
                   <Plus className="w-4 h-4 mr-2" />
                   Criar Primeiro Centro
                 </Button>
+              </div>
+            ) : filteredCenters.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                Nenhum centro corresponde à busca.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

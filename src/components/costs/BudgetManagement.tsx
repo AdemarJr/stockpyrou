@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePagination } from '../../hooks/usePagination';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
-import { PieChart, TrendingUp, AlertCircle } from 'lucide-react';
+import { PieChart, TrendingUp, AlertCircle, Search } from 'lucide-react';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { rowMatchesSearch } from '../../utils/listFilters';
 import { formatCurrency } from '../../utils/calculations';
 import { toast } from 'sonner@2.0.3';
 import { CostRepository } from '../../repositories/CostRepository';
@@ -15,8 +18,27 @@ export function BudgetManagement() {
   const [budgets, setBudgets] = useState<any[]>([]);
   const [analysis, setAnalysis] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredBudgets = useMemo(() => {
+    return budgets.filter((b: any) =>
+      rowMatchesSearch(searchQuery, [b.name, b.status, String(b.total_budget ?? '')])
+    );
+  }, [budgets, searchQuery]);
+
+  const filteredAnalysis = useMemo(() => {
+    return analysis.filter((b: any) =>
+      rowMatchesSearch(searchQuery, [
+        b.budget_name,
+        String(b.utilization_percentage ?? ''),
+        String(b.total_budget ?? ''),
+        String(b.total_spent ?? ''),
+      ])
+    );
+  }, [analysis, searchQuery]);
 
   const companyKey = currentCompany?.id ?? '';
+  const filterKey = `${companyKey}|${searchQuery}`;
   const {
     paginatedItems: paginatedBudgets,
     page: pageBudgets,
@@ -25,7 +47,7 @@ export function BudgetManagement() {
     from: fromBudgets,
     to: toBudgets,
     total: totalBudgets
-  } = usePagination(budgets, 8, `b|${companyKey}`);
+  } = usePagination(filteredBudgets, 8, `b|${filterKey}`);
   const {
     paginatedItems: paginatedAnalysis,
     page: pageAnalysis,
@@ -34,7 +56,7 @@ export function BudgetManagement() {
     from: fromAnalysis,
     to: toAnalysis,
     total: totalAnalysisCount
-  } = usePagination(analysis, 8, `a|${companyKey}`);
+  } = usePagination(filteredAnalysis, 8, `a|${filterKey}`);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -75,9 +97,22 @@ export function BudgetManagement() {
   return (
     <div className="space-y-4">
       <Card className="p-6">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
           Orçamentos
         </h2>
+        <div className="mb-4 space-y-1.5 max-w-md">
+          <Label className="text-xs text-muted-foreground">Buscar por nome ou valor</Label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Nome do orçamento, status, valores…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        </div>
 
         {analysis.length === 0 && budgets.length === 0 ? (
           <div className="text-center py-8">
@@ -87,6 +122,9 @@ export function BudgetManagement() {
             </p>
           </div>
         ) : analysis.length === 0 && budgets.length > 0 ? (
+          filteredBudgets.length === 0 ? (
+            <p className="text-center py-8 text-muted-foreground">Nenhum orçamento corresponde à busca.</p>
+          ) : (
           <div className="space-y-3">
             {paginatedBudgets.map((b: any) => (
               <Card key={b.id} className="p-4">
@@ -114,7 +152,12 @@ export function BudgetManagement() {
               />
             )}
           </div>
-        ) : (
+          )
+        )
+        : (
+          filteredAnalysis.length === 0 ? (
+            <p className="text-center py-8 text-muted-foreground">Nenhum orçamento corresponde à busca.</p>
+          ) : (
           <div className="space-y-4">
             {paginatedAnalysis.map((budget: any) => {
               const utilizationPercent = parseFloat(budget.utilization_percentage || 0);
@@ -184,6 +227,7 @@ export function BudgetManagement() {
               />
             )}
           </div>
+          )
         )}
       </Card>
     </div>

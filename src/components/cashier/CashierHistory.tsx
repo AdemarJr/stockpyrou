@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { usePagination } from '../../hooks/usePagination';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import {
@@ -16,8 +16,13 @@ import {
   Package,
   Banknote,
   Smartphone,
-  CreditCard
+  CreditCard,
+  Search
 } from 'lucide-react';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { rowMatchesSearch } from '../../utils/listFilters';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
@@ -29,8 +34,28 @@ export function CashierHistory() {
   const [registers, setRegisters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [diffFilter, setDiffFilter] = useState<string>('all');
 
-  const listKey = currentCompany?.id ?? '';
+  const filteredRegisters = useMemo(() => {
+    return registers.filter((r: any) => {
+      const matchesText = rowMatchesSearch(searchQuery, [
+        r.cashierName,
+        r.closedBy,
+        r.notes,
+        String(r.difference ?? ''),
+        String(r.finalBalance ?? ''),
+      ]);
+      const d = Number(r.difference) || 0;
+      let matchesDiff = true;
+      if (diffFilter === 'zero') matchesDiff = Math.abs(d) <= 0.01;
+      else if (diffFilter === 'positive') matchesDiff = d > 0.01;
+      else if (diffFilter === 'negative') matchesDiff = d < -0.01;
+      return matchesText && matchesDiff;
+    });
+  }, [registers, searchQuery, diffFilter]);
+
+  const listKey = `${currentCompany?.id ?? ''}|${searchQuery}|${diffFilter}`;
   const {
     paginatedItems,
     page,
@@ -39,7 +64,7 @@ export function CashierHistory() {
     from,
     to,
     total: pageTotal
-  } = usePagination(registers, 10, listKey);
+  } = usePagination(filteredRegisters, 10, listKey);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -180,8 +205,42 @@ export function CashierHistory() {
           Histórico de Caixas
         </h2>
         <p className="text-gray-600">Últimos 30 fechamentos</p>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-gray-500">Buscar</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                type="search"
+                placeholder="Operador, quem fechou, diferença…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-gray-500">Diferença de caixa</Label>
+            <Select value={diffFilter} onValueChange={setDiffFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Todas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                <SelectItem value="zero">Sem diferença (zerado)</SelectItem>
+                <SelectItem value="positive">Sobra (positivo)</SelectItem>
+                <SelectItem value="negative">Falta (negativo)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </div>
 
+      {filteredRegisters.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center text-gray-500">
+          Nenhum fechamento corresponde aos filtros.
+        </div>
+      ) : (
       <div className="space-y-4">
         {paginatedItems.map((register) => {
           const isExpanded = expandedId === register.id;
@@ -455,6 +514,7 @@ export function CashierHistory() {
           />
         )}
       </div>
+      )}
     </div>
   );
 }

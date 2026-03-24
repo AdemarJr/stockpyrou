@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePagination } from '../../hooks/usePagination';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { useCompany } from '../../contexts/CompanyContext';
@@ -9,7 +9,8 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Switch } from '../ui/switch';
-import { Plus, Tag, Edit2, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Tag, Edit2, Trash2, Loader2, Search } from 'lucide-react';
+import { rowMatchesSearch } from '../../utils/listFilters';
 import { toast } from 'sonner@2.0.3';
 import type { ExpenseCategory, CostCenter } from '../../types/costs';
 import { CostRepository } from '../../repositories/CostRepository';
@@ -30,8 +31,24 @@ export function ExpenseTypeManager() {
   });
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryListFilter, setCategoryListFilter] = useState<string>('all');
+  const [costCenterListFilter, setCostCenterListFilter] = useState<string>('all');
 
-  const listResetKey = currentCompany?.id ?? '';
+  const filteredTypes = useMemo(() => {
+    return types.filter((t: any) => {
+      const ccName = t.cost_centers?.name ?? t.cost_centers_8a20b27d?.name;
+      const ccId = t.cost_center_id ?? t.costCenterId ?? '';
+      const matchesText = rowMatchesSearch(searchQuery, [t.name, ccName]);
+      const matchesCat =
+        categoryListFilter === 'all' || String(t.category) === categoryListFilter;
+      const matchesCc =
+        costCenterListFilter === 'all' || ccId === costCenterListFilter;
+      return matchesText && matchesCat && matchesCc;
+    });
+  }, [types, searchQuery, categoryListFilter, costCenterListFilter]);
+
+  const listResetKey = `${currentCompany?.id ?? ''}|${searchQuery}|${categoryListFilter}|${costCenterListFilter}`;
   const {
     paginatedItems,
     page,
@@ -40,7 +57,7 @@ export function ExpenseTypeManager() {
     from,
     to,
     total: pageTotal
-  } = usePagination(types, 9, listResetKey);
+  } = usePagination(filteredTypes, 9, listResetKey);
 
   useEffect(() => {
     if (currentCompany?.id) {
@@ -192,7 +209,7 @@ export function ExpenseTypeManager() {
   return (
     <div className="space-y-4">
       <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">
             Tipos de Despesa
           </h2>
@@ -202,12 +219,62 @@ export function ExpenseTypeManager() {
           </Button>
         </div>
 
+        <div className="mb-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 p-3 rounded-lg border border-border bg-muted/20">
+          <div className="space-y-1 md:col-span-2">
+            <Label className="text-xs text-muted-foreground">Buscar cadastro</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Nome do tipo ou centro de custo..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Categoria</Label>
+            <Select value={categoryListFilter} onValueChange={setCategoryListFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Todas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                <SelectItem value="fixo">Fixo</SelectItem>
+                <SelectItem value="variavel">Variável</SelectItem>
+                <SelectItem value="semi_variavel">Semi-variável</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Centro de custo</Label>
+            <Select value={costCenterListFilter} onValueChange={setCostCenterListFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {centers.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} ({c.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         {types.length === 0 ? (
           <div className="text-center py-8">
             <Tag className="w-12 h-12 mx-auto text-gray-400 mb-3" />
             <p className="text-gray-500 dark:text-gray-400">
               Nenhum tipo de despesa cadastrado
             </p>
+          </div>
+        ) : filteredTypes.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            Nenhum tipo corresponde aos filtros.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -260,7 +327,7 @@ export function ExpenseTypeManager() {
             ))}
           </div>
         )}
-        {types.length > 0 && totalPages > 1 && (
+        {filteredTypes.length > 0 && totalPages > 1 && (
           <ListPaginationBar
             page={page}
             totalPages={totalPages}
