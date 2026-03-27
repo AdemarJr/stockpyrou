@@ -31,6 +31,8 @@ import {
   SelectValue,
 } from '../ui/select';
 import { Search } from 'lucide-react';
+import { cn } from '../ui/utils';
+import { ariaInvalidProps } from '../../lib/formFieldValidation';
 
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 
@@ -68,6 +70,9 @@ export function UserManagement() {
   const [deletingUser, setDeletingUser] = useState<UserProfile | null>(null);
   const [resettingPassword, setResettingPassword] = useState<UserProfile | null>(null);
   const [newPassword, setNewPassword] = useState('');
+  const [resetPasswordInvalid, setResetPasswordInvalid] = useState(false);
+  type UserFieldKey = 'fullName' | 'email' | 'password';
+  const [userFieldErrors, setUserFieldErrors] = useState<Partial<Record<UserFieldKey, boolean>>>({});
   const [formData, setFormData] = useState<UserFormData>({
     email: '',
     password: '',
@@ -115,6 +120,10 @@ export function UserManagement() {
     }
   }, [user, currentCompany]);
 
+  useEffect(() => {
+    setUserFieldErrors({});
+  }, [formData]);
+
   async function loadUsers() {
     try {
       setLoading(true);
@@ -149,6 +158,15 @@ export function UserManagement() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    const errs: Partial<Record<UserFieldKey, boolean>> = {};
+    if (!formData.fullName.trim()) errs.fullName = true;
+    if (!formData.email.trim()) errs.email = true;
+    if (!editingUser && (!formData.password || formData.password.length < 6)) {
+      errs.password = true;
+    }
+    setUserFieldErrors(errs);
+    if (Object.keys(errs).length > 0) return;
 
     setSubmitLoading(true);
     try {
@@ -231,12 +249,16 @@ export function UserManagement() {
   }
 
   async function handleResetPassword() {
-    if (!resettingPassword || !newPassword) return;
-
-    if (newPassword.length < 6) {
-      toast.error('A senha deve ter no mínimo 6 caracteres');
+    if (!resettingPassword) return;
+    if (!newPassword.trim()) {
+      setResetPasswordInvalid(true);
       return;
     }
+    if (newPassword.length < 6) {
+      setResetPasswordInvalid(true);
+      return;
+    }
+    setResetPasswordInvalid(false);
 
     setResetPasswordLoading(true);
     try {
@@ -280,6 +302,7 @@ export function UserManagement() {
   function handleCloseForm() {
     setShowForm(false);
     setEditingUser(null);
+    setUserFieldErrors({});
     setFormData({
       email: '',
       password: '',
@@ -502,61 +525,67 @@ export function UserManagement() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-gray-700 mb-2">Nome Completo</label>
-                <input
+                <Label className={cn(userFieldErrors.fullName && 'text-destructive')}>
+                  Nome completo <span className="text-destructive">*</span>
+                </Label>
+                <Input
                   type="text"
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
+                  className="mt-2"
+                  {...ariaInvalidProps(!!userFieldErrors.fullName)}
                 />
               </div>
 
               <div>
-                <label className="block text-gray-700 mb-2">E-mail</label>
-                <input
+                <Label className={cn(userFieldErrors.email && 'text-destructive')}>
+                  E-mail <span className="text-destructive">*</span>
+                </Label>
+                <Input
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
+                  className="mt-2"
                   disabled={!!editingUser}
+                  {...ariaInvalidProps(!!userFieldErrors.email)}
                 />
               </div>
 
               {!editingUser && (
                 <div>
-                  <label className="block text-gray-700 mb-2">Senha</label>
-                  <input
+                  <Label className={cn(userFieldErrors.password && 'text-destructive')}>
+                    Senha <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
                     type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    required
-                    minLength={6}
+                    className="mt-2"
                     placeholder="Mínimo 6 caracteres"
+                    {...ariaInvalidProps(!!userFieldErrors.password)}
                   />
                 </div>
               )}
 
               <div>
-                <label className="block text-gray-700 mb-2">Cargo/Função</label>
-                <input
+                <Label>Cargo/Função</Label>
+                <Input
                   type="text"
                   value={formData.position}
                   onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-2"
                   placeholder="Ex: Gerente, Operador..."
                 />
               </div>
 
               <div>
-                <label className="block text-gray-700 mb-2">Perfil de Acesso</label>
+                <Label>
+                  Perfil de acesso <span className="text-destructive">*</span>
+                </Label>
                 <select
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
+                  className="mt-2 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="visualizacao">Somente Visualização</option>
                   <option value="operador">Operador de Cadastro</option>
@@ -673,14 +702,19 @@ export function UserManagement() {
             </p>
 
             <div className="mb-6">
-              <label className="block text-gray-700 mb-2">Nova Senha</label>
-              <input
+              <Label className={cn(resetPasswordInvalid && 'text-destructive')}>
+                Nova senha <span className="text-destructive">*</span>
+              </Label>
+              <Input
                 type="password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                onChange={(e) => {
+                  setNewPassword(e.target.value);
+                  setResetPasswordInvalid(false);
+                }}
+                className="mt-2"
                 placeholder="Mínimo 6 caracteres"
-                minLength={6}
+                {...ariaInvalidProps(resetPasswordInvalid)}
               />
             </div>
 
@@ -699,8 +733,8 @@ export function UserManagement() {
               <button
                 type="button"
                 onClick={() => void handleResetPassword()}
-                disabled={!newPassword || newPassword.length < 6 || resetPasswordLoading}
-                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                disabled={resetPasswordLoading}
+                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-70 inline-flex items-center justify-center gap-2"
               >
                 {resetPasswordLoading ? (
                   <>

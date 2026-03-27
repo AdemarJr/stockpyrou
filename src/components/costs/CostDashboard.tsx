@@ -12,7 +12,8 @@ import {
   BarChart3,
   FileText,
   Target,
-  Settings
+  Settings,
+  BadgePercent
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
 import { CostRepository } from '../../repositories/CostRepository';
@@ -21,6 +22,7 @@ import { ExpenseManagement } from './ExpenseManagement';
 import { BudgetManagement } from './BudgetManagement';
 import { CostAnalytics } from './CostAnalytics';
 import { CostTargets } from './CostTargets';
+import { CommissionCalculator } from './CommissionCalculator';
 import { toast } from 'sonner@2.0.3';
 
 interface DashboardMetrics {
@@ -215,7 +217,7 @@ export function CostDashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 h-auto">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <PieChart className="w-4 h-4" />
             <span className="hidden md:inline">Visão Geral</span>
@@ -227,6 +229,10 @@ export function CostDashboard() {
           <TabsTrigger value="budgets" className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
             <span className="hidden md:inline">Orçamentos</span>
+          </TabsTrigger>
+          <TabsTrigger value="commissions" className="flex items-center gap-2">
+            <BadgePercent className="w-4 h-4" />
+            <span className="hidden md:inline">Comissões</span>
           </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
@@ -248,6 +254,10 @@ export function CostDashboard() {
 
         <TabsContent value="budgets">
           <BudgetManagement />
+        </TabsContent>
+
+        <TabsContent value="commissions">
+          <CommissionCalculator />
         </TabsContent>
 
         <TabsContent value="analytics">

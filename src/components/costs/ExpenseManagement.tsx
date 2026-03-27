@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
+import { cn } from '../ui/utils';
 import type {
   CostCenter,
   ExpenseType,
@@ -270,6 +271,23 @@ export function ExpenseManagement() {
     supplierId: ''
   });
 
+  type ExpenseFieldErrKey =
+    | 'costCenterId'
+    | 'expenseTypeId'
+    | 'amount'
+    | 'dueDate'
+    | 'invoiceDays'
+    | 'installmentCount'
+    | 'paymentMethod'
+    | 'paymentDate';
+  const [expenseFieldErrors, setExpenseFieldErrors] = useState<
+    Partial<Record<ExpenseFieldErrKey, boolean>>
+  >({});
+
+  useEffect(() => {
+    setExpenseFieldErrors({});
+  }, [formData]);
+
   useEffect(() => {
     if (currentCompany?.id) {
       loadData();
@@ -316,30 +334,30 @@ export function ExpenseManagement() {
     e.preventDefault();
     if (!currentCompany?.id || !user?.id) return;
 
+    const errs: Partial<Record<ExpenseFieldErrKey, boolean>> = {};
+    if (!formData.costCenterId.trim()) errs.costCenterId = true;
+    if (!formData.expenseTypeId.trim()) errs.expenseTypeId = true;
+    const amountNum = parseFloat(formData.amount.replace(',', '.'));
+    if (!formData.amount.trim() || !Number.isFinite(amountNum) || amountNum <= 0) errs.amount = true;
+    if (!formData.dueDate.trim()) errs.dueDate = true;
+
     if (formData.paymentTermsType === 'faturado') {
       const d = parseInt(formData.invoiceDays, 10);
-      if (!Number.isFinite(d) || d < 1) {
-        toast.error('Informe o prazo em dias para pagamento faturado.');
-        return;
-      }
+      if (!Number.isFinite(d) || d < 1) errs.invoiceDays = true;
     }
     if (formData.paymentTermsType === 'parcelado') {
       const n = parseInt(formData.installmentCount, 10);
-      if (!Number.isFinite(n) || n < 2) {
-        toast.error('Informe em quantas parcelas (mínimo 2).');
-        return;
-      }
+      if (!Number.isFinite(n) || n < 2) errs.installmentCount = true;
     }
 
     if (formData.paymentStatus === 'paid') {
-      if (!formData.paymentMethod) {
-        toast.error('Informe como foi pago (forma de pagamento).');
-        return;
-      }
-      if (!formData.paymentDate) {
-        toast.error('Informe a data do pagamento.');
-        return;
-      }
+      if (!formData.paymentMethod) errs.paymentMethod = true;
+      if (!formData.paymentDate) errs.paymentDate = true;
+    }
+
+    if (Object.keys(errs).length > 0) {
+      setExpenseFieldErrors(errs);
+      return;
     }
 
     setSubmitLoading(true);
@@ -586,6 +604,7 @@ export function ExpenseManagement() {
   ]);
 
   const resetForm = () => {
+    setExpenseFieldErrors({});
     setFormData({
       costCenterId: '',
       expenseTypeId: '',
@@ -1094,13 +1113,14 @@ export function ExpenseManagement() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="costCenter">Centro de Custo *</Label>
+                <Label htmlFor="costCenter" className={cn(expenseFieldErrors.costCenterId && 'text-destructive')}>
+                  Centro de Custo <span className="text-destructive">*</span>
+                </Label>
                 <Select
                   value={formData.costCenterId}
                   onValueChange={(value) => setFormData({ ...formData, costCenterId: value })}
-                  required
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-invalid={!!expenseFieldErrors.costCenterId}>
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1114,13 +1134,14 @@ export function ExpenseManagement() {
               </div>
 
               <div>
-                <Label htmlFor="expenseType">Tipo de Despesa *</Label>
+                <Label htmlFor="expenseType" className={cn(expenseFieldErrors.expenseTypeId && 'text-destructive')}>
+                  Tipo de Despesa <span className="text-destructive">*</span>
+                </Label>
                 <Select
                   value={formData.expenseTypeId}
                   onValueChange={(value) => setFormData({ ...formData, expenseTypeId: value })}
-                  required
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-invalid={!!expenseFieldErrors.expenseTypeId}>
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1136,7 +1157,9 @@ export function ExpenseManagement() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="amount">Valor *</Label>
+                <Label htmlFor="amount" className={cn(expenseFieldErrors.amount && 'text-destructive')}>
+                  Valor <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   id="amount"
                   type="number"
@@ -1144,18 +1167,20 @@ export function ExpenseManagement() {
                   value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                   placeholder="0.00"
-                  required
+                  aria-invalid={!!expenseFieldErrors.amount}
                 />
               </div>
 
               <div>
-                <Label htmlFor="dueDate">Data de Vencimento *</Label>
+                <Label htmlFor="dueDate" className={cn(expenseFieldErrors.dueDate && 'text-destructive')}>
+                  Data de Vencimento <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   id="dueDate"
                   type="date"
                   value={formData.dueDate}
                   onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                  required
+                  aria-invalid={!!expenseFieldErrors.dueDate}
                 />
               </div>
             </div>
@@ -1214,7 +1239,9 @@ export function ExpenseManagement() {
               </p>
 
               <div>
-                <Label htmlFor="paymentTermsType">Tipo de pagamento *</Label>
+                <Label htmlFor="paymentTermsType">
+                  Tipo de pagamento <span className="text-destructive">*</span>
+                </Label>
                 <Select
                   value={formData.paymentTermsType}
                   onValueChange={(v) => {
@@ -1240,7 +1267,9 @@ export function ExpenseManagement() {
 
               {formData.paymentTermsType === 'faturado' && (
                 <div className="max-w-xs">
-                  <Label htmlFor="invoiceDays">Prazo (dias) *</Label>
+                  <Label htmlFor="invoiceDays" className={cn(expenseFieldErrors.invoiceDays && 'text-destructive')}>
+                    Prazo (dias) <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     id="invoiceDays"
                     type="number"
@@ -1249,6 +1278,7 @@ export function ExpenseManagement() {
                     value={formData.invoiceDays}
                     onChange={(e) => setFormData({ ...formData, invoiceDays: e.target.value })}
                     placeholder="ex.: 30, 60"
+                    aria-invalid={!!expenseFieldErrors.invoiceDays}
                   />
                   <p className="text-xs text-muted-foreground mt-1">
                     Dias para pagamento após emissão / vencimento conforme combinado.
@@ -1258,7 +1288,9 @@ export function ExpenseManagement() {
 
               {formData.paymentTermsType === 'parcelado' && (
                 <div className="max-w-xs">
-                  <Label htmlFor="installmentCount">Parcelas *</Label>
+                  <Label htmlFor="installmentCount" className={cn(expenseFieldErrors.installmentCount && 'text-destructive')}>
+                    Parcelas <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     id="installmentCount"
                     type="number"
@@ -1267,6 +1299,7 @@ export function ExpenseManagement() {
                     value={formData.installmentCount}
                     onChange={(e) => setFormData({ ...formData, installmentCount: e.target.value })}
                     placeholder="ex.: 3, 6, 12"
+                    aria-invalid={!!expenseFieldErrors.installmentCount}
                   />
                   <p className="text-xs text-muted-foreground mt-1">Quantidade total de parcelas.</p>
                 </div>
@@ -1274,7 +1307,9 @@ export function ExpenseManagement() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="paymentStatus">Situação do título *</Label>
+                  <Label htmlFor="paymentStatus">
+                    Situação do título <span className="text-destructive">*</span>
+                  </Label>
                   <Select value={formData.paymentStatus} onValueChange={(v) => setPaymentStatus(v as PaymentStatus)}>
                     <SelectTrigger id="paymentStatus">
                       <SelectValue />
@@ -1292,17 +1327,21 @@ export function ExpenseManagement() {
               {formData.paymentStatus === 'paid' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="paymentDate">Data do pagamento *</Label>
+                    <Label htmlFor="paymentDate" className={cn(expenseFieldErrors.paymentDate && 'text-destructive')}>
+                      Data do pagamento <span className="text-destructive">*</span>
+                    </Label>
                     <Input
                       id="paymentDate"
                       type="date"
                       value={formData.paymentDate}
                       onChange={(e) => setFormData({ ...formData, paymentDate: e.target.value })}
-                      required={formData.paymentStatus === 'paid'}
+                      aria-invalid={!!expenseFieldErrors.paymentDate}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="paymentMethod">Forma de pagamento *</Label>
+                    <Label htmlFor="paymentMethod" className={cn(expenseFieldErrors.paymentMethod && 'text-destructive')}>
+                      Forma de pagamento <span className="text-destructive">*</span>
+                    </Label>
                     <Select
                       value={formData.paymentMethod || 'none'}
                       onValueChange={(value) =>
@@ -1312,7 +1351,7 @@ export function ExpenseManagement() {
                         })
                       }
                     >
-                      <SelectTrigger id="paymentMethod">
+                      <SelectTrigger id="paymentMethod" aria-invalid={!!expenseFieldErrors.paymentMethod}>
                         <SelectValue placeholder="Como foi pago?" />
                       </SelectTrigger>
                       <SelectContent>

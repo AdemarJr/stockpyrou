@@ -15,6 +15,8 @@ import { toast } from 'sonner@2.0.3';
 import type { CostCenter } from '../../types/costs';
 import { CostRepository } from '../../repositories/CostRepository';
 import { ExpenseTypeManager } from './ExpenseTypeManager';
+import { cn } from '../ui/utils';
+import { ariaInvalidProps } from '../../lib/formFieldValidation';
 
 export function CostCenterManagement() {
   const { currentCompany } = useCompany();
@@ -27,6 +29,8 @@ export function CostCenterManagement() {
     code: '',
     description: ''
   });
+  type CostCenterFieldKey = 'name' | 'code';
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<CostCenterFieldKey, boolean>>>({});
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,6 +58,10 @@ export function CostCenterManagement() {
     }
   }, [currentCompany?.id]);
 
+  useEffect(() => {
+    setFieldErrors({});
+  }, [formData]);
+
   const loadCostCenters = async () => {
     if (!currentCompany?.id) return;
 
@@ -72,6 +80,12 @@ export function CostCenterManagement() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentCompany?.id) return;
+
+    const errs: Partial<Record<CostCenterFieldKey, boolean>> = {};
+    if (!formData.code.trim()) errs.code = true;
+    if (!formData.name.trim()) errs.name = true;
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) return;
 
     setSubmitLoading(true);
     try {
@@ -139,6 +153,7 @@ export function CostCenterManagement() {
 
   const resetForm = () => {
     setEditingCenter(null);
+    setFieldErrors({});
     setFormData({
       name: '',
       code: '',
@@ -294,24 +309,28 @@ export function CostCenterManagement() {
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <Label htmlFor="code">Código *</Label>
+                  <Label htmlFor="code" className={cn(fieldErrors.code && 'text-destructive')}>
+                    Código <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     id="code"
                     value={formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                     placeholder="Ex: OP-001"
-                    required
+                    {...ariaInvalidProps(!!fieldErrors.code)}
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="name">Nome *</Label>
+                  <Label htmlFor="name" className={cn(fieldErrors.name && 'text-destructive')}>
+                    Nome <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     id="name"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="Ex: Operacional"
-                    required
+                    {...ariaInvalidProps(!!fieldErrors.name)}
                   />
                 </div>
 

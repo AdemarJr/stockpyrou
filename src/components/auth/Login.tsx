@@ -3,6 +3,8 @@ import { Eye, EyeOff, Lock, Mail, Package, Loader2, ArrowLeft, RefreshCw } from 
 import { useAuth } from '../../contexts/AuthContext';
 import { forceLogout } from '../../utils/auth-cleanup';
 import { toast } from 'sonner@2.0.3';
+import { cn } from '../ui/utils';
+import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
 
 interface LoginProps {
@@ -16,13 +18,16 @@ export function Login({ onBackToLanding }: LoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: boolean; password?: boolean }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!email || !password) {
-      return;
-    }
+
+    const err: { email?: boolean; password?: boolean } = {};
+    if (!email.trim()) err.email = true;
+    if (!password) err.password = true;
+    setFieldErrors(err);
+    if (Object.keys(err).length > 0) return;
 
     setLoading(true);
     try {
@@ -95,8 +100,8 @@ export function Login({ onBackToLanding }: LoginProps) {
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email Field */}
             <div>
-              <label htmlFor="email" className="block text-gray-700 mb-2">
-                E-mail
+              <label htmlFor="email" className={cn('block text-gray-700 mb-2', fieldErrors.email && 'text-destructive')}>
+                E-mail <span className="text-destructive">*</span>
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -106,10 +111,21 @@ export function Login({ onBackToLanding }: LoginProps) {
                   id="email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 bg-white"
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setFieldErrors((p) => {
+                      const n = { ...p };
+                      delete n.email;
+                      return n;
+                    });
+                  }}
+                  aria-invalid={fieldErrors.email}
+                  className={cn(
+                    'block w-full pl-10 pr-3 py-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 bg-white',
+                    nativeFieldInvalidClass(!!fieldErrors.email),
+                    !fieldErrors.email && 'border border-gray-300'
+                  )}
                   placeholder="seu@email.com"
-                  required
                   disabled={loading}
                 />
               </div>
@@ -117,8 +133,8 @@ export function Login({ onBackToLanding }: LoginProps) {
 
             {/* Password Field */}
             <div>
-              <label htmlFor="password" className="block text-gray-700 mb-2">
-                Senha
+              <label htmlFor="password" className={cn('block text-gray-700 mb-2', fieldErrors.password && 'text-destructive')}>
+                Senha <span className="text-destructive">*</span>
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -128,10 +144,21 @@ export function Login({ onBackToLanding }: LoginProps) {
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 bg-white"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setFieldErrors((p) => {
+                      const n = { ...p };
+                      delete n.password;
+                      return n;
+                    });
+                  }}
+                  aria-invalid={fieldErrors.password}
+                  className={cn(
+                    'block w-full pl-10 pr-12 py-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-900 bg-white',
+                    nativeFieldInvalidClass(!!fieldErrors.password),
+                    !fieldErrors.password && 'border border-gray-300'
+                  )}
                   placeholder="••••••••"
-                  required
                   disabled={loading}
                 />
                 <button
@@ -164,8 +191,8 @@ export function Login({ onBackToLanding }: LoginProps) {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || !email || !password}
-              className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-70 transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>

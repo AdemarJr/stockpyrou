@@ -8,6 +8,10 @@ import { toast } from 'sonner@2.0.3';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Checkbox } from '../ui/checkbox';
+import { cn } from '../ui/utils';
+import { ariaInvalidProps, nativeFieldInvalidClass } from '../../lib/formFieldValidation';
+
+type ProductFieldErrorKey = 'name' | 'supplierId' | 'minStock' | 'averageCost' | 'sellingPrice';
 
 interface ProductFormProps {
   product: Product | null;
@@ -34,6 +38,7 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
     supplierId: '',
     shelfLife: 0,
   });
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ProductFieldErrorKey, boolean>>>({});
 
   useEffect(() => {
     if (currentCompany) {
@@ -72,11 +77,26 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const err: Partial<Record<ProductFieldErrorKey, boolean>> = {};
+    if (!formData.name.trim()) err.name = true;
+    if (!formData.supplierId) err.supplierId = true;
+    if (formData.minStock < 0) err.minStock = true;
+    if (formData.averageCost <= 0) err.averageCost = true;
+    if (formData.sellingPrice <= 0) err.sellingPrice = true;
+    setFieldErrors(err);
+    if (Object.keys(err).length > 0) return;
     onSave(formData);
   };
-  
+
   const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    if (fieldErrors[field as ProductFieldErrorKey]) {
+      setFieldErrors(prev => {
+        const next = { ...prev };
+        delete next[field as ProductFieldErrorKey];
+        return next;
+      });
+    }
   };
   
   const qrCodeRef = useRef<HTMLDivElement>(null);
@@ -214,24 +234,23 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
             
             <div>
               <label className="block text-gray-700 mb-2">
-                Nome do Produto *
+                Nome do Produto <span className="text-destructive">*</span>
               </label>
               <Input
                 type="text"
-                required
                 value={formData.name}
                 onChange={(e) => handleChange('name', e.target.value)}
                 placeholder="Ex: Carne Bovina (Picanha)"
+                {...ariaInvalidProps(!!fieldErrors.name)}
               />
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-foreground mb-2">
-                  Categoria *
+                  Categoria <span className="text-destructive">*</span>
                 </label>
                 <select
-                  required
                   value={formData.category}
                   onChange={(e) => handleChange('category', e.target.value)}
                   className="w-full px-4 py-2 border border-input bg-input-background rounded-lg focus:ring-2 focus:ring-ring focus:border-ring dark:bg-input/30"
@@ -246,10 +265,9 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
               
               <div>
                 <label className="block text-foreground mb-2">
-                  Unidade de Medida *
+                  Unidade de Medida <span className="text-destructive">*</span>
                 </label>
                 <select
-                  required
                   value={formData.measurementUnit}
                   onChange={(e) => handleChange('measurementUnit', e.target.value as MeasurementUnit)}
                   className="w-full px-4 py-2 border border-input bg-input-background rounded-lg focus:ring-2 focus:ring-ring focus:border-ring dark:bg-input/30"
@@ -269,13 +287,17 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
             
             <div>
               <label className="block text-foreground mb-2">
-                Fornecedor Principal *
+                Fornecedor Principal <span className="text-destructive">*</span>
               </label>
               <select
-                required
                 value={formData.supplierId}
                 onChange={(e) => handleChange('supplierId', e.target.value)}
-                className="w-full px-4 py-2 border border-input bg-input-background rounded-lg focus:ring-2 focus:ring-ring focus:border-ring dark:bg-input/30"
+                aria-invalid={fieldErrors.supplierId}
+                className={cn(
+                  'w-full px-4 py-2 border bg-input-background rounded-lg focus:ring-2 focus:ring-ring focus:border-ring dark:bg-input/30',
+                  nativeFieldInvalidClass(!!fieldErrors.supplierId),
+                  !fieldErrors.supplierId && 'border-input'
+                )}
               >
                 <option value="">Selecione um fornecedor</option>
                 {suppliers.map((supplier) => (
@@ -366,16 +388,20 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
               
               <div>
                 <label className="block text-gray-700 mb-2">
-                  Estoque Mínimo *
+                  Estoque Mínimo <span className="text-destructive">*</span>
                 </label>
                 <input
                   type="number"
-                  required
                   min="0"
                   step="0.01"
                   value={formData.minStock}
                   onChange={(e) => handleChange('minStock', parseFloat(e.target.value) || 0)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  aria-invalid={fieldErrors.minStock}
+                  className={cn(
+                    'w-full px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                    nativeFieldInvalidClass(!!fieldErrors.minStock),
+                    !fieldErrors.minStock && 'border border-gray-300'
+                  )}
                 />
                 <p className="text-gray-500 mt-1">Ponto de pedido</p>
               </div>
@@ -414,7 +440,7 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-gray-700 mb-2">
-                  Custo Médio Ponderado *
+                  Custo Médio Ponderado <span className="text-destructive">*</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500">
@@ -422,12 +448,16 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
                   </span>
                   <input
                     type="number"
-                    required
                     min="0"
                     step="0.01"
                     value={formData.averageCost}
                     onChange={(e) => handleChange('averageCost', parseFloat(e.target.value) || 0)}
-                    className="w-full pl-12 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    aria-invalid={fieldErrors.averageCost}
+                    className={cn(
+                      'w-full pl-12 pr-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                      nativeFieldInvalidClass(!!fieldErrors.averageCost),
+                      !fieldErrors.averageCost && 'border border-gray-300'
+                    )}
                     placeholder="0.00"
                   />
                 </div>
@@ -438,7 +468,7 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
 
               <div>
                 <label className="block text-gray-700 mb-2 font-bold text-blue-800">
-                  Preço de Venda (Sugerido) *
+                  Preço de Venda (Sugerido) <span className="text-destructive">*</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-blue-600 font-bold">
@@ -446,12 +476,17 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
                   </span>
                   <input
                     type="number"
-                    required
                     min="0"
                     step="0.01"
                     value={formData.sellingPrice}
                     onChange={(e) => handleChange('sellingPrice', parseFloat(e.target.value) || 0)}
-                    className="w-full pl-12 pr-4 py-2 border-2 border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-bold text-blue-900"
+                    aria-invalid={fieldErrors.sellingPrice}
+                    className={cn(
+                      'w-full pl-12 pr-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold text-blue-900',
+                      fieldErrors.sellingPrice
+                        ? nativeFieldInvalidClass(true)
+                        : 'border-2 border-blue-200 focus:border-blue-500'
+                    )}
                     placeholder="0.00"
                   />
                 </div>

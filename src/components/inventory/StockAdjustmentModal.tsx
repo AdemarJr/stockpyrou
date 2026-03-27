@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { X, AlertTriangle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { cn } from '../ui/utils';
+import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 import { StockService } from '../../services/StockService';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
@@ -19,24 +21,21 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
   const [reasonType, setReasonType] = useState<'saida' | 'desperdicio'>('saida');
   const [reasonDescription, setReasonDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ quantity?: boolean; reason?: boolean }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentCompany || !user) return;
 
     const qtd = parseFloat(quantity);
-    if (!qtd || qtd <= 0) {
-      toast.error('A quantidade deve ser maior que zero');
-      return;
-    }
+    const err: { quantity?: boolean; reason?: boolean } = {};
+    if (!qtd || qtd <= 0) err.quantity = true;
+    if (!reasonDescription.trim()) err.reason = true;
+    setFieldErrors(err);
+    if (Object.keys(err).length > 0) return;
 
     if (qtd > product.currentStock) {
       toast.error('Estoque insuficiente para esta baixa');
-      return;
-    }
-
-    if (!reasonDescription.trim()) {
-      toast.error('Por favor, descreva o motivo da baixa');
       return;
     }
 
@@ -113,7 +112,7 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Quantidade a Baixar
+              Quantidade a Baixar <span className="text-destructive">*</span>
             </label>
             <div className="relative">
               <input
@@ -122,10 +121,21 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
                 min="0.01"
                 max={product.currentStock}
                 value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                onChange={(e) => {
+                  setQuantity(e.target.value);
+                  setFieldErrors((prev) => {
+                    const n = { ...prev };
+                    delete n.quantity;
+                    return n;
+                  });
+                }}
+                aria-invalid={fieldErrors.quantity}
+                className={cn(
+                  'w-full px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all',
+                  nativeFieldInvalidClass(!!fieldErrors.quantity),
+                  !fieldErrors.quantity && 'border border-gray-300'
+                )}
                 placeholder="0.00"
-                required
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">
                 {product.measurementUnit}
@@ -135,15 +145,26 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Motivo / Observação
+              Motivo / Observação <span className="text-destructive">*</span>
             </label>
             <textarea
               value={reasonDescription}
-              onChange={(e) => setReasonDescription(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"
+              onChange={(e) => {
+                setReasonDescription(e.target.value);
+                setFieldErrors((prev) => {
+                  const n = { ...prev };
+                  delete n.reason;
+                  return n;
+                });
+              }}
+              aria-invalid={fieldErrors.reason}
+              className={cn(
+                'w-full px-3 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none',
+                nativeFieldInvalidClass(!!fieldErrors.reason),
+                !fieldErrors.reason && 'border border-gray-300'
+              )}
               rows={3}
               placeholder={reasonType === 'desperdicio' ? "Ex: Produto vencido, embalagem danificada..." : "Ex: Consumo da cozinha, teste de receita..."}
-              required
             />
           </div>
 

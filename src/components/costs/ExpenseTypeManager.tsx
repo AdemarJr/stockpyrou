@@ -14,6 +14,8 @@ import { rowMatchesSearch } from '../../utils/listFilters';
 import { toast } from 'sonner@2.0.3';
 import type { ExpenseCategory, CostCenter } from '../../types/costs';
 import { CostRepository } from '../../repositories/CostRepository';
+import { cn } from '../ui/utils';
+import { ariaInvalidProps } from '../../lib/formFieldValidation';
 
 export function ExpenseTypeManager() {
   const { currentCompany } = useCompany();
@@ -29,6 +31,8 @@ export function ExpenseTypeManager() {
     isRecurring: false,
     recurrenceDay: ''
   });
+  type ExpenseTypeFieldKey = 'name' | 'costCenterId';
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ExpenseTypeFieldKey, boolean>>>({});
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -65,6 +69,10 @@ export function ExpenseTypeManager() {
     }
   }, [currentCompany?.id]);
 
+  useEffect(() => {
+    setFieldErrors({});
+  }, [formData]);
+
   const loadData = async () => {
     if (!currentCompany?.id) return;
 
@@ -88,6 +96,12 @@ export function ExpenseTypeManager() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentCompany?.id) return;
+
+    const errs: Partial<Record<ExpenseTypeFieldKey, boolean>> = {};
+    if (!formData.name.trim()) errs.name = true;
+    if (!formData.costCenterId.trim()) errs.costCenterId = true;
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) return;
 
     setSubmitLoading(true);
     try {
@@ -171,6 +185,7 @@ export function ExpenseTypeManager() {
 
   const resetForm = () => {
     setEditingType(null);
+    setFieldErrors({});
     setFormData({
       name: '',
       category: 'fixo',
@@ -357,22 +372,25 @@ export function ExpenseTypeManager() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="name">Nome *</Label>
+              <Label htmlFor="name" className={cn(fieldErrors.name && 'text-destructive')}>
+                Nome <span className="text-destructive">*</span>
+              </Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="Ex: Aluguel, Energia, Salários"
-                required
+                {...ariaInvalidProps(!!fieldErrors.name)}
               />
             </div>
 
             <div>
-              <Label htmlFor="category">Categoria *</Label>
+              <Label htmlFor="category">
+                Categoria <span className="text-destructive">*</span>
+              </Label>
               <Select
                 value={formData.category}
                 onValueChange={(value: any) => setFormData({ ...formData, category: value })}
-                required
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
@@ -389,13 +407,14 @@ export function ExpenseTypeManager() {
             </div>
 
             <div>
-              <Label htmlFor="costCenter">Centro de Custo *</Label>
+              <Label htmlFor="costCenter" className={cn(fieldErrors.costCenterId && 'text-destructive')}>
+                Centro de custo <span className="text-destructive">*</span>
+              </Label>
               <Select
                 value={formData.costCenterId}
                 onValueChange={(value) => setFormData({ ...formData, costCenterId: value })}
-                required
               >
-                <SelectTrigger>
+                <SelectTrigger aria-invalid={!!fieldErrors.costCenterId}>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>

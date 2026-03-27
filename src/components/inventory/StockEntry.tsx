@@ -3,6 +3,8 @@ import { Plus, Package, Calendar, FileText, AlertCircle, Trash2, Edit2, Camera, 
 import { Html5Qrcode } from 'html5-qrcode';
 import { toast } from 'sonner@2.0.3';
 import type { Product, Supplier, StockEntry } from '../../types';
+import { cn } from '../ui/utils';
+import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 import { formatCurrency, formatDateTime, calculateWeightedAverageCost } from '../../utils/calculations';
 import { StockEntryImport } from './StockEntryImport';
 
@@ -45,6 +47,9 @@ export function StockEntryForm({
     }
     return null;
   });
+
+  type StockFieldKey = 'productId' | 'supplierId' | 'quantity' | 'unitPrice' | 'expirationDate';
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<StockFieldKey, boolean>>>({});
 
   const stopScanner = async () => {
     if (html5QrCodeRef.current) {
@@ -187,7 +192,14 @@ export function StockEntryForm({
   
   const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
+    if (fieldErrors[field as StockFieldKey]) {
+      setFieldErrors(prev => {
+        const next = { ...prev };
+        delete next[field as StockFieldKey];
+        return next;
+      });
+    }
+
     if (field === 'productId') {
       const product = products.find(p => p.id === value);
       setSelectedProduct(product || null);
@@ -208,7 +220,19 @@ export function StockEntryForm({
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    const err: Partial<Record<StockFieldKey, boolean>> = {};
+    if (!formData.productId) err.productId = true;
+    if (!formData.supplierId) err.supplierId = true;
+    if (!formData.quantity || formData.quantity <= 0) err.quantity = true;
+    if (!formData.unitPrice || formData.unitPrice <= 0) err.unitPrice = true;
+    const rowProduct = products.find((p) => p.id === formData.productId);
+    if (rowProduct?.isPerishable && !formData.expirationDate?.trim()) {
+      err.expirationDate = true;
+    }
+    setFieldErrors(err);
+    if (Object.keys(err).length > 0) return;
+
     if (!selectedProduct) return;
     
     const totalPrice = formData.quantity * formData.unitPrice;
@@ -358,14 +382,19 @@ export function StockEntryForm({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-2">
-                Produto *
+                Produto <span className="text-destructive">*</span>
               </label>
               <select
-                required
                 disabled={isEditing} // Block product change in edit mode for safety
                 value={formData.productId}
                 onChange={(e) => handleChange('productId', e.target.value)}
-                className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${isEditing ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                aria-invalid={fieldErrors.productId}
+                className={cn(
+                  'w-full px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                  nativeFieldInvalidClass(!!fieldErrors.productId && !isEditing),
+                  !fieldErrors.productId && 'border border-gray-300',
+                  isEditing && 'bg-gray-100 cursor-not-allowed'
+                )}
               >
                 <option value="">Selecione um produto</option>
                 {products.map(product => (
@@ -379,13 +408,17 @@ export function StockEntryForm({
             
             <div>
               <label className="block text-gray-700 mb-2">
-                Fornecedor *
+                Fornecedor <span className="text-destructive">*</span>
               </label>
               <select
-                required
                 value={formData.supplierId}
                 onChange={(e) => handleChange('supplierId', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                aria-invalid={fieldErrors.supplierId}
+                className={cn(
+                  'w-full px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                  nativeFieldInvalidClass(!!fieldErrors.supplierId),
+                  !fieldErrors.supplierId && 'border border-gray-300'
+                )}
               >
                 <option value="">Selecione um fornecedor</option>
                 {suppliers.map(supplier => (
@@ -401,16 +434,20 @@ export function StockEntryForm({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-gray-700 mb-2">
-                Quantidade *
+                Quantidade <span className="text-destructive">*</span>
               </label>
               <input
                 type="number"
-                required
                 min="0.01"
                 step="0.01"
                 value={formData.quantity || ''}
                 onChange={(e) => handleChange('quantity', parseFloat(e.target.value) || 0)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                aria-invalid={fieldErrors.quantity}
+                className={cn(
+                  'w-full px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                  nativeFieldInvalidClass(!!fieldErrors.quantity),
+                  !fieldErrors.quantity && 'border border-gray-300'
+                )}
                 placeholder="0.00"
               />
               {selectedProduct && (
@@ -422,7 +459,7 @@ export function StockEntryForm({
             
             <div>
               <label className="block text-gray-700 mb-2">
-                Preço Unitário *
+                Preço Unitário <span className="text-destructive">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500">
@@ -430,12 +467,16 @@ export function StockEntryForm({
                 </span>
                 <input
                   type="number"
-                  required
                   min="0.01"
                   step="0.01"
                   value={formData.unitPrice || ''}
                   onChange={(e) => handleChange('unitPrice', parseFloat(e.target.value) || 0)}
-                  className="w-full pl-12 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  aria-invalid={fieldErrors.unitPrice}
+                  className={cn(
+                    'w-full pl-12 pr-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                    nativeFieldInvalidClass(!!fieldErrors.unitPrice),
+                    !fieldErrors.unitPrice && 'border border-gray-300'
+                  )}
                   placeholder="0.00"
                 />
               </div>
@@ -468,15 +509,19 @@ export function StockEntryForm({
             
             <div>
               <label className="block text-gray-700 mb-2">
-                Data de Validade {selectedProduct?.isPerishable && '*'}
+                Data de Validade{' '}
+                {selectedProduct?.isPerishable && <span className="text-destructive">*</span>}
               </label>
               <input
                 type="date"
-                required={selectedProduct?.isPerishable}
                 value={formData.expirationDate}
                 onChange={(e) => handleChange('expirationDate', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                // Only enforce min date for new entries, not edits (in case editing an old entry close to expiry)
+                aria-invalid={fieldErrors.expirationDate}
+                className={cn(
+                  'w-full px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                  nativeFieldInvalidClass(!!fieldErrors.expirationDate),
+                  !fieldErrors.expirationDate && 'border border-gray-300'
+                )}
                 min={!isEditing ? new Date().toISOString().split('T')[0] : undefined}
               />
             </div>
@@ -510,8 +555,7 @@ export function StockEntryForm({
             
             <button
               type="submit"
-              disabled={!selectedProduct}
-              className={`flex-1 ${isEditing ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white px-4 py-3 rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
+              className={`flex-1 ${isEditing ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2`}
             >
               {isEditing ? <Edit2 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
               {isEditing ? 'Salvar Alterações' : 'Registrar Entrada'}

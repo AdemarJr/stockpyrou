@@ -16,6 +16,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
+import { cn } from '../ui/utils';
+import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 import { CashierPOS } from './CashierPOS';
 import { CashierClose } from './CashierClose';
 import { CashierHistory } from './CashierHistory';
@@ -36,6 +38,7 @@ export function CashRegister({ onBack }: CashRegisterProps) {
   
   // Opening register form
   const [initialBalance, setInitialBalance] = useState('');
+  const [initialBalanceInvalid, setInitialBalanceInvalid] = useState(false);
   const [isOpening, setIsOpening] = useState(false);
 
   useEffect(() => {
@@ -108,11 +111,13 @@ export function CashRegister({ onBack }: CashRegisterProps) {
 
   const handleOpenRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!initialBalance || parseFloat(initialBalance) < 0) {
-      toast.error('Informe um saldo inicial válido');
+
+    const n = parseFloat(initialBalance.replace(',', '.'));
+    if (!initialBalance.trim() || !Number.isFinite(n) || n < 0) {
+      setInitialBalanceInvalid(true);
       return;
     }
+    setInitialBalanceInvalid(false);
 
     // Validação de token antes de fazer requisição
     if (!user?.accessToken) {
@@ -250,8 +255,8 @@ export function CashRegister({ onBack }: CashRegisterProps) {
               </div>
 
               <div className="space-y-3">
-                <label className="block text-sm font-bold text-gray-700">
-                  Saldo Inicial em Caixa (R$)
+                <label className={cn('block text-sm font-bold', initialBalanceInvalid ? 'text-destructive' : 'text-gray-700')}>
+                  Saldo inicial em caixa (R$) <span className="text-destructive">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -261,10 +266,18 @@ export function CashRegister({ onBack }: CashRegisterProps) {
                     type="number"
                     step="0.01"
                     value={initialBalance}
-                    onChange={(e) => setInitialBalance(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 text-2xl font-bold bg-gray-50 border-2 border-gray-200 rounded-xl outline-none focus:border-blue-600 transition-colors"
+                    onChange={(e) => {
+                      setInitialBalance(e.target.value);
+                      setInitialBalanceInvalid(false);
+                    }}
+                    aria-invalid={initialBalanceInvalid}
+                    className={cn(
+                      'w-full pl-12 pr-4 py-4 text-2xl font-bold bg-gray-50 rounded-xl outline-none focus:border-blue-600 transition-colors border-2',
+                      initialBalanceInvalid
+                        ? nativeFieldInvalidClass(true)
+                        : 'border-gray-200 focus:border-blue-600'
+                    )}
                     placeholder="0,00"
-                    required
                     autoFocus
                   />
                 </div>

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X, Save, Zap } from 'lucide-react';
 import type { Product, MeasurementUnit } from '../../types';
-import { toast } from 'sonner@2.0.3';
+import { cn } from '../ui/utils';
+import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 
 interface QuickProductFormProps {
   onSave: (product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -17,19 +18,16 @@ export function QuickProductForm({ onSave, onCancel, onSwitchToFull }: QuickProd
     averageCost: 0,
     sellingPrice: 0,
   });
+  const [fieldErrors, setFieldErrors] = useState<{ name?: boolean; averageCost?: boolean }>({});
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.name.trim()) {
-      toast.error('Nome do produto é obrigatório');
-      return;
-    }
-    
-    if (formData.averageCost <= 0) {
-      toast.error('Custo médio deve ser maior que zero');
-      return;
-    }
+
+    const err: { name?: boolean; averageCost?: boolean } = {};
+    if (!formData.name.trim()) err.name = true;
+    if (formData.averageCost <= 0) err.averageCost = true;
+    setFieldErrors(err);
+    if (Object.keys(err).length > 0) return;
 
     // Create product with simplified data and smart defaults
     const product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -52,6 +50,12 @@ export function QuickProductForm({ onSave, onCancel, onSwitchToFull }: QuickProd
 
   const handleChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      if (field === 'name') delete next.name;
+      if (field === 'averageCost') delete next.averageCost;
+      return next;
+    });
   };
 
   // Calculate suggested selling price (30% markup)
@@ -95,10 +99,15 @@ export function QuickProductForm({ onSave, onCancel, onSwitchToFull }: QuickProd
             </label>
             <input
               type="text"
-              required
               value={formData.name}
               onChange={(e) => handleChange('name', e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+              aria-invalid={fieldErrors.name}
+              className={cn(
+                'w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors dark:bg-gray-700 dark:text-white',
+                fieldErrors.name
+                  ? 'border-destructive ring-2 ring-destructive/30'
+                  : 'border-gray-300 dark:border-gray-600'
+              )}
               placeholder="Ex: Arroz Branco 5kg"
               autoFocus
             />
@@ -111,7 +120,6 @@ export function QuickProductForm({ onSave, onCancel, onSwitchToFull }: QuickProd
                 Categoria <span className="text-red-500">*</span>
               </label>
               <select
-                required
                 value={formData.category}
                 onChange={(e) => handleChange('category', e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
@@ -129,7 +137,6 @@ export function QuickProductForm({ onSave, onCancel, onSwitchToFull }: QuickProd
                 Unidade <span className="text-red-500">*</span>
               </label>
               <select
-                required
                 value={formData.measurementUnit}
                 onChange={(e) => handleChange('measurementUnit', e.target.value as MeasurementUnit)}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
@@ -153,12 +160,16 @@ export function QuickProductForm({ onSave, onCancel, onSwitchToFull }: QuickProd
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">R$</span>
                 <input
                   type="number"
-                  required
                   min="0"
                   step="0.01"
                   value={formData.averageCost || ''}
                   onChange={(e) => handleChange('averageCost', parseFloat(e.target.value) || 0)}
-                  className="w-full pl-12 pr-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                  aria-invalid={fieldErrors.averageCost}
+                  className={cn(
+                    'w-full pl-12 pr-4 py-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors dark:bg-gray-700 dark:text-white',
+                    nativeFieldInvalidClass(!!fieldErrors.averageCost),
+                    !fieldErrors.averageCost && 'border border-gray-300 dark:border-gray-600'
+                  )}
                   placeholder="0,00"
                 />
               </div>

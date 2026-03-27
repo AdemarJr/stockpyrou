@@ -73,7 +73,9 @@ export function SupplierForm({ initialData, onSubmit, isLoading, onCancel }: Sup
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Nome da Empresa</FormLabel>
+              <FormLabel>
+                Nome da Empresa <span className="text-destructive">*</span>
+              </FormLabel>
               <FormControl>
                 <Input placeholder="Ex: Distribuidora XYZ" {...field} />
               </FormControl>
@@ -87,7 +89,9 @@ export function SupplierForm({ initialData, onSubmit, isLoading, onCancel }: Sup
           name="contact"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Pessoa de Contato</FormLabel>
+              <FormLabel>
+                Pessoa de Contato <span className="text-destructive">*</span>
+              </FormLabel>
               <FormControl>
                 <Input placeholder="Ex: João Silva" {...field} />
               </FormControl>

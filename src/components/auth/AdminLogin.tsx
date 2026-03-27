@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Eye, EyeOff, Lock, ShieldCheck, Loader2, ArrowLeft, Terminal } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner@2.0.3';
+import { cn } from '../ui/utils';
+import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 
 interface AdminLoginProps {
   onBack: () => void;
@@ -13,13 +15,16 @@ export function AdminLogin({ onBack }: AdminLoginProps) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: boolean; password?: boolean }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!email || !password) {
-      return;
-    }
+
+    const err: { email?: boolean; password?: boolean } = {};
+    if (!email.trim()) err.email = true;
+    if (!password) err.password = true;
+    setFieldErrors(err);
+    if (Object.keys(err).length > 0) return;
 
     setLoading(true);
     try {
@@ -58,8 +63,8 @@ export function AdminLogin({ onBack }: AdminLoginProps) {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Email Field */}
             <div>
-              <label htmlFor="admin-email" className="block text-slate-300 mb-2 text-sm font-medium">
-                ID de Administrador
+              <label htmlFor="admin-email" className={cn('block text-slate-300 mb-2 text-sm font-medium', fieldErrors.email && 'text-red-400')}>
+                ID de Administrador <span className="text-red-400">*</span>
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -69,10 +74,21 @@ export function AdminLogin({ onBack }: AdminLoginProps) {
                   id="admin-email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-slate-600 rounded bg-slate-900 text-white placeholder-slate-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setFieldErrors((p) => {
+                      const n = { ...p };
+                      delete n.email;
+                      return n;
+                    });
+                  }}
+                  aria-invalid={fieldErrors.email}
+                  className={cn(
+                    'block w-full pl-10 pr-3 py-3 rounded bg-slate-900 text-white placeholder-slate-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors',
+                    nativeFieldInvalidClass(!!fieldErrors.email),
+                    !fieldErrors.email && 'border border-slate-600'
+                  )}
                   placeholder="email@email.com"
-                  required
                   disabled={loading}
                   autoComplete="email"
                 />
@@ -81,8 +97,8 @@ export function AdminLogin({ onBack }: AdminLoginProps) {
 
             {/* Password Field */}
             <div>
-              <label htmlFor="admin-password" className="block text-slate-300 mb-2 text-sm font-medium">
-                Chave de Acesso
+              <label htmlFor="admin-password" className={cn('block text-slate-300 mb-2 text-sm font-medium', fieldErrors.password && 'text-red-400')}>
+                Chave de Acesso <span className="text-red-400">*</span>
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -92,10 +108,21 @@ export function AdminLogin({ onBack }: AdminLoginProps) {
                   id="admin-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-12 py-3 border border-slate-600 rounded bg-slate-900 text-white placeholder-slate-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setFieldErrors((p) => {
+                      const n = { ...p };
+                      delete n.password;
+                      return n;
+                    });
+                  }}
+                  aria-invalid={fieldErrors.password}
+                  className={cn(
+                    'block w-full pl-10 pr-12 py-3 rounded bg-slate-900 text-white placeholder-slate-600 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors',
+                    nativeFieldInvalidClass(!!fieldErrors.password),
+                    !fieldErrors.password && 'border border-slate-600'
+                  )}
                   placeholder="••••••••"
-                  required
                   disabled={loading}
                   autoComplete="current-password"
                 />
@@ -117,8 +144,8 @@ export function AdminLogin({ onBack }: AdminLoginProps) {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || !email || !password}
-              className="w-full bg-indigo-600 text-white px-6 py-3 rounded font-medium hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/20"
+              disabled={loading}
+              className="w-full bg-indigo-600 text-white px-6 py-3 rounded font-medium hover:bg-indigo-700 disabled:opacity-70 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/20"
             >
               {loading ? (
                 <>
