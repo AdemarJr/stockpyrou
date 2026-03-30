@@ -39,8 +39,13 @@ const getHeaders = (token: string) => {
   };
 };
 
-/** A API ZIG limita a **5 dias por chamada** (dias corridos inclusivos entre dtinicio e dtfim). */
-const ZIG_MAX_DAYS_PER_REQUEST = 5;
+/**
+ * A API ZIG limita a **no máximo 5 dias** por chamada (dias corridos entre dtinicio e dtfim).
+ * Usamos **4 dias inclusivos** por requisição para margem (evita 500 por contagem divergente no servidor ZIG).
+ */
+const ZIG_MAX_DAYS_PER_REQUEST = 4;
+
+const MS_PER_UTC_DAY = 86_400_000;
 
 function parseDateOnly(iso: string): Date {
   const part = iso.trim().split("T")[0];
@@ -56,25 +61,54 @@ function formatDateOnly(d: Date): string {
   return `${y}-${mo}-${day}`;
 }
 
+/** Ontem (calendário) em America/Sao_Paulo como YYYY-MM-DD. */
+export function getYesterdayYmdSaoPaulo(): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const todayStr = fmt.format(new Date());
+  const [y, mo, d] = todayStr.split("-").map((x) => parseInt(x, 10));
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return formatDateOnly(dt);
+}
+
+/** Dias corridos inclusivos entre duas datas só-YYYY-MM-DD em UTC. */
+function inclusiveCalendarDaysUtc(dtinicio: string, dtfim: string): number {
+  const a = parseDateOnly(dtinicio);
+  const b = parseDateOnly(dtfim);
+  return Math.floor((b.getTime() - a.getTime()) / 86400000) + 1;
+}
+
+/**
+ * Parte [start,end] em intervalos de no máximo `ZIG_MAX_DAYS_PER_REQUEST` dias **inclusivos**,
+ * usando apenas meia-noite UTC + milissegundos (evita bugs de setUTCDate em viradas de mês/ano).
+ */
 function* zigInclusiveDateChunks(
   start: Date,
   end: Date,
 ): Generator<{ dtinicio: string; dtfim: string }> {
-  let cur = new Date(start.getTime());
-  const endT = end.getTime();
-  while (cur.getTime() <= endT) {
-    const chunkEnd = new Date(cur.getTime());
-    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + (ZIG_MAX_DAYS_PER_REQUEST - 1));
-    if (chunkEnd.getTime() > endT) {
-      chunkEnd.setTime(endT);
-    }
-    yield { dtinicio: formatDateOnly(cur), dtfim: formatDateOnly(chunkEnd) };
-    cur.setUTCDate(chunkEnd.getUTCDate() + 1);
+  let curMs = start.getTime();
+  const endMs = end.getTime();
+  if (curMs > endMs) return;
+
+  const maxSpanMs = (ZIG_MAX_DAYS_PER_REQUEST - 1) * MS_PER_UTC_DAY;
+
+  while (curMs <= endMs) {
+    const chunkEndMs = Math.min(curMs + maxSpanMs, endMs);
+    yield {
+      dtinicio: formatDateOnly(new Date(curMs)),
+      dtfim: formatDateOnly(new Date(chunkEndMs)),
+    };
+    curMs = chunkEndMs + MS_PER_UTC_DAY;
   }
 }
 
 /**
- * Busca saída de produtos em um intervalo qualquer, fazendo várias chamadas de até 5 dias
+ * Busca saída de produtos em um intervalo qualquer, fazendo várias chamadas respeitando o limite ZIG
  * e mesclando os resultados (dedupe por transactionId).
  */
 async function fetchZigSaidaProdutosRange(
@@ -92,9 +126,17 @@ async function fetchZigSaidaProdutosRange(
   const merged = new Map<string, ZigSale>();
 
   for (const { dtinicio, dtfim } of zigInclusiveDateChunks(start, end)) {
+    const spanDays = inclusiveCalendarDaysUtc(dtinicio, dtfim);
+    if (spanDays > ZIG_MAX_DAYS_PER_REQUEST) {
+      console.error(`ZIG: chunk inválido ${dtinicio}…${dtfim} = ${spanDays} dias (máx. ${ZIG_MAX_DAYS_PER_REQUEST})`);
+      throw new Error(
+        `Intervalo interno inválido (${spanDays} dias). Atualize o servidor (correção de datas ZIG).`,
+      );
+    }
+
     const url =
       `${ZIG_API_URL}/erp/saida-produtos?dtinicio=${dtinicio}&dtfim=${dtfim}&loja=${storeId}`;
-    console.log(`ZIG: sainda-produtos ${dtinicio} → ${dtfim} (loja ${storeId})`);
+    console.log(`ZIG: sainda-produtos ${dtinicio} → ${dtfim} (${spanDays} dia(s), loja ${storeId})`);
 
     const res = await fetch(url, { headers: getHeaders(token) });
 
@@ -202,7 +244,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
     throw new Error("Integração ZIG não configurada. Selecione uma loja nas configurações.");
   }
 
-  // Intervalo: períodos longos são buscados em várias chamadas (máx. 5 dias cada — regra ZIG).
+  // Intervalo: períodos longos são buscados em várias chamadas (regra ZIG: no máx. 5 dias por chamada).
   let apiStartDate: Date;
   let apiEndDate: Date;
 
@@ -433,8 +475,19 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
   }
 };
 
+export type ConfirmSalesOptions = {
+  /** Se true, não cria produto novo — só baixa quando já existe cadastro (SKU/nome/mapeamento). */
+  registeredOnly?: boolean;
+};
+
 // Confirm and Process Sales (Dar baixa efetivamente)
-export const confirmSales = async (companyId: string, transactionIds: string[], startDate?: string, endDate?: string) => {
+export const confirmSales = async (
+  companyId: string,
+  transactionIds: string[],
+  startDate?: string,
+  endDate?: string,
+  options?: ConfirmSalesOptions,
+) => {
   const token = Deno.env.get("ZIG_API_KEY") || FALLBACK_TOKEN;
 
   const config = await kv.get(`zig_config:${companyId}`);
@@ -461,7 +514,7 @@ export const confirmSales = async (companyId: string, transactionIds: string[], 
   const endStr = formatDateOnly(apiEndDate);
 
   console.log(
-    `ZIG: Confirmando e processando ${transactionIds.length} transações (selecionadas); intervalo ${startStr} → ${endStr}`,
+    `ZIG: Confirmando e processando ${transactionIds.length} transações (selecionadas); intervalo ${startStr} → ${endStr}${options?.registeredOnly ? " [apenas produtos cadastrados]" : ""}`,
   );
 
   try {
@@ -642,7 +695,19 @@ export const confirmSales = async (companyId: string, transactionIds: string[], 
       const ref = group.transactionIds.slice(0, 5).join(', ');
       const reason = `Venda ZIG (Lote) - Ref: ${ref}${group.transactionIds.length > 5 ? '...' : ''}`;
 
-      const product = await ensureProduct(group.productSku, group.productName, group.totalQty);
+      let product: any;
+      if (options?.registeredOnly) {
+        product = findProduct(group.productSku, group.productName);
+        if (!product) {
+          console.warn(
+            `ZIG: registeredOnly — ignorando SKU sem cadastro: ${group.productSku}`,
+          );
+          continue;
+        }
+      } else {
+        product = await ensureProduct(group.productSku, group.productName, group.totalQty);
+      }
+
       await processStockDeduction(companyId, product, group.totalQty, recipesData, reason);
 
       // Marca cada transação id como processada (para não duplicar)
@@ -663,6 +728,209 @@ export const confirmSales = async (companyId: string, transactionIds: string[], 
     throw error;
   }
 };
+
+// --- Baixa automática (dia seguinte = vendas de "ontem" em SP) — só produtos já cadastrados ---
+
+export async function getAutoBaixaConfig(companyId: string): Promise<{ enabled: boolean }> {
+  const row = await kv.get(`zig_auto_baixa:${companyId}`);
+  return { enabled: !!(row && row.enabled) };
+}
+
+export async function saveAutoBaixaConfig(companyId: string, enabled: boolean): Promise<void> {
+  await kv.set(`zig_auto_baixa:${companyId}`, { enabled });
+}
+
+function findProductLineForSale(
+  sale: ZigSale,
+  products: any[],
+  productMappings: Record<string, string>,
+): any | null {
+  if (productMappings[sale.productSku]) {
+    return products.find((p) => p.id === productMappings[sale.productSku]);
+  }
+  let product = products.find(
+    (p) => p.barcode === sale.productSku || (p.sku && p.sku === sale.productSku),
+  );
+  if (product) return product;
+
+  const normalizeName = (name: string) =>
+    name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "");
+  const zigNameNorm = normalizeName(sale.productName || "");
+  product = products.find((p) => {
+    const productNameNorm = normalizeName(p.name || "");
+    return (
+      productNameNorm === zigNameNorm ||
+      productNameNorm.includes(zigNameNorm) ||
+      zigNameNorm.includes(productNameNorm)
+    );
+  });
+  return product || null;
+}
+
+function findProductBySkuOnly(
+  sku: string,
+  products: any[],
+  productMappings: Record<string, string>,
+): any | null {
+  if (productMappings[sku]) {
+    return products.find((p) => p.id === productMappings[sku]);
+  }
+  return (
+    products.find((p) => p.barcode === sku || (p.sku && p.sku === sku)) ||
+    null
+  );
+}
+
+/** Todas as linhas da transação (principal + adicionais) precisam existir no Stockpyrou. */
+function transactionFullyRegistered(
+  rows: ZigSale[],
+  products: any[],
+  productMappings: Record<string, string>,
+): boolean {
+  let hasLine = false;
+  for (const s of rows) {
+    if (!s.productSku) continue;
+    hasLine = true;
+    if (!findProductLineForSale(s, products, productMappings)) return false;
+    if (s.additions?.length) {
+      for (const a of s.additions) {
+        if (!a.productSku) continue;
+        if (!findProductBySkuOnly(a.productSku, products, productMappings)) return false;
+      }
+    }
+  }
+  return hasLine;
+}
+
+/**
+ * Busca vendas de ontem (America/Sao_Paulo), considera só transações em que **todos** os itens
+ * (incluindo adicionais) têm produto cadastrado no Stockpyrou, e dá baixa com `registeredOnly`.
+ */
+export async function runAutoBaixaZigOntem(companyId: string) {
+  const auto = await getAutoBaixaConfig(companyId);
+  if (!auto.enabled) {
+    return {
+      skipped: true,
+      message: "Baixa automática desativada para esta empresa.",
+      processed: 0,
+    };
+  }
+
+  const config = await kv.get(`zig_config:${companyId}`);
+  if (!config?.storeId) {
+    return {
+      skipped: true,
+      message: "Integração ZIG não configurada (loja).",
+      processed: 0,
+    };
+  }
+
+  const token = Deno.env.get("ZIG_API_KEY") || FALLBACK_TOKEN;
+  const yesterdayStr = getYesterdayYmdSaoPaulo();
+
+  const sales: ZigSale[] = await fetchZigSaidaProdutosRange(
+    token,
+    config.storeId,
+    yesterdayStr,
+    yesterdayStr,
+  );
+
+  if (!Array.isArray(sales) || sales.length === 0) {
+    return {
+      skipped: false,
+      message: `Nenhuma venda ZIG em ${yesterdayStr}.`,
+      processed: 0,
+      date: yesterdayStr,
+    };
+  }
+
+  const processedKeyPrefix = `zig_processed:${companyId}:`;
+  const newSales: ZigSale[] = [];
+  for (const sale of sales) {
+    const done = await kv.get(`${processedKeyPrefix}${sale.transactionId}`);
+    if (!done) newSales.push(sale);
+  }
+
+  if (newSales.length === 0) {
+    return {
+      skipped: false,
+      message: "Nenhuma venda nova de ontem pendente de processamento.",
+      processed: 0,
+      date: yesterdayStr,
+    };
+  }
+
+  const { data: products } = await supabase
+    .from("products")
+    .select("*")
+    .eq("company_id", companyId);
+
+  if (!products?.length) {
+    return {
+      skipped: true,
+      message: "Nenhum produto cadastrado no Stockpyrou.",
+      processed: 0,
+    };
+  }
+
+  const productMappings =
+    (await kv.get(`zig_product_mappings:${companyId}`)) || {};
+
+  const txMap = new Map<string, ZigSale[]>();
+  for (const s of newSales) {
+    if (!txMap.has(s.transactionId)) txMap.set(s.transactionId, []);
+    txMap.get(s.transactionId)!.push(s);
+  }
+
+  const idSet = new Set<string>();
+  for (const [, rows] of txMap) {
+    if (!transactionFullyRegistered(rows, products, productMappings)) {
+      continue;
+    }
+    for (const s of rows) {
+      idSet.add(s.transactionId);
+      if (s.additions?.length) {
+        for (const a of s.additions) {
+          if (a.productSku) {
+            idSet.add(`${s.transactionId}-add-${a.productSku}`);
+          }
+        }
+      }
+    }
+  }
+
+  const transactionIds = Array.from(idSet);
+  if (transactionIds.length === 0) {
+    return {
+      skipped: false,
+      message:
+        "Nenhuma transação de ontem com todos os itens cadastrados no Stockpyrou (verifique SKUs e mapeamentos).",
+      processed: 0,
+      date: yesterdayStr,
+    };
+  }
+
+  const result = await confirmSales(
+    companyId,
+    transactionIds,
+    yesterdayStr,
+    yesterdayStr,
+    { registeredOnly: true },
+  );
+
+  return {
+    skipped: false,
+    message: result.message,
+    processed: result.processed,
+    createdProducts: result.createdProducts,
+    date: yesterdayStr,
+    transactionCount: transactionIds.length,
+  };
+}
 
 // Sync Logic (DEPRECATED - manter para compatibilidade)
 export const syncSales = async (companyId: string) => {

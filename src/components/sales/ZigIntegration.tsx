@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Store, Check, AlertCircle, Settings, Network, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { RefreshCw, Store, Check, AlertCircle, Settings, Network, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp, Zap } from 'lucide-react';
+import { Switch } from '../ui/switch';
+import { Label } from '../ui/label';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
@@ -74,7 +76,7 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
   const [configLoaded, setConfigLoaded] = useState(false);
   
   // Date selection
-  const [dateFilter, setDateFilter] = useState<'yesterday' | 'today' | 'last3' | 'custom'>('yesterday');
+  const [dateFilter, setDateFilter] = useState<'yesterday' | 'today' | 'custom'>('yesterday');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   
@@ -88,6 +90,9 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
   const [productSearch, setProductSearch] = useState('');
   const [showOnlyNotFound, setShowOnlyNotFound] = useState(false);
   const [previewRange, setPreviewRange] = useState<{ start: string; end: string } | null>(null);
+  const [autoBaixaEnabled, setAutoBaixaEnabled] = useState(false);
+  const [savingAutoBaixa, setSavingAutoBaixa] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
 
   const groupedSalesByDate = useMemo(() => {
     const result: Record<string, PendingSaleGroup[]> = {};
@@ -208,12 +213,6 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
         start = today.toISOString().split('T')[0];
         end = today.toISOString().split('T')[0];
         break;
-      case 'last3':
-        const threeDaysAgo = new Date(today);
-        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-        start = threeDaysAgo.toISOString().split('T')[0];
-        end = today.toISOString().split('T')[0];
-        break;
       case 'custom':
         start = customStartDate || yesterday.toISOString().split('T')[0];
         end = customEndDate || today.toISOString().split('T')[0];
@@ -276,6 +275,23 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
     }
   };
 
+  const loadAutoBaixa = async () => {
+    if (!currentCompany?.id) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/zig/auto-baixa/${currentCompany.id}`, {
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAutoBaixaEnabled(!!data.enabled);
+      }
+    } catch (error) {
+      console.error('Error loading auto-baixa config:', error);
+    }
+  };
+
   const loadConfig = async () => {
     if (!currentCompany?.id) return;
     
@@ -300,6 +316,69 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
       }
     } catch (error) {
       console.error('Error loading config:', error);
+    }
+    void loadAutoBaixa();
+  };
+
+  const saveAutoBaixa = async (enabled: boolean) => {
+    if (!currentCompany?.id) return;
+    setSavingAutoBaixa(true);
+    try {
+      const res = await fetch(`${SERVER_URL}/zig/auto-baixa`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`
+        },
+        body: JSON.stringify({ companyId: currentCompany.id, enabled })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Falha ao salvar' }));
+        throw new Error(err.error || 'Falha ao salvar');
+      }
+      setAutoBaixaEnabled(enabled);
+      toast.success(
+        enabled
+          ? 'Baixa automática ativada. Configure o agendamento no servidor (cron) para rodar sem abrir o sistema.'
+          : 'Baixa automática desativada.'
+      );
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao salvar');
+    } finally {
+      setSavingAutoBaixa(false);
+    }
+  };
+
+  const handleAutoRunNow = async () => {
+    if (!currentCompany?.id) return;
+    if (!configLoaded) {
+      toast.error('Salve a configuração da loja ZIG antes.');
+      return;
+    }
+    setAutoRunning(true);
+    try {
+      const res = await fetch(`${SERVER_URL}/zig/auto-run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`
+        },
+        body: JSON.stringify({ companyId: currentCompany.id })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao executar');
+      }
+      if (data.skipped && data.message) {
+        toast.message(data.message);
+      } else {
+        toast.success(data.message || `Processado: ${data.processed ?? 0} grupo(s).`);
+      }
+      if (onSyncComplete) onSyncComplete();
+    } catch (error: any) {
+      toast.error(error.message || 'Erro na baixa automática');
+    } finally {
+      setAutoRunning(false);
     }
   };
 
@@ -623,13 +702,48 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
           </div>
         </div>
 
+        <div className="p-5 bg-amber-50/90 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900 space-y-4">
+          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 font-semibold text-sm mb-1">
+            <Zap className="w-5 h-5 text-amber-600" />
+            Baixa automática no dia seguinte
+          </div>
+          <p className="text-xs text-amber-900/85 dark:text-amber-200/90 leading-relaxed">
+            No dia seguinte ao fechamento das vendas, o sistema pode dar baixa <strong>só para produtos já cadastrados</strong> no
+            Stockpyrou (SKU, código de barras, nome ou mapeamento). Vendas de ontem são consideradas no fuso{' '}
+            <strong>America/São_Paulo</strong>. Se <strong>qualquer</strong> item da venda não tiver produto correspondente, a
+            transação inteira fica de fora até você tratar no preview manual.
+          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Switch
+                id="zig-auto-baixa"
+                checked={autoBaixaEnabled}
+                onCheckedChange={(v) => void saveAutoBaixa(v)}
+                disabled={savingAutoBaixa || !configLoaded}
+              />
+              <Label htmlFor="zig-auto-baixa" className="text-sm text-amber-950 dark:text-amber-100 cursor-pointer">
+                Ativar baixa automática diária
+              </Label>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleAutoRunNow()}
+              disabled={autoRunning || !configLoaded}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {autoRunning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+              Executar agora (ontem)
+            </button>
+          </div>
+        </div>
+
         <div className="p-5 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl border border-indigo-100 space-y-4">
           <div className="flex items-center gap-2 text-indigo-700 font-semibold text-sm mb-1">
             <span className="flex items-center justify-center w-5 h-5 bg-indigo-100 rounded-full text-[10px]">2</span>
             Selecione o Período das Vendas
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             <button
               onClick={() => setDateFilter('yesterday')}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -649,16 +763,6 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
               }`}
             >
               Hoje
-            </button>
-            <button
-              onClick={() => setDateFilter('last3')}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                dateFilter === 'last3'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'bg-white text-gray-700 border border-gray-200 hover:border-indigo-300'
-              }`}
-            >
-              3 dias
             </button>
             <button
               onClick={() => setDateFilter('custom')}

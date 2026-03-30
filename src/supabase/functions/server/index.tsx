@@ -272,15 +272,93 @@ app.post("/make-server-8a20b27d/zig/preview", async (c) => {
 // Zig Confirm Sales (Processa vendas confirmadas)
 app.post("/make-server-8a20b27d/zig/confirm", async (c) => {
   try {
-    const { companyId, transactionIds, startDate, endDate } = await c.req.json();
+    const { companyId, transactionIds, startDate, endDate, registeredOnly } = await c.req.json();
     if (!companyId || !transactionIds) {
       return c.json({ error: "Missing companyId or transactionIds" }, 400);
     }
-    
-    const result = await zig.confirmSales(companyId, transactionIds, startDate, endDate);
+
+    const result = await zig.confirmSales(companyId, transactionIds, startDate, endDate, {
+      registeredOnly: !!registeredOnly,
+    });
     return c.json(result);
   } catch (error: any) {
     console.error("Zig Confirm Error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.get("/make-server-8a20b27d/zig/auto-baixa/:companyId", async (c) => {
+  try {
+    const companyId = c.req.param("companyId");
+    const cfg = await zig.getAutoBaixaConfig(companyId);
+    return c.json(cfg);
+  } catch (error: any) {
+    console.error("Zig auto-baixa get Error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.post("/make-server-8a20b27d/zig/auto-baixa", async (c) => {
+  try {
+    const { companyId, enabled } = await c.req.json();
+    if (!companyId || typeof enabled !== "boolean") {
+      return c.json({ error: "Missing companyId or enabled (boolean)" }, 400);
+    }
+    await zig.saveAutoBaixaConfig(companyId, enabled);
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error("Zig auto-baixa save Error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+/** Executa uma vez a baixa automática de ontem (teste manual pela UI). */
+app.post("/make-server-8a20b27d/zig/auto-run", async (c) => {
+  try {
+    const { companyId } = await c.req.json();
+    if (!companyId) return c.json({ error: "Missing companyId" }, 400);
+    const result = await zig.runAutoBaixaZigOntem(companyId);
+    return c.json(result);
+  } catch (error: any) {
+    console.error("Zig auto-run Error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+/**
+ * Cron diário: chamar com header Authorization: Bearer <ZIG_AUTO_CRON_SECRET> ou X-ZIG-CRON-SECRET.
+ * Processa todas as empresas com baixa automática ativa.
+ */
+app.post("/make-server-8a20b27d/zig/cron-auto-yesterday", async (c) => {
+  try {
+    const secret = Deno.env.get("ZIG_AUTO_CRON_SECRET");
+    const bearer = c.req.header("Authorization")?.replace("Bearer ", "") || "";
+    const xh = c.req.header("X-ZIG-CRON-SECRET") || "";
+    if (!secret || (bearer !== secret && xh !== secret)) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    );
+
+    const { data: companies, error } = await supabaseAdmin.from("companies").select("id");
+    if (error) return c.json({ error: error.message }, 500);
+
+    const results: Record<string, unknown>[] = [];
+    for (const co of companies || []) {
+      try {
+        const r = await zig.runAutoBaixaZigOntem(co.id);
+        results.push({ companyId: co.id, ...r });
+      } catch (e: any) {
+        results.push({ companyId: co.id, error: e.message });
+      }
+    }
+
+    return c.json({ ok: true, results });
+  } catch (error: any) {
+    console.error("Zig cron-auto-yesterday Error:", error);
     return c.json({ error: error.message }, 500);
   }
 });
