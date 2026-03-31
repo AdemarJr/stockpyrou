@@ -8,7 +8,14 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '../ui/dialog';
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -34,7 +41,8 @@ import {
   AlertTriangle,
   Landmark,
   CalendarClock,
-  Search
+  Search,
+  Package
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
@@ -48,8 +56,16 @@ import type {
 } from '../../types/costs';
 import type { Supplier } from '../../types';
 import { SupplierRepository } from '../../repositories/SupplierRepository';
+import { ProductRepository } from '../../repositories/ProductRepository';
+import { StockRepository } from '../../repositories/StockRepository';
 import { CostRepository } from '../../repositories/CostRepository';
+import type { StockEntry } from '../../types';
 import { rowMatchesSearch } from '../../utils/listFilters';
+import { messageFromUnknownError } from '../../utils/errorMessage';
+import {
+  paidAmountFromExpenseRow as expensePaidAmount,
+  remainingFromExpenseRow as expenseRemaining
+} from '../../utils/expensePaidAmount';
 
 const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
   { value: 'pix', label: 'PIX' },
@@ -125,7 +141,9 @@ function buildExpenseReportCsvRows(expenses: any[]): string {
     'Centro de custo',
     'Tipo',
     'Fornecedor',
-    'Valor',
+    'Valor total',
+    'Já pago',
+    'Saldo',
     'Vencimento',
     'Condição',
     'Forma pagto',
@@ -140,6 +158,8 @@ function buildExpenseReportCsvRows(expenses: any[]): string {
       csvEscape(e.expense_types?.name || ''),
       csvEscape(e.suppliers?.name || ''),
       (parseFloat(e.amount) || 0).toFixed(2).replace('.', ','),
+      expensePaidAmount(e).toFixed(2).replace('.', ','),
+      expenseRemaining(e).toFixed(2).replace('.', ','),
       e.due_date ? ymdFromDb(e.due_date) : '',
       csvEscape(formatPaymentTermsLine(e)),
       paymentMethodLabel(e.payment_method),
@@ -180,6 +200,11 @@ export function ExpenseManagement() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [deleteRunning, setDeleteRunning] = useState(false);
   const [markPaidId, setMarkPaidId] = useState<string | null>(null);
+  const [paymentDialogExpense, setPaymentDialogExpense] = useState<any | null>(null);
+  const [paymentPartialAmount, setPaymentPartialAmount] = useState('');
+  const [paymentPartialMethod, setPaymentPartialMethod] = useState<PaymentMethod>('pix');
+  const [stockEntriesList, setStockEntriesList] = useState<StockEntry[]>([]);
+  const [productNameById, setProductNameById] = useState<Record<string, string>>({});
   /** Busca textual na lista (descrição, ref., nomes, valor) — não altera o recorte do servidor. */
   const [listSearch, setListSearch] = useState('');
 
@@ -194,7 +219,8 @@ export function ExpenseManagement() {
         e.cost_centers?.name,
         e.expense_types?.name,
         e.suppliers?.name,
-        e.amount != null ? String(e.amount) : ''
+        e.amount != null ? String(e.amount) : '',
+        e.paid_amount != null ? String(e.paid_amount) : ''
       ]);
     });
   }, [expenses, filter, listSearch]);
@@ -211,6 +237,8 @@ export function ExpenseManagement() {
 
     for (const e of expenses) {
       const amt = parseFloat(e.amount) || 0;
+      const paid = expensePaidAmount(e);
+      const rem = expenseRemaining(e);
       const st = String(e.payment_status || '');
       const due = ymdFromDb(e.due_date);
       if (st === 'cancelled') {
@@ -218,18 +246,16 @@ export function ExpenseManagement() {
         continue;
       }
       if (st === 'paid') {
-        totalPaid += amt;
+        totalPaid += paid || amt;
         continue;
       }
-      totalOpen += amt;
-      countOpen += 1;
+      totalOpen += rem;
+      if (rem > 0) countOpen += 1;
       const trulyOverdue = st === 'overdue' || (st === 'pending' && due !== '' && due < today);
       if (trulyOverdue) {
-        totalOverdue += amt;
-      } else if (st === 'pending') {
-        if (due >= today && due <= horizon) {
-          dueNext7Days += amt;
-        }
+        totalOverdue += rem;
+      } else if (st === 'pending' && due >= today && due <= horizon) {
+        dueNext7Days += rem;
       }
     }
 
@@ -268,7 +294,8 @@ export function ExpenseManagement() {
     paymentTermsType: 'avista' as PaymentTermsType,
     invoiceDays: '',
     installmentCount: '',
-    supplierId: ''
+    supplierId: '',
+    stockEntryId: ''
   });
 
   type ExpenseFieldErrKey =
@@ -293,6 +320,46 @@ export function ExpenseManagement() {
       loadData();
     }
   }, [currentCompany?.id, periodFrom, periodTo, costCenterFilter, expenseTypeFilter, supplierFilter]);
+
+  useEffect(() => {
+    if (!dialogOpen || !currentCompany?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [entries, products] = await Promise.all([
+          StockRepository.findAllEntries(currentCompany.id),
+          ProductRepository.findAll(currentCompany.id)
+        ]);
+        if (cancelled) return;
+        setStockEntriesList(entries);
+        setProductNameById(Object.fromEntries(products.map((p) => [p.id, p.name])));
+      } catch (e) {
+        console.error('Stock entries for expense form:', e);
+        if (!cancelled) {
+          setStockEntriesList([]);
+          setProductNameById({});
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogOpen, currentCompany?.id]);
+
+  const stockEntriesForForm = useMemo(() => {
+    const sorted = [...stockEntriesList].sort(
+      (a, b) => b.entryDate.getTime() - a.entryDate.getTime()
+    );
+    const filtered = formData.supplierId
+      ? sorted.filter((e) => e.supplierId === formData.supplierId)
+      : sorted;
+    let list = filtered.slice(0, 100);
+    if (formData.stockEntryId && !list.some((e) => e.id === formData.stockEntryId)) {
+      const missing = stockEntriesList.find((e) => e.id === formData.stockEntryId);
+      if (missing) list = [missing, ...list];
+    }
+    return list;
+  }, [stockEntriesList, formData.supplierId, formData.stockEntryId]);
 
   const loadData = async () => {
     if (!currentCompany?.id) return;
@@ -340,6 +407,23 @@ export function ExpenseManagement() {
     const amountNum = parseFloat(formData.amount.replace(',', '.'));
     if (!formData.amount.trim() || !Number.isFinite(amountNum) || amountNum <= 0) errs.amount = true;
     if (!formData.dueDate.trim()) errs.dueDate = true;
+
+    if (editingExpenseId && amountNum > 0) {
+      const ex = expenses.find((x: any) => x.id === editingExpenseId);
+      const paidSoFar = ex ? expensePaidAmount(ex) : 0;
+      if (amountNum + 1e-6 < paidSoFar) {
+        toast.error('O valor total não pode ser menor que o já pago.');
+        errs.amount = true;
+      }
+    }
+
+    if (formData.stockEntryId) {
+      const se = stockEntriesList.find((s) => s.id === formData.stockEntryId);
+      if (se && formData.supplierId && se.supplierId && se.supplierId !== formData.supplierId) {
+        toast.error('O fornecedor deve ser o mesmo da entrada de estoque selecionada.');
+        return;
+      }
+    }
 
     if (formData.paymentTermsType === 'faturado') {
       const d = parseInt(formData.invoiceDays, 10);
@@ -389,7 +473,8 @@ export function ExpenseManagement() {
             paymentTermsType === 'faturado' ? parseInt(formData.invoiceDays, 10) : undefined,
           installmentCount:
             paymentTermsType === 'parcelado' ? parseInt(formData.installmentCount, 10) : undefined,
-          supplierId: formData.supplierId || null
+          supplierId: formData.supplierId || null,
+          stockEntryId: formData.stockEntryId || null
         });
         toast.success('Despesa atualizada!');
       } else {
@@ -410,6 +495,7 @@ export function ExpenseManagement() {
           installmentCount:
             paymentTermsType === 'parcelado' ? parseInt(formData.installmentCount, 10) : undefined,
           supplierId: formData.supplierId || undefined,
+          stockEntryId: formData.stockEntryId || undefined,
           userId: user.id
         });
         toast.success('Despesa registrada com sucesso!');
@@ -428,20 +514,44 @@ export function ExpenseManagement() {
     }
   };
 
-  const markAsPaid = async (expenseId: string) => {
-    setMarkPaidId(expenseId);
-    try {
-      await CostRepository.updateExpense(expenseId, {
-        paymentStatus: 'paid',
-        paymentDate: new Date().toISOString().split('T')[0]
-      });
+  const openPaymentDialog = (expense: any) => {
+    const rem = expenseRemaining(expense);
+    if (rem <= 0) {
+      toast.info('Não há saldo em aberto para esta despesa.');
+      return;
+    }
+    setPaymentDialogExpense(expense);
+    setPaymentPartialAmount(rem.toFixed(2).replace('.', ','));
+    const raw = expense.payment_method;
+    setPaymentPartialMethod(
+      PAYMENT_METHOD_OPTIONS.some((o) => o.value === raw) ? (raw as PaymentMethod) : 'pix'
+    );
+  };
 
-      toast.success('Despesa marcada como paga!');
+  const submitPartialPayment = async () => {
+    if (!paymentDialogExpense) return;
+    const raw = paymentPartialAmount.replace(/\s/g, '').replace(',', '.');
+    const val = parseFloat(raw);
+    if (!Number.isFinite(val) || val <= 0) {
+      toast.error('Informe um valor válido maior que zero.');
+      return;
+    }
+    const rem = expenseRemaining(paymentDialogExpense);
+    if (val > rem + 0.0001) {
+      toast.error(`O valor não pode ser maior que o saldo (${formatCurrency(rem)}).`);
+      return;
+    }
+
+    setMarkPaidId(paymentDialogExpense.id);
+    try {
+      await CostRepository.registerExpensePayment(paymentDialogExpense.id, val, paymentPartialMethod);
+      const willClose = val >= rem - 0.005;
+      toast.success(willClose ? 'Despesa quitada.' : 'Pagamento parcial registrado.');
+      setPaymentDialogExpense(null);
       loadData();
     } catch (error: unknown) {
-      console.error('Error updating expense:', error);
-      const msg = error instanceof Error ? error.message : 'Erro ao atualizar despesa';
-      toast.error(msg);
+      console.error('Error registering payment:', error);
+      toast.error(messageFromUnknownError(error));
     } finally {
       setMarkPaidId(null);
     }
@@ -466,7 +576,8 @@ export function ExpenseManagement() {
       paymentTermsType: (expense.payment_terms_type || 'avista') as PaymentTermsType,
       invoiceDays: expense.invoice_days != null ? String(expense.invoice_days) : '',
       installmentCount: expense.installment_count != null ? String(expense.installment_count) : '',
-      supplierId: expense.supplier_id || ''
+      supplierId: expense.supplier_id || '',
+      stockEntryId: expense.stock_entry_id || ''
     });
     setEditingExpenseId(expense.id);
     setDialogOpen(true);
@@ -543,8 +654,9 @@ export function ExpenseManagement() {
     const rowsHtml = filteredExpenses
       .map((e: any) => {
         const amt = formatCurrency(parseFloat(e.amount));
+        const saldo = formatCurrency(expenseRemaining(e));
         const due = e.due_date ? new Date(e.due_date).toLocaleDateString('pt-BR') : '—';
-        const paid = e.payment_date ? new Date(e.payment_date).toLocaleDateString('pt-BR') : '—';
+        const paidDt = e.payment_date ? new Date(e.payment_date).toLocaleDateString('pt-BR') : '—';
         return `<tr>
           <td>${getStatusLabelStatic(e.payment_status)}</td>
           <td>${(e.description || '—').replace(/</g, '&lt;')}</td>
@@ -552,8 +664,9 @@ export function ExpenseManagement() {
           <td>${(e.expense_types?.name || '—').replace(/</g, '&lt;')}</td>
           <td>${(e.suppliers?.name || '—').replace(/</g, '&lt;')}</td>
           <td style="text-align:right">${amt}</td>
+          <td style="text-align:right">${saldo}</td>
           <td>${due}</td>
-          <td>${paid}</td>
+          <td>${paidDt}</td>
         </tr>`;
       })
       .join('');
@@ -581,7 +694,7 @@ export function ExpenseManagement() {
         <div class="kpi"><span>Vence em 7 dias</span><strong>${formatCurrency(expenseKpis.dueNext7Days)}</strong></div>
       </div>
       <table><thead><tr>
-        <th>Status</th><th>Descrição</th><th>Centro</th><th>Tipo</th><th>Fornecedor</th><th>Valor</th><th>Venc.</th><th>Pago em</th>
+        <th>Status</th><th>Descrição</th><th>Centro</th><th>Tipo</th><th>Fornecedor</th><th>Valor total</th><th>Saldo</th><th>Venc.</th><th>Últ. pagamento</th>
       </tr></thead><tbody>${rowsHtml}</tbody></table>
       <p class="meta" style="margin-top:16px">Gerado em ${new Date().toLocaleString('pt-BR')} · ${filteredExpenses.length} título(s)</p>
       </body></html>`);
@@ -618,7 +731,8 @@ export function ExpenseManagement() {
       paymentTermsType: 'avista',
       invoiceDays: '',
       installmentCount: '',
-      supplierId: ''
+      supplierId: '',
+      stockEntryId: ''
     });
   };
 
@@ -953,6 +1067,16 @@ export function ExpenseManagement() {
                       {expense.reference_number && (
                         <p className="text-xs text-gray-500">Ref: {expense.reference_number}</p>
                       )}
+                      {expense.linked_stock_entry && (
+                        <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1 flex items-center gap-1">
+                          <Package className="w-3 h-3 shrink-0" />
+                          Estoque:{' '}
+                          {(
+                            expense.linked_stock_entry.products as { name?: string } | null | undefined
+                          )?.name ?? 'Compra'}{' '}
+                          · {formatCurrency(parseFloat(String(expense.linked_stock_entry.total_cost)))}
+                        </p>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-sm">{expense.cost_centers?.name || '-'}</span>
@@ -964,7 +1088,15 @@ export function ExpenseManagement() {
                       <span className="text-sm">{expense.suppliers?.name || '-'}</span>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <span className="text-sm font-semibold">{formatCurrency(parseFloat(expense.amount))}</span>
+                      <span className="text-sm font-semibold">
+                        {formatCurrency(parseFloat(expense.amount))}
+                      </span>
+                      {expensePaidAmount(expense) > 0 && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Pago {formatCurrency(expensePaidAmount(expense))} · Saldo{' '}
+                          {formatCurrency(expenseRemaining(expense))}
+                        </p>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-sm">{new Date(expense.due_date).toLocaleDateString('pt-BR')}</span>
@@ -981,6 +1113,13 @@ export function ExpenseManagement() {
                               </p>
                             )}
                           </>
+                        ) : expensePaidAmount(expense) > 0 ? (
+                          <p className="text-xs text-amber-700 dark:text-amber-500">
+                            Pagamento parcial
+                            {expense.payment_date && (
+                              <> · último em {new Date(expense.payment_date).toLocaleDateString('pt-BR')}</>
+                            )}
+                          </p>
                         ) : (
                           <p className="text-xs text-gray-500">Ainda não pago</p>
                         )}
@@ -1015,13 +1154,14 @@ export function ExpenseManagement() {
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
-                        {expense.payment_status === 'pending' && (
+                        {(expense.payment_status === 'pending' || expense.payment_status === 'overdue') &&
+                          expenseRemaining(expense) > 0 && (
                           <Button
                             type="button"
                             size="sm"
                             variant="secondary"
                             className="h-8"
-                            onClick={() => markAsPaid(expense.id)}
+                            onClick={() => openPaymentDialog(expense)}
                             disabled={markPaidId !== null}
                           >
                             {markPaidId === expense.id ? (
@@ -1030,7 +1170,7 @@ export function ExpenseManagement() {
                                 <span className="ml-1">Salvando…</span>
                               </>
                             ) : (
-                              'Marcar pago'
+                              'Pagamento'
                             )}
                           </Button>
                         )}
@@ -1086,6 +1226,88 @@ export function ExpenseManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={!!paymentDialogExpense}
+        onOpenChange={(open) => {
+          if (!open) setPaymentDialogExpense(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar pagamento</DialogTitle>
+            <DialogDescription>
+              Informe o valor pago agora. Se for menor que o saldo, a despesa continua pendente (ou
+              atrasada) até quitar.
+            </DialogDescription>
+          </DialogHeader>
+          {paymentDialogExpense && (
+            <div className="space-y-4 py-1">
+              <p className="text-sm rounded-md bg-muted/60 px-3 py-2">
+                Total {formatCurrency(parseFloat(paymentDialogExpense.amount))} · Saldo em aberto{' '}
+                <span className="font-semibold">
+                  {formatCurrency(expenseRemaining(paymentDialogExpense))}
+                </span>
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="expense-partial-pay-amount">Valor deste pagamento</Label>
+                <Input
+                  id="expense-partial-pay-amount"
+                  inputMode="decimal"
+                  value={paymentPartialAmount}
+                  onChange={(e) => setPaymentPartialAmount(e.target.value)}
+                  placeholder="0,00"
+                  disabled={markPaidId !== null}
+                  className={cn(markPaidId && 'opacity-70')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Forma de pagamento</Label>
+                <Select
+                  value={paymentPartialMethod}
+                  onValueChange={(v) => setPaymentPartialMethod(v as PaymentMethod)}
+                  disabled={markPaidId !== null}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAYMENT_METHOD_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPaymentDialogExpense(null)}
+              disabled={markPaidId !== null}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void submitPartialPayment()}
+              disabled={markPaidId !== null}
+            >
+              {markPaidId ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2 inline" />
+                  Salvando…
+                </>
+              ) : (
+                'Confirmar pagamento'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog Form */}
       <Dialog
@@ -1209,9 +1431,19 @@ export function ExpenseManagement() {
               <Label htmlFor="supplier">Fornecedor</Label>
               <Select
                 value={formData.supplierId || 'none'}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, supplierId: value === 'none' ? '' : value })
-                }
+                onValueChange={(value) => {
+                  const supplierId = value === 'none' ? '' : value;
+                  setFormData((prev) => {
+                    let stockEntryId = prev.stockEntryId;
+                    if (stockEntryId) {
+                      const se = stockEntriesList.find((s) => s.id === stockEntryId);
+                      if (se?.supplierId && supplierId && se.supplierId !== supplierId) {
+                        stockEntryId = '';
+                      }
+                    }
+                    return { ...prev, supplierId, stockEntryId };
+                  });
+                }}
               >
                 <SelectTrigger id="supplier">
                   <SelectValue placeholder="Selecione (opcional)" />
@@ -1228,6 +1460,52 @@ export function ExpenseManagement() {
               {suppliers.length === 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
                   Cadastre fornecedores em Fornecedores para associar aqui.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label htmlFor="stockEntryLink">Vínculo com estoque (opcional)</Label>
+              <Select
+                value={formData.stockEntryId || 'none'}
+                onValueChange={(value) => {
+                  if (value === 'none') {
+                    setFormData((prev) => ({ ...prev, stockEntryId: '' }));
+                    return;
+                  }
+                  const se = stockEntriesList.find((s) => s.id === value);
+                  setFormData((prev) => ({
+                    ...prev,
+                    stockEntryId: value,
+                    supplierId: se?.supplierId || prev.supplierId
+                  }));
+                }}
+              >
+                <SelectTrigger id="stockEntryLink" className="w-full">
+                  <SelectValue placeholder="Nenhuma entrada vinculada" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem vínculo com entrada de estoque</SelectItem>
+                  {stockEntriesForForm.map((e) => {
+                    const pname = productNameById[e.productId] || 'Produto';
+                    const d = e.entryDate.toLocaleDateString('pt-BR');
+                    return (
+                      <SelectItem key={e.id} value={e.id}>
+                        {d} · {pname} · {formatCurrency(e.totalPrice)}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1.5">
+                <Package className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                Associe a despesa à compra registrada em <strong>Estoque → Entradas</strong>. Ao
+                escolher uma entrada, o fornecedor é alinhado ao da compra quando aplicável.
+              </p>
+              {formData.supplierId && stockEntriesForForm.length === 0 && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                  Nenhuma entrada de estoque para este fornecedor. Cadastre uma entrada em Estoque ou
+                  remova o filtro de fornecedor.
                 </p>
               )}
             </div>

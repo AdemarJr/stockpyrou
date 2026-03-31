@@ -13,9 +13,12 @@ import {
   FileText,
   Target,
   Settings,
-  BadgePercent
+  BadgePercent,
+  Package,
+  Warehouse
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
+import { remainingFromExpenseRow } from '../../utils/expensePaidAmount';
 import { CostRepository } from '../../repositories/CostRepository';
 import { CostCenterManagement } from './CostCenterManagement';
 import { ExpenseManagement } from './ExpenseManagement';
@@ -32,6 +35,10 @@ interface DashboardMetrics {
   overduePayments: number;
   budgetUtilization: number;
   activeBudgets: number;
+  /** Estoque atual × custo médio (estimativa) */
+  inventoryValue: number;
+  /** Soma das entradas de estoque no mês */
+  purchasesMonthTotal: number;
 }
 
 export function CostDashboard() {
@@ -43,7 +50,9 @@ export function CostDashboard() {
     pendingPayments: 0,
     overduePayments: 0,
     budgetUtilization: 0,
-    activeBudgets: 0
+    activeBudgets: 0,
+    inventoryValue: 0,
+    purchasesMonthTotal: 0
   });
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -58,9 +67,13 @@ export function CostDashboard() {
 
     setLoading(true);
     try {
-      const [expenses, budgetsList] = await Promise.all([
+      const [expenses, budgetsList, stockMetrics] = await Promise.all([
         CostRepository.findAllExpenses(currentCompany.id),
-        CostRepository.findAllBudgets(currentCompany.id)
+        CostRepository.findAllBudgets(currentCompany.id),
+        CostRepository.getStockCostMetrics(currentCompany.id).catch((err) => {
+          console.warn('Stock cost metrics:', err);
+          return { inventoryValue: 0, purchasesMonthTotal: 0 };
+        })
       ]);
 
       const budgets = budgetsList as any[];
@@ -74,11 +87,11 @@ export function CostDashboard() {
 
       const pendingPayments = expenses
         .filter((e: any) => e.payment_status === 'pending')
-        .reduce((sum: number, e: any) => sum + parseFloat(e.amount), 0);
+        .reduce((sum: number, e: any) => sum + remainingFromExpenseRow(e), 0);
 
       const overduePayments = expenses
         .filter((e: any) => e.payment_status === 'overdue')
-        .reduce((sum: number, e: any) => sum + parseFloat(e.amount), 0);
+        .reduce((sum: number, e: any) => sum + remainingFromExpenseRow(e), 0);
 
       const totalExpenses = expenses.reduce((sum: number, e: any) => sum + parseFloat(e.amount), 0);
 
@@ -94,7 +107,9 @@ export function CostDashboard() {
         pendingPayments,
         overduePayments,
         budgetUtilization: Math.min(budgetUtilization, 100),
-        activeBudgets
+        activeBudgets,
+        inventoryValue: stockMetrics.inventoryValue,
+        purchasesMonthTotal: stockMetrics.purchasesMonthTotal
       });
 
     } catch (error) {
@@ -142,7 +157,8 @@ export function CostDashboard() {
             Controle de Custos
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            Gerencie despesas, orçamentos e análises financeiras
+            Despesas e orçamentos integrados ao estoque: vincule compras às entradas e acompanhe valor em
+            inventário.
           </p>
         </div>
         <Button onClick={initializeCostCenters} variant="outline">
@@ -209,6 +225,43 @@ export function CostDashboard() {
               </div>
               <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
                 <Target className="w-6 h-6 text-green-600 dark:text-green-400" />
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {activeTab === 'overview' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Valor em estoque (estimado)</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(metrics.inventoryValue)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Soma de quantidade × custo médio dos produtos (mesma base do módulo Estoque).
+                </p>
+              </div>
+              <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                <Warehouse className="w-6 h-6 text-slate-600 dark:text-slate-300" />
+              </div>
+            </div>
+          </Card>
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Compras no mês (entradas)</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(metrics.purchasesMonthTotal)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Total das entradas de estoque registradas desde o dia 1 do mês.
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
+                <Package className="w-6 h-6 text-emerald-700 dark:text-emerald-400" />
               </div>
             </div>
           </Card>

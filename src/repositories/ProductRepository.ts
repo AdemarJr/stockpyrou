@@ -11,6 +11,12 @@ export class ProductRepository {
   /**
    * Busca todos os produtos ordenados por nome para uma empresa específica
    */
+  /** Soma (estoque atual × custo médio) por produto — visão financeira do inventário. */
+  static async sumInventoryValue(companyId: string): Promise<number> {
+    const products = await this.findAll(companyId);
+    return products.reduce((sum, p) => sum + (p.currentStock || 0) * (p.averageCost || 0), 0);
+  }
+
   static async findAll(companyId: string): Promise<Product[]> {
     const { data, error } = await supabase
       .from(this.TABLE)

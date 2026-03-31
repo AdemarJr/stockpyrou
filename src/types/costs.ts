@@ -39,6 +39,8 @@ export interface OperationalExpense {
   expenseTypeId: string;
   costCenterId: string;
   amount: number;
+  /** Total já pago (acumulado). Saldo = amount - paidAmount */
+  paidAmount?: number;
   description?: string;
   referenceNumber?: string;
   dueDate: string;
@@ -52,6 +54,8 @@ export interface OperationalExpense {
   /** Quantidade de parcelas quando parcelado. */
   installmentCount?: number;
   supplierId?: string | null;
+  /** Opcional: entrada de estoque (compra) vinculada à despesa */
+  stockEntryId?: string | null;
   userId: string;
   attachments?: any;
   tags?: string[];

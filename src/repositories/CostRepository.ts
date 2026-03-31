@@ -1,12 +1,21 @@
 import { supabase } from '../utils/supabase/client';
-import type { 
-  CostCenter, 
-  ExpenseType, 
-  OperationalExpense, 
-  Budget, 
+import type {
+  CostCenter,
+  ExpenseType,
+  OperationalExpense,
+  Budget,
   BudgetItem,
-  CostTarget 
+  CostTarget,
+  PaymentMethod,
+  PaymentStatus
 } from '../types/costs';
+import { messageFromUnknownError } from '../utils/errorMessage';
+import {
+  isPaidAmountColumnMissingError,
+  mergeNotesWithPaidAmount,
+  paidAmountFromExpenseRow
+} from '../utils/expensePaidAmount';
+import { ProductRepository } from './ProductRepository';
 
 export class CostRepository {
   // ==================== COST CENTERS ====================
@@ -233,7 +242,51 @@ export class CostRepository {
     const { data, error } = await query.order('due_date', { ascending: false });
 
     if (error) throw error;
-    return data as OperationalExpense[];
+    return (await this.attachLinkedStockEntries(companyId, data || [])) as OperationalExpense[];
+  }
+
+  /** Enriquece despesas com dados da entrada de estoque vinculada (produto, valor, data). */
+  private static async attachLinkedStockEntries(companyId: string, rows: any[]): Promise<any[]> {
+    const ids = [...new Set(rows.map((r) => r.stock_entry_id).filter(Boolean))];
+    if (ids.length === 0) return rows;
+    const { data: entries, error } = await supabase
+      .from('stock_entries')
+      .select('id, total_cost, entry_date, product_id, supplier_id, products(name)')
+      .eq('company_id', companyId)
+      .in('id', ids);
+    if (error) {
+      console.warn('[CostRepository] attachLinkedStockEntries:', error.message);
+      return rows;
+    }
+    const map = new Map((entries || []).map((e: any) => [e.id, e]));
+    return rows.map((r) => ({
+      ...r,
+      linked_stock_entry: r.stock_entry_id ? map.get(r.stock_entry_id) ?? null : null
+    }));
+  }
+
+  /**
+   * Valor estimado do inventário (estoque × custo médio) e total de compras (entradas) no mês corrente.
+   */
+  static async getStockCostMetrics(companyId: string): Promise<{
+    inventoryValue: number;
+    purchasesMonthTotal: number;
+  }> {
+    const inventoryValue = await ProductRepository.sumInventoryValue(companyId);
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startIso = start.toISOString();
+    const { data, error } = await supabase
+      .from('stock_entries')
+      .select('total_cost')
+      .eq('company_id', companyId)
+      .gte('entry_date', startIso);
+    if (error) throw error;
+    const purchasesMonthTotal = (data || []).reduce(
+      (s, e: any) => s + parseFloat(String(e.total_cost ?? 0)),
+      0
+    );
+    return { inventoryValue, purchasesMonthTotal };
   }
 
   static async createExpense(expense: Omit<OperationalExpense, 'id' | 'createdAt' | 'updatedAt'>): Promise<OperationalExpense> {
@@ -255,6 +308,7 @@ export class CostRepository {
         installment_count:
           expense.paymentTermsType === 'parcelado' ? expense.installmentCount ?? null : null,
         supplier_id: expense.supplierId,
+        stock_entry_id: expense.stockEntryId ?? null,
         user_id: expense.userId,
         attachments: expense.attachments,
         tags: expense.tags,
@@ -275,6 +329,7 @@ export class CostRepository {
     if (updates.expenseTypeId !== undefined) patch.expense_type_id = updates.expenseTypeId;
     if (updates.costCenterId !== undefined) patch.cost_center_id = updates.costCenterId;
     if (updates.amount !== undefined) patch.amount = updates.amount;
+    if (updates.paidAmount !== undefined) patch.paid_amount = updates.paidAmount;
     if (updates.description !== undefined) patch.description = updates.description;
     if (updates.referenceNumber !== undefined) patch.reference_number = updates.referenceNumber;
     if (updates.dueDate !== undefined) patch.due_date = updates.dueDate;
@@ -283,8 +338,13 @@ export class CostRepository {
       patch.payment_status = updates.paymentStatus;
       patch.payment_date =
         updates.paymentStatus === 'paid' ? updates.paymentDate ?? null : null;
-      patch.payment_method =
-        updates.paymentStatus === 'paid' ? updates.paymentMethod ?? null : null;
+      // Não zera payment_method ao marcar como pago sem enviar método (evita NOT NULL / CHECK no banco).
+      if (updates.paymentMethod !== undefined) {
+        patch.payment_method =
+          updates.paymentStatus === 'paid' ? updates.paymentMethod ?? null : null;
+      } else if (updates.paymentStatus !== 'paid') {
+        patch.payment_method = null;
+      }
     } else {
       if (updates.paymentDate !== undefined) patch.payment_date = updates.paymentDate;
       if (updates.paymentMethod !== undefined) patch.payment_method = updates.paymentMethod;
@@ -301,6 +361,9 @@ export class CostRepository {
     if (updates.supplierId !== undefined) {
       patch.supplier_id = updates.supplierId ?? null;
     }
+    if (updates.stockEntryId !== undefined) {
+      patch.stock_entry_id = updates.stockEntryId ?? null;
+    }
     if (updates.attachments !== undefined) patch.attachments = updates.attachments;
     if (updates.tags !== undefined) patch.tags = updates.tags;
     if (updates.notes !== undefined) patch.notes = updates.notes;
@@ -308,6 +371,101 @@ export class CostRepository {
     const { data, error } = await supabase.from('operational_expenses').update(patch).eq('id', id).select().single();
 
     if (error) throw error;
+    return data as OperationalExpense;
+  }
+
+  /**
+   * Registra um pagamento (total ou parcial). Atualiza paid_amount, payment_status e datas.
+   */
+  static async registerExpensePayment(
+    id: string,
+    payNow: number,
+    paymentMethod: PaymentMethod
+  ): Promise<OperationalExpense> {
+    if (!Number.isFinite(payNow) || payNow <= 0) {
+      throw new Error('Informe um valor maior que zero');
+    }
+
+    const { data: row, error: fetchErr } = await supabase
+      .from('operational_expenses')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr) {
+      throw new Error(messageFromUnknownError(fetchErr));
+    }
+    if (!row) {
+      throw new Error('Despesa não encontrada');
+    }
+
+    const total = parseFloat(String(row.amount)) || 0;
+    const prevPaid = paidAmountFromExpenseRow(row);
+    const remaining = Math.max(0, Math.round((total - prevPaid) * 100) / 100);
+    if (remaining <= 0) {
+      throw new Error('Esta despesa já está quitada');
+    }
+
+    const applied = Math.min(Math.round(payNow * 100) / 100, remaining);
+    const newPaid = Math.round((prevPaid + applied) * 100) / 100;
+    const today = new Date().toISOString().split('T')[0];
+    const dueRaw = row.due_date ? String(row.due_date).split('T')[0] : '';
+    const st = String(row.payment_status || '');
+
+    const isFullyPaid = newPaid >= total - 0.005;
+    let nextStatus: PaymentStatus;
+    if (isFullyPaid) {
+      nextStatus = 'paid';
+    } else if (dueRaw && dueRaw < today && (st === 'overdue' || st === 'pending')) {
+      nextStatus = 'overdue';
+    } else {
+      nextStatus = 'pending';
+    }
+
+    const { data, error } = await supabase
+      .from('operational_expenses')
+      .update({
+        paid_amount: isFullyPaid ? total : newPaid,
+        payment_date: today,
+        payment_method: paymentMethod,
+        payment_status: nextStatus,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      const m = messageFromUnknownError(error);
+      const code = typeof error === 'object' && error && 'code' in error ? String((error as { code?: string }).code) : '';
+      if (code === 'PGRST116' || /0 rows|no rows/i.test(m)) {
+        throw new Error(
+          `${m} — Nenhuma linha foi atualizada. Confirme se a despesa existe e se há política RLS permitindo UPDATE em operational_expenses para o seu usuário.`
+        );
+      }
+      if (isPaidAmountColumnMissingError(m)) {
+        const newNotes = mergeNotesWithPaidAmount(row.notes, isFullyPaid ? total : newPaid);
+        const { data: row2, error: err2 } = await supabase
+          .from('operational_expenses')
+          .update({
+            notes: newNotes,
+            payment_date: today,
+            payment_method: paymentMethod,
+            payment_status: nextStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id)
+          .select()
+          .single();
+        if (err2) {
+          throw new Error(
+            `${messageFromUnknownError(err2)} — Pagamento parcial exige a coluna paid_amount ou permissão para gravar em notes. Execute scripts/add_operational_expense_paid_amount.sql no Supabase.`
+          );
+        }
+        return row2 as OperationalExpense;
+      }
+      throw new Error(m);
+    }
     return data as OperationalExpense;
   }
 
