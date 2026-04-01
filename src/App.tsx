@@ -31,6 +31,7 @@ import { AdminSaaS } from './components/admin/AdminSaaS';
 import { QuickSearch } from './components/QuickSearch';
 import { PWAUpdateNotifier } from './components/PWAUpdateNotifier';
 import { CostDashboard } from './components/costs/CostDashboard';
+import { IntegrationsPage } from './components/integrations/IntegrationsPage';
 
 // Icons
 import { 
@@ -49,7 +50,7 @@ import {
   Sun,
   Building,
   DollarSign,
-  Settings
+  Plug
 } from 'lucide-react';
 
 // Services and Types
@@ -63,7 +64,7 @@ import { toast } from 'sonner@2.0.3';
 import { useIsMobile } from './components/ui/use-mobile';
 import logoImg from './public/logo.svg';
 
-type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'users' | 'admin' | 'costs';
+type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'integrations' | 'users' | 'admin' | 'costs';
 
 function MainApp() {
   const { user, logout } = useAuth();
@@ -585,6 +586,7 @@ function MainApp() {
       nav.push({ id: 'pos', name: 'Venda / Baixa', icon: ShoppingCart });
       nav.push({ id: 'cashier', name: 'PDV', icon: DollarSign });
       nav.push({ id: 'suppliers', name: 'Fornecedores', icon: Truck });
+      nav.push({ id: 'integrations', name: 'Integrações', icon: Plug });
     }
     if (user.permissions.canViewReports) {
       nav.push({ id: 'reports', name: 'Relatórios', icon: FileText });
@@ -792,7 +794,15 @@ function MainApp() {
             <SupplierManagement suppliers={suppliers} onSave={handleSaveSupplier} onUpdate={handleUpdateSupplier} onDelete={handleDeleteSupplier} />
           )}
           {currentPage === 'pos' && (
-             <POS products={products} recipes={[]} onSaleComplete={refreshData} />
+             <POS
+               products={products}
+               recipes={[]}
+               onSaleComplete={refreshData}
+               onOpenIntegrations={() => setCurrentPage('integrations')}
+             />
+          )}
+          {currentPage === 'integrations' && user.permissions.canManageStock && (
+            <IntegrationsPage onSyncComplete={refreshData} />
           )}
           {currentPage === 'cashier' && (
              <CashRegister />

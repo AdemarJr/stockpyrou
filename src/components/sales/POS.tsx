@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package, Plug } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
 import { supabase } from '../../utils/supabase/client';
@@ -8,7 +8,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ProductService } from '../../services/ProductService';
 import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
-import { ZigIntegration } from './ZigIntegration';
 import { SaleReceipt } from './SaleReceipt';
 import { useIsMobile } from '../ui/use-mobile';
 
@@ -16,6 +15,8 @@ interface POSProps {
   products: Product[];
   recipes: any[]; // Recipes removed, keeping for compatibility
   onSaleComplete?: () => void;
+  /** Abre a tela Integrações (ZIG e futuras conexões). */
+  onOpenIntegrations?: () => void;
 }
 
 interface CartItem {
@@ -26,11 +27,10 @@ interface CartItem {
   quantity: number;
 }
 
-export function POS({ products, recipes, onSaleComplete }: POSProps) {
+export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: POSProps) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const [activeTab, setActiveTab] = useState<'manual' | 'zig'>('manual');
   const [showCart, setShowCart] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -359,33 +359,21 @@ export function POS({ products, recipes, onSaleComplete }: POSProps) {
   return (
     <div className="flex flex-col h-full bg-gray-50 -m-4 md:-m-6 pb-16 md:pb-0">
       {/* Header da Página */}
-      <div className="bg-white border-b px-4 md:px-6 py-3 md:py-4 flex justify-between items-center sticky top-0 z-30">
-        <div className="hidden md:block">
-          <h1 className="text-xl md:text-2xl font-bold text-gray-800">Ponto de Venda</h1>
-        </div>
-        
-        <div className="flex bg-gray-100 p-1 rounded-lg w-full md:w-auto">
+      <div className="bg-white border-b px-4 md:px-6 py-3 md:py-4 flex justify-between items-center gap-3 sticky top-0 z-30">
+        <h1 className="text-lg md:text-2xl font-bold text-gray-800 shrink-0">Ponto de Venda</h1>
+        {onOpenIntegrations && (
           <button
-            onClick={() => setActiveTab('manual')}
-            className={`flex-1 md:flex-none px-4 py-2 text-xs md:text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'manual' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'
-            }`}
+            type="button"
+            onClick={onOpenIntegrations}
+            className="flex items-center gap-1.5 text-xs md:text-sm font-medium text-pink-600 hover:text-pink-700 whitespace-nowrap shrink-0"
           >
-            Manual
+            <Plug className="w-4 h-4" aria-hidden />
+            Integrações (ZIG)
           </button>
-          <button
-            onClick={() => setActiveTab('zig')}
-            className={`flex-1 md:flex-none px-4 py-2 text-xs md:text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'zig' ? 'bg-white shadow text-pink-600' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Zig
-          </button>
-        </div>
+        )}
       </div>
 
-      {activeTab === 'manual' ? (
-        <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 overflow-hidden relative">
           {/* Coluna da Esquerda: Catálogo */}
           <div className={`flex-1 p-4 md:p-6 overflow-y-auto ${showCart && isMobile ? 'hidden' : 'block'}`}>
             <div className="mb-4 md:mb-6 sticky top-0 bg-gray-50 pb-2 z-10 space-y-3">
@@ -574,14 +562,9 @@ export function POS({ products, recipes, onSaleComplete }: POSProps) {
             </div>
           </div>
         </div>
-      ) : activeTab === 'zig' && (
-        <div className="flex-1 p-4 md:p-6 flex flex-col overflow-y-auto">
-           <ZigIntegration onSyncComplete={onSaleComplete} />
-        </div>
-      )}
 
       {/* Floating Cart Button for Mobile */}
-      {isMobile && !showCart && activeTab === 'manual' && cart.length > 0 && (
+      {isMobile && !showCart && cart.length > 0 && (
         <button
           onClick={() => setShowCart(true)}
           className="fixed bottom-20 right-4 bg-blue-600 text-white p-4 rounded-full shadow-2xl z-40 flex items-center gap-2 animate-bounce shadow-blue-300"
