@@ -288,11 +288,8 @@ console.log(\`[SW] Service Worker versão \${VERSION} pronto!\`);
         }
       });
 
-      // Listener para quando o SW assume controle
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        console.log('🔄 Controller changed, reloading page...');
-        window.location.reload();
-      });
+      // Não recarregar em todo controllerchange: isso apagava formulários ao ativar SW em segundo plano.
+      // O reload só ocorre quando o usuário clica em "Atualizar" (handleUpdate registra listener { once: true }).
 
     } catch (error) {
       console.log('ℹ️ Service Worker registration skipped:', error);
@@ -303,7 +300,10 @@ console.log(\`[SW] Service Worker versão \${VERSION} pronto!\`);
   const handleUpdate = () => {
     if (registration && registration.waiting) {
       console.log('📤 Sending SKIP_WAITING message to SW');
-      // Envia mensagem para o SW ativar imediatamente
+      const reloadOnce = () => {
+        window.location.reload();
+      };
+      navigator.serviceWorker.addEventListener('controllerchange', reloadOnce, { once: true });
       registration.waiting.postMessage({ type: 'SKIP_WAITING' });
       setShowBanner(false);
     }

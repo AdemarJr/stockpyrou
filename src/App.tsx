@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Toaster } from 'sonner@2.0.3';
 import { supabase } from './utils/supabase/client';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -238,22 +238,25 @@ function MainApp() {
     { id: 'outro', name: 'Outro' },
   ];
   
-  // Define refreshData function
-  const refreshData = async () => {
-    if (!currentCompany) {
+  const companyId = currentCompany?.id;
+
+  // silent: não cobre a tela com loading (evita desmontar formulários ao sincronizar dados após venda, etc.)
+  const refreshData = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!companyId) {
       console.log('[refreshData] Skipping - no company selected');
       setLoading(false);
       return;
     }
 
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const results = await Promise.allSettled([
-        ProductService.getAllProducts(currentCompany.id),
-        SupplierRepository.findAll(currentCompany.id),
-        StockService.getAllEntries(currentCompany.id),
-        StockService.getAllMovements(currentCompany.id),
-        PriceHistoryRepository.findAll(currentCompany.id),
+        ProductService.getAllProducts(companyId),
+        SupplierRepository.findAll(companyId),
+        StockService.getAllEntries(companyId),
+        StockService.getAllMovements(companyId),
+        PriceHistoryRepository.findAll(companyId),
       ]);
 
       const pick = <T,>(i: number, empty: T): T => {
@@ -281,12 +284,13 @@ function MainApp() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [companyId]);
 
-  // Fetch all data when company changes
+  // Só recarrega índice quando troca a empresa (id), não quando o objeto `user`/token é renovado
   useEffect(() => {
-    refreshData();
-  }, [currentCompany]);
+    if (!currentCompany?.id) return;
+    void refreshData();
+  }, [currentCompany?.id, refreshData]);
 
   // If no company selected, show selection screen
   if (!currentCompany) {
@@ -788,7 +792,7 @@ function MainApp() {
             </div>
           )}
           {currentPage === 'stock-balance' && user.permissions.canManageStock && (
-            <StockBalance products={products} onBalanceComplete={refreshData} />
+            <StockBalance products={products} onBalanceComplete={() => void refreshData({ silent: true })} />
           )}
           {currentPage === 'suppliers' && user.permissions.canManageStock && (
             <SupplierManagement suppliers={suppliers} onSave={handleSaveSupplier} onUpdate={handleUpdateSupplier} onDelete={handleDeleteSupplier} />
@@ -797,12 +801,12 @@ function MainApp() {
              <POS
                products={products}
                recipes={[]}
-               onSaleComplete={refreshData}
+               onSaleComplete={() => void refreshData({ silent: true })}
                onOpenIntegrations={() => setCurrentPage('integrations')}
              />
           )}
           {currentPage === 'integrations' && user.permissions.canManageStock && (
-            <IntegrationsPage onSyncComplete={refreshData} />
+            <IntegrationsPage onSyncComplete={() => void refreshData({ silent: true })} />
           )}
           {currentPage === 'cashier' && (
              <CashRegister />

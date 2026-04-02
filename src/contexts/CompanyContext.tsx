@@ -111,7 +111,10 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
             toast.error('Empresa desativada. Selecione outra empresa ou contate o suporte.');
           } else if (status === 'active' || statusJson == null) {
             // null = timeout/erro na API: libera uso para não travar a tela inicial
-            setCurrentCompany(userCompany);
+            // Mantém a mesma referência se já for a mesma empresa (evita refresh do App e perda de formulários ao renovar token)
+            setCurrentCompany((prev) =>
+              prev?.id === userCompany.id ? prev : userCompany
+            );
             localStorage.setItem('stockwise_last_company_id', user.companyId);
             return;
           }
@@ -134,7 +137,9 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
             if (status === 'inactive') {
               localStorage.removeItem('stockwise_last_company_id');
             } else if (status === 'active' || statusJson == null) {
-              setCurrentCompany(savedCompany);
+              setCurrentCompany((prev) =>
+                prev?.id === savedCompany.id ? prev : savedCompany
+              );
             }
           }
         }
@@ -146,9 +151,11 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Depender só de identidade estável: TOKEN_REFRESHED recria o objeto `user` e não deve re-disparar refresh
   useEffect(() => {
     refreshCompanies();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- evita loop ao renovar sessão (novo objeto user, mesmos dados)
+  }, [user?.id, user?.role, user?.companyId]);
 
   const selectCompany = async (companyId: string): Promise<boolean> => {
     if (!companyId) {
