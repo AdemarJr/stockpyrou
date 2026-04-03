@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Package, Search, Filter, Edit2, Trash2, Calendar, FileText, MoreVertical } from 'lucide-react';
@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Button } from '../ui/button';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { usePagination } from '../../hooks/usePagination';
+import { toast } from 'sonner@2.0.3';
 
 interface StockEntryListProps {
   entries: StockEntry[];
@@ -22,8 +23,11 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
   const isMobile = useIsMobile();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
+  /** Datas aplicadas na lista (atualizam ao Filtrar ou Enter). */
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [draftDateFrom, setDraftDateFrom] = useState('');
+  const [draftDateTo, setDraftDateTo] = useState('');
   
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
@@ -43,6 +47,15 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
       return matchesSearch && matchesSupplier && matchesFrom && matchesTo;
     });
   }, [entries, products, suppliers, searchTerm, filterSupplier, dateFrom, dateTo]);
+
+  const applyDateFilters = useCallback(() => {
+    if (draftDateFrom && draftDateTo && draftDateFrom > draftDateTo) {
+      toast.error('A data inicial deve ser anterior ou igual à data final.');
+      return;
+    }
+    setDateFrom(draftDateFrom);
+    setDateTo(draftDateTo);
+  }, [draftDateFrom, draftDateTo]);
 
   const filterKey = `${searchTerm}|${filterSupplier}|${dateFrom}|${dateTo}`;
   const { paginatedItems, page, setPage, totalPages, from, to, total: filteredTotal } =
@@ -86,8 +99,14 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                 <Label className="text-xs text-gray-500">Recebimento de</Label>
                 <Input
                   type="date"
-                  value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
+                  value={draftDateFrom}
+                  onChange={(e) => setDraftDateFrom(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      applyDateFilters();
+                    }
+                  }}
                   className="w-[160px]"
                 />
               </div>
@@ -95,15 +114,26 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                 <Label className="text-xs text-gray-500">até</Label>
                 <Input
                   type="date"
-                  value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
+                  value={draftDateTo}
+                  onChange={(e) => setDraftDateTo(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      applyDateFilters();
+                    }
+                  }}
                   className="w-[160px]"
                 />
               </div>
+              <Button type="button" size="sm" onClick={() => applyDateFilters()}>
+                Filtrar período
+              </Button>
               <button
                 type="button"
                 className="text-sm text-blue-600 hover:underline px-2"
                 onClick={() => {
+                  setDraftDateFrom('');
+                  setDraftDateTo('');
                   setDateFrom('');
                   setDateTo('');
                 }}

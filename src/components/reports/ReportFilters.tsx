@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Filter, X, Calendar, Search, Package, Users } from 'lucide-react';
+import { toast } from 'sonner@2.0.3';
 
-interface Period Preset {
+interface PeriodPreset {
   label: string;
   value: string;
   getDates: () => { start: string; end: string };
@@ -48,7 +49,23 @@ export function ReportFilters({
   onToggleFilters,
   onClearFilters,
 }: ReportFiltersProps) {
-  
+  const [localStart, setLocalStart] = useState(startDate);
+  const [localEnd, setLocalEnd] = useState(endDate);
+
+  useEffect(() => {
+    setLocalStart(startDate);
+    setLocalEnd(endDate);
+  }, [startDate, endDate]);
+
+  const applyDateRange = () => {
+    if (localStart && localEnd && localStart > localEnd) {
+      toast.error('A data inicial deve ser anterior ou igual à data final.');
+      return;
+    }
+    onStartDateChange(localStart);
+    onEndDateChange(localEnd);
+  };
+
   const periodPresets: PeriodPreset[] = [
     {
       label: 'Hoje',
@@ -92,6 +109,8 @@ export function ReportFilters({
 
   const applyPreset = (preset: PeriodPreset) => {
     const dates = preset.getDates();
+    setLocalStart(dates.start);
+    setLocalEnd(dates.end);
     onStartDateChange(dates.start);
     onEndDateChange(dates.end);
   };
@@ -151,33 +170,54 @@ export function ReportFilters({
         </div>
 
         {/* Date Range */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 uppercase mb-2 flex items-center gap-1">
-              <Calendar className="w-4 h-4" />
-              Data Início
-            </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => onStartDateChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow text-gray-900 bg-white"
-              style={{ color: '#111827', backgroundColor: '#ffffff' }}
-            />
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 uppercase mb-2 flex items-center gap-1">
+                <Calendar className="w-4 h-4" />
+                Data Início
+              </label>
+              <input
+                type="date"
+                value={localStart}
+                onChange={(e) => setLocalStart(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyDateRange();
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow text-gray-900 bg-white"
+                style={{ color: '#111827', backgroundColor: '#ffffff' }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 uppercase mb-2 flex items-center gap-1">
+                <Calendar className="w-4 h-4" />
+                Data Fim
+              </label>
+              <input
+                type="date"
+                value={localEnd}
+                onChange={(e) => setLocalEnd(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyDateRange();
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow text-gray-900 bg-white"
+                style={{ color: '#111827', backgroundColor: '#ffffff' }}
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 uppercase mb-2 flex items-center gap-1">
-              <Calendar className="w-4 h-4" />
-              Data Fim
-            </label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => onEndDateChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow text-gray-900 bg-white"
-              style={{ color: '#111827', backgroundColor: '#ffffff' }}
-            />
-          </div>
+          <button
+            type="button"
+            onClick={() => applyDateRange()}
+            className="w-full md:w-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+          >
+            Filtrar período
+          </button>
         </div>
 
         {/* Search */}

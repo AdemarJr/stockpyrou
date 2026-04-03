@@ -206,8 +206,12 @@ export function ExpenseManagement() {
   >(null);
   const [filter, setFilter] = useState('all');
   /** Período por data de vencimento (YYYY-MM-DD), vazio = sem filtro de datas */
+  /** Período aplicado na API / lista (atualiza ao clicar Filtrar, Enter ou atalhos). */
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
+  /** Rascunho dos campos de data (não dispara carga até aplicar). */
+  const [periodDraftFrom, setPeriodDraftFrom] = useState('');
+  const [periodDraftTo, setPeriodDraftTo] = useState('');
   const [costCenterFilter, setCostCenterFilter] = useState('');
   const [expenseTypeFilter, setExpenseTypeFilter] = useState('');
   const [supplierFilter, setSupplierFilter] = useState('');
@@ -387,6 +391,15 @@ export function ExpenseManagement() {
     }
     return list;
   }, [stockEntriesList, formData.supplierId, formData.stockEntryId]);
+
+  const applyPeriodFilters = useCallback(() => {
+    if (periodDraftFrom && periodDraftTo && periodDraftFrom > periodDraftTo) {
+      toast.error('A data inicial do período deve ser anterior ou igual à data final.');
+      return;
+    }
+    setPeriodFrom(periodDraftFrom);
+    setPeriodTo(periodDraftTo);
+  }, [periodDraftFrom, periodDraftTo]);
 
   const loadData = async () => {
     if (!currentCompany?.id) return;
@@ -1104,8 +1117,14 @@ export function ExpenseManagement() {
                 id="periodFrom"
                 type="date"
                 className="w-[160px]"
-                value={periodFrom}
-                onChange={(e) => setPeriodFrom(e.target.value)}
+                value={periodDraftFrom}
+                onChange={(e) => setPeriodDraftFrom(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyPeriodFilters();
+                  }
+                }}
               />
             </div>
 
@@ -1117,12 +1136,21 @@ export function ExpenseManagement() {
                 id="periodTo"
                 type="date"
                 className="w-[160px]"
-                value={periodTo}
-                onChange={(e) => setPeriodTo(e.target.value)}
+                value={periodDraftTo}
+                onChange={(e) => setPeriodDraftTo(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyPeriodFilters();
+                  }
+                }}
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 items-end">
+              <Button type="button" variant="default" size="sm" onClick={() => applyPeriodFilters()}>
+                Filtrar período
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -1135,6 +1163,8 @@ export function ExpenseManagement() {
                   const first = `${y}-${pad(m + 1)}-01`;
                   const lastDate = new Date(y, m + 1, 0);
                   const last = `${y}-${pad(m + 1)}-${pad(lastDate.getDate())}`;
+                  setPeriodDraftFrom(first);
+                  setPeriodDraftTo(last);
                   setPeriodFrom(first);
                   setPeriodTo(last);
                 }}
@@ -1146,6 +1176,8 @@ export function ExpenseManagement() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  setPeriodDraftFrom('');
+                  setPeriodDraftTo('');
                   setPeriodFrom('');
                   setPeriodTo('');
                 }}

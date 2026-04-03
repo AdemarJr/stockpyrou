@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FileText, TrendingUp, TrendingDown, ShoppingCart, AlertTriangle, Package, DollarSign, History, User, ClipboardCheck, RefreshCw, Download, FileSpreadsheet, FileJson, Receipt, CreditCard, PackagePlus } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { jsPDF } from 'jspdf';
@@ -11,7 +11,6 @@ import { ProductService } from '../../services/ProductService';
 import { useIsMobile } from '../ui/use-mobile';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { ReportFilters } from './ReportFilters';
 import { ReportCard } from './ReportCard';
 import { ReportTable } from './ReportTable';
 import { ReportTabs, type TabType } from './ReportTabs';
@@ -59,6 +58,12 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
     return d.toISOString().split('T')[0];
   });
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [draftStartDate, setDraftStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return d.toISOString().split('T')[0];
+  });
+  const [draftEndDate, setDraftEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -71,6 +76,16 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
     const startIndex = (currentPage - 1) * itemsPerPage;
     return data.slice(startIndex, startIndex + itemsPerPage);
   };
+
+  const applyReportDateFilter = useCallback(() => {
+    if (draftStartDate && draftEndDate && draftStartDate > draftEndDate) {
+      toast.error('A data inicial deve ser anterior ou igual à data final.');
+      return;
+    }
+    setStartDate(draftStartDate);
+    setEndDate(draftEndDate);
+    setCurrentPage(1);
+  }, [draftStartDate, draftEndDate]);
 
   // Fetch sales data
   const fetchSales = async () => {
@@ -826,25 +841,44 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
             <Package className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           </div>
         </div>
-        <div className="flex gap-2">
-          <div className="flex-1">
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex-1 min-w-[140px]">
             <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">De</label>
             <input
               type="date"
-              value={startDate}
-              onChange={(e) => { setStartDate(e.target.value); setCurrentPage(1); }}
+              value={draftStartDate}
+              onChange={(e) => setDraftStartDate(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  applyReportDateFilter();
+                }
+              }}
               className="w-full px-3 py-2 border text-gray-500 rounded-md focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-[140px]">
             <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Até</label>
             <input
               type="date"
-              value={endDate}
-              onChange={(e) => { setEndDate(e.target.value); setCurrentPage(1); }}
+              value={draftEndDate}
+              onChange={(e) => setDraftEndDate(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  applyReportDateFilter();
+                }
+              }}
               className="w-full px-3 py-2 border text-gray-500 rounded-md focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => applyReportDateFilter()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium shrink-0"
+          >
+            Filtrar período
+          </button>
         </div>
       </div>
       
