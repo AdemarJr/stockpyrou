@@ -289,32 +289,45 @@ export class CostRepository {
     return { inventoryValue, purchasesMonthTotal };
   }
 
+  /**
+   * Monta linha para insert. Colunas de grupo de parcelas só entram quando há grupo —
+   * assim o insert funciona mesmo sem migration `add_expense_group_installments.sql`.
+   */
   private static expenseInsertRow(expense: Omit<OperationalExpense, 'id' | 'createdAt' | 'updatedAt'>) {
-    return {
+    const row: Record<string, unknown> = {
       company_id: expense.companyId,
       expense_type_id: expense.expenseTypeId,
       cost_center_id: expense.costCenterId,
       amount: expense.amount,
-      description: expense.description,
-      reference_number: expense.referenceNumber,
+      description: expense.description ?? null,
+      reference_number: expense.referenceNumber ?? null,
       due_date: expense.dueDate,
-      payment_date: expense.paymentDate,
+      payment_date: expense.paymentDate ?? null,
       payment_status: expense.paymentStatus,
-      payment_method: expense.paymentMethod,
+      payment_method: expense.paymentMethod ?? null,
       payment_terms_type: expense.paymentTermsType ?? 'avista',
       invoice_days: expense.paymentTermsType === 'faturado' ? expense.invoiceDays ?? null : null,
       installment_count:
         expense.paymentTermsType === 'parcelado' ? expense.installmentCount ?? null : null,
-      expense_group_id: expense.expenseGroupId ?? null,
-      installment_index: expense.installmentIndex ?? null,
-      installment_of: expense.installmentOf ?? null,
       supplier_id: expense.supplierId ?? null,
       stock_entry_id: expense.stockEntryId ?? null,
       user_id: expense.userId,
-      attachments: expense.attachments,
-      tags: expense.tags,
-      notes: expense.notes
+      attachments: expense.attachments ?? null,
+      tags: expense.tags ?? null,
+      notes: expense.notes ?? null
     };
+
+    if (
+      expense.expenseGroupId != null ||
+      expense.installmentIndex != null ||
+      expense.installmentOf != null
+    ) {
+      row.expense_group_id = expense.expenseGroupId ?? null;
+      row.installment_index = expense.installmentIndex ?? null;
+      row.installment_of = expense.installmentOf ?? null;
+    }
+
+    return row;
   }
 
   static async createExpense(expense: Omit<OperationalExpense, 'id' | 'createdAt' | 'updatedAt'>): Promise<OperationalExpense> {

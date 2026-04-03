@@ -631,8 +631,7 @@ export function ExpenseManagement() {
       loadData();
     } catch (error: unknown) {
       console.error('Error creating expense:', error);
-      const msg = error instanceof Error ? error.message : 'Erro ao registrar despesa';
-      toast.error(msg);
+      toast.error(messageFromUnknownError(error));
     } finally {
       setSubmitLoading(false);
     }
