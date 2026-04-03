@@ -42,7 +42,8 @@ import {
   Landmark,
   CalendarClock,
   Search,
-  Package
+  Package,
+  Layers
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
@@ -66,6 +67,8 @@ import {
   paidAmountFromExpenseRow as expensePaidAmount,
   remainingFromExpenseRow as expenseRemaining
 } from '../../utils/expensePaidAmount';
+import { splitTotalIntoParts, sumMoneyParts } from '../../utils/expenseInstallments';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 
 const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
   { value: 'pix', label: 'PIX' },
@@ -87,7 +90,14 @@ function formatPaymentTermsLine(expense: {
   payment_terms_type?: string | null;
   invoice_days?: number | null;
   installment_count?: number | null;
+  installment_index?: number | null;
+  installment_of?: number | null;
 }): string {
+  const idx = expense.installment_index;
+  const of = expense.installment_of;
+  if (idx != null && of != null && of >= 1) {
+    return `Parcela ${idx}/${of}`;
+  }
   const t = expense.payment_terms_type || 'avista';
   if (t === 'faturado' && expense.invoice_days != null) {
     return `Faturado ${expense.invoice_days} dia${expense.invoice_days === 1 ? '' : 's'}`;
@@ -189,7 +199,11 @@ export function ExpenseManagement() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { mode: 'single'; id: string; label: string }
+    | { mode: 'group'; groupId: string; label: string }
+    | null
+  >(null);
   const [filter, setFilter] = useState('all');
   /** Período por data de vencimento (YYYY-MM-DD), vazio = sem filtro de datas */
   const [periodFrom, setPeriodFrom] = useState('');
@@ -298,6 +312,19 @@ export function ExpenseManagement() {
     stockEntryId: ''
   });
 
+  /** Dentro de "Parcelado": um título com N parcelas (resumo) ou N títulos com datas/valores. */
+  const [parceladoVariant, setParceladoVariant] = useState<'single_row' | 'multi_dates'>('single_row');
+  const [multiParcelCount, setMultiParcelCount] = useState('3');
+  const [multiFirstDue, setMultiFirstDue] = useState('');
+  const [multiIntervalDays, setMultiIntervalDays] = useState('30');
+  const [installmentRows, setInstallmentRows] = useState<{ dueDate: string; amount: string }[]>([]);
+
+  /** Parcelado com uma despesa por parcela (datas/valores); só para nova despesa. */
+  const isMultiParcelDates =
+    !editingExpenseId &&
+    formData.paymentTermsType === 'parcelado' &&
+    parceladoVariant === 'multi_dates';
+
   type ExpenseFieldErrKey =
     | 'costCenterId'
     | 'expenseTypeId'
@@ -397,6 +424,37 @@ export function ExpenseManagement() {
     }
   };
 
+  const fillEqualInstallments = () => {
+    const total = parseFloat(formData.amount.replace(',', '.'));
+    const n = parseInt(multiParcelCount, 10);
+    const first = multiFirstDue.trim() || formData.dueDate.trim();
+    const interval = parseInt(multiIntervalDays, 10);
+    if (!formData.amount.trim() || !Number.isFinite(total) || total <= 0) {
+      toast.error('Informe o valor total da NF.');
+      return;
+    }
+    if (!Number.isFinite(n) || n < 2) {
+      toast.error('A quantidade de parcelas deve ser pelo menos 2.');
+      return;
+    }
+    if (!first) {
+      toast.error('Informe a data do 1º vencimento.');
+      return;
+    }
+    if (!Number.isFinite(interval) || interval < 0) {
+      toast.error('Intervalo entre parcelas inválido.');
+      return;
+    }
+    const parts = splitTotalIntoParts(total, n);
+    setInstallmentRows(
+      parts.map((amt, i) => ({
+        dueDate: addDaysYmd(first, i * interval),
+        amount: amt.toFixed(2)
+      }))
+    );
+    toast.success('Parcelas preenchidas. Ajuste datas ou valores se precisar.');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentCompany?.id || !user?.id) return;
@@ -406,7 +464,7 @@ export function ExpenseManagement() {
     if (!formData.expenseTypeId.trim()) errs.expenseTypeId = true;
     const amountNum = parseFloat(formData.amount.replace(',', '.'));
     if (!formData.amount.trim() || !Number.isFinite(amountNum) || amountNum <= 0) errs.amount = true;
-    if (!formData.dueDate.trim()) errs.dueDate = true;
+    if (!isMultiParcelDates && !formData.dueDate.trim()) errs.dueDate = true;
 
     if (editingExpenseId && amountNum > 0) {
       const ex = expenses.find((x: any) => x.id === editingExpenseId);
@@ -425,11 +483,42 @@ export function ExpenseManagement() {
       }
     }
 
+    if (!editingExpenseId && isMultiParcelDates) {
+      if (formData.stockEntryId) {
+        toast.error('Remova o vínculo com estoque para lançar várias parcelas.');
+        return;
+      }
+      if (formData.paymentStatus !== 'pending') {
+        toast.error('Crie as parcelas como "A pagar" e registre pagamentos na lista.');
+        return;
+      }
+      if (installmentRows.length < 2) {
+        toast.error('Defina pelo menos 2 parcelas com datas e valores.');
+        return;
+      }
+      const parts = installmentRows.map((r) => parseFloat(String(r.amount).replace(',', '.')));
+      if (parts.some((p) => !Number.isFinite(p) || p <= 0)) {
+        toast.error('Cada parcela precisa de valor maior que zero.');
+        return;
+      }
+      if (installmentRows.some((r) => !r.dueDate?.trim())) {
+        toast.error('Informe a data de vencimento de cada parcela.');
+        return;
+      }
+      const sum = sumMoneyParts(parts);
+      if (Math.abs(sum - amountNum) > 0.02) {
+        toast.error(
+          `A soma das parcelas (${sum.toFixed(2)}) deve igualar o valor total (${amountNum.toFixed(2)}).`
+        );
+        return;
+      }
+    }
+
     if (formData.paymentTermsType === 'faturado') {
       const d = parseInt(formData.invoiceDays, 10);
       if (!Number.isFinite(d) || d < 1) errs.invoiceDays = true;
     }
-    if (formData.paymentTermsType === 'parcelado') {
+    if (formData.paymentTermsType === 'parcelado' && !isMultiParcelDates) {
       const n = parseInt(formData.installmentCount, 10);
       if (!Number.isFinite(n) || n < 2) errs.installmentCount = true;
     }
@@ -456,6 +545,41 @@ export function ExpenseManagement() {
           : undefined;
 
       const paymentTermsType = formData.paymentTermsType;
+
+      if (!editingExpenseId && isMultiParcelDates) {
+        const groupId = crypto.randomUUID();
+        const n = installmentRows.length;
+        const baseDesc = formData.description.trim();
+        const ref = formData.referenceNumber.trim();
+        const items = installmentRows.map((row, i) => ({
+          companyId: currentCompany.id,
+          expenseTypeId: formData.expenseTypeId,
+          costCenterId: formData.costCenterId,
+          amount: parseFloat(String(row.amount).replace(',', '.')),
+          description: n > 1 ? `${baseDesc || 'Despesa'} (Parcela ${i + 1}/${n})` : baseDesc || undefined,
+          referenceNumber: ref || undefined,
+          dueDate: row.dueDate,
+          paymentDate: undefined,
+          paymentStatus: 'pending' as PaymentStatus,
+          paymentMethod: undefined,
+          paymentTermsType: 'parcelado' as const,
+          invoiceDays: undefined,
+          installmentCount: n,
+          expenseGroupId: groupId,
+          installmentIndex: i + 1,
+          installmentOf: n,
+          supplierId: formData.supplierId || undefined,
+          stockEntryId: undefined,
+          userId: user.id
+        }));
+        await CostRepository.createExpensesBatch(items);
+        toast.success(`${n} parcelas registradas com sucesso.`);
+        setDialogOpen(false);
+        setEditingExpenseId(null);
+        resetForm();
+        loadData();
+        return;
+      }
 
       if (editingExpenseId) {
         await CostRepository.updateExpense(editingExpenseId, {
@@ -579,6 +703,8 @@ export function ExpenseManagement() {
       supplierId: expense.supplier_id || '',
       stockEntryId: expense.stock_entry_id || ''
     });
+    setParceladoVariant('single_row');
+    setInstallmentRows([]);
     setEditingExpenseId(expense.id);
     setDialogOpen(true);
   };
@@ -593,8 +719,14 @@ export function ExpenseManagement() {
     if (!deleteTarget) return;
     setDeleteRunning(true);
     try {
-      await CostRepository.deleteExpense(deleteTarget.id);
-      toast.success('Despesa excluída.');
+      if (deleteTarget.mode === 'group') {
+        if (!currentCompany?.id) return;
+        await CostRepository.deleteExpenseGroup(currentCompany.id, deleteTarget.groupId);
+        toast.success('Todas as parcelas do grupo foram excluídas.');
+      } else {
+        await CostRepository.deleteExpense(deleteTarget.id);
+        toast.success('Despesa excluída.');
+      }
       setDeleteTarget(null);
       loadData();
     } catch (error: unknown) {
@@ -718,6 +850,11 @@ export function ExpenseManagement() {
 
   const resetForm = () => {
     setExpenseFieldErrors({});
+    setParceladoVariant('single_row');
+    setMultiParcelCount('3');
+    setMultiFirstDue('');
+    setMultiIntervalDays('30');
+    setInstallmentRows([]);
     setFormData({
       costCenterId: '',
       expenseTypeId: '',
@@ -1063,7 +1200,16 @@ export function ExpenseManagement() {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <p className="text-sm font-medium">{expense.description || 'Sem descrição'}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium">{expense.description || 'Sem descrição'}</p>
+                        {expense.installment_index != null &&
+                          expense.installment_of != null &&
+                          expense.installment_of >= 1 && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+                              {expense.installment_index}/{expense.installment_of}
+                            </span>
+                          )}
+                      </div>
                       {expense.reference_number && (
                         <p className="text-xs text-gray-500">Ref: {expense.reference_number}</p>
                       )}
@@ -1145,15 +1291,39 @@ export function ExpenseManagement() {
                           className="h-8 text-destructive hover:text-destructive"
                           onClick={() =>
                             setDeleteTarget({
+                              mode: 'single',
                               id: expense.id,
                               label: expense.description?.trim() || formatCurrency(parseFloat(expense.amount))
                             })
                           }
-                          title="Excluir"
+                          title="Excluir esta parcela"
                           disabled={!!markPaidId}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
+                        {expense.expense_group_id && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-destructive hover:text-destructive"
+                            onClick={() =>
+                              setDeleteTarget({
+                                mode: 'group',
+                                groupId: expense.expense_group_id,
+                                label:
+                                  expense.reference_number?.trim() ||
+                                  `Grupo ${String(expense.expense_group_id).slice(0, 8)}… · ${
+                                    expense.installment_of ?? '?'
+                                  } parcelas`
+                              })
+                            }
+                            title="Excluir todas as parcelas desta NF"
+                            disabled={!!markPaidId}
+                          >
+                            <Layers className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                         {(expense.payment_status === 'pending' || expense.payment_status === 'overdue') &&
                           expenseRemaining(expense) > 0 && (
                           <Button
@@ -1200,8 +1370,17 @@ export function ExpenseManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir esta despesa? Esta ação não pode ser desfeita.
-              <span className="mt-2 block font-medium text-foreground">{deleteTarget?.label}</span>
+              {deleteTarget?.mode === 'group' ? (
+                <>
+                  Todas as parcelas vinculadas a esta nota serão excluídas. Esta ação não pode ser desfeita.
+                  <span className="mt-2 block font-medium text-foreground">{deleteTarget.label}</span>
+                </>
+              ) : (
+                <>
+                  Tem certeza que deseja excluir esta despesa? Esta ação não pode ser desfeita.
+                  <span className="mt-2 block font-medium text-foreground">{deleteTarget?.label}</span>
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1380,7 +1559,8 @@ export function ExpenseManagement() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="amount" className={cn(expenseFieldErrors.amount && 'text-destructive')}>
-                  Valor <span className="text-destructive">*</span>
+                  {isMultiParcelDates ? 'Valor total (NF)' : 'Valor'}{' '}
+                  <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="amount"
@@ -1393,18 +1573,24 @@ export function ExpenseManagement() {
                 />
               </div>
 
-              <div>
-                <Label htmlFor="dueDate" className={cn(expenseFieldErrors.dueDate && 'text-destructive')}>
-                  Data de Vencimento <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="dueDate"
-                  type="date"
-                  value={formData.dueDate}
-                  onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                  aria-invalid={!!expenseFieldErrors.dueDate}
-                />
-              </div>
+              {!isMultiParcelDates || editingExpenseId ? (
+                <div>
+                  <Label htmlFor="dueDate" className={cn(expenseFieldErrors.dueDate && 'text-destructive')}>
+                    Data de Vencimento <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="dueDate"
+                    type="date"
+                    value={formData.dueDate}
+                    onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                    aria-invalid={!!expenseFieldErrors.dueDate}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col justify-end text-sm text-muted-foreground pb-1">
+                  <span>Vencimentos na seção Pagamento (parcelas com datas).</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -1468,6 +1654,7 @@ export function ExpenseManagement() {
               <Label htmlFor="stockEntryLink">Vínculo com estoque (opcional)</Label>
               <Select
                 value={formData.stockEntryId || 'none'}
+                disabled={isMultiParcelDates}
                 onValueChange={(value) => {
                   if (value === 'none') {
                     setFormData((prev) => ({ ...prev, stockEntryId: '' }));
@@ -1502,6 +1689,11 @@ export function ExpenseManagement() {
                 Associe a despesa à compra registrada em <strong>Estoque → Entradas</strong>. Ao
                 escolher uma entrada, o fornecedor é alinhado ao da compra quando aplicável.
               </p>
+              {isMultiParcelDates && (
+                <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
+                  Com parcelamento por várias datas, o vínculo com uma única entrada de estoque fica desativado.
+                </p>
+              )}
               {formData.supplierId && stockEntriesForForm.length === 0 && (
                 <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
                   Nenhuma entrada de estoque para este fornecedor. Cadastre uma entrada em Estoque ou
@@ -1530,6 +1722,10 @@ export function ExpenseManagement() {
                       invoiceDays: terms === 'faturado' ? prev.invoiceDays || '30' : '',
                       installmentCount: terms === 'parcelado' ? prev.installmentCount || '2' : ''
                     }));
+                    if (terms !== 'parcelado') {
+                      setParceladoVariant('single_row');
+                      setInstallmentRows([]);
+                    }
                   }}
                 >
                   <SelectTrigger id="paymentTermsType">
@@ -1564,7 +1760,46 @@ export function ExpenseManagement() {
                 </div>
               )}
 
-              {formData.paymentTermsType === 'parcelado' && (
+              {formData.paymentTermsType === 'parcelado' && !editingExpenseId && (
+                <div className="rounded-md border border-border bg-background p-3 space-y-3">
+                  <Label className="text-xs font-medium text-foreground">Parcelamento</Label>
+                  <RadioGroup
+                    value={parceladoVariant}
+                    onValueChange={(v) => {
+                      const next = v as 'single_row' | 'multi_dates';
+                      setParceladoVariant(next);
+                      if (next === 'multi_dates') {
+                        setFormData((prev) => ({ ...prev, stockEntryId: '' }));
+                        setMultiFirstDue((prev) => prev || formData.dueDate);
+                      } else {
+                        setInstallmentRows([]);
+                      }
+                    }}
+                    className="gap-3"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <RadioGroupItem value="single_row" id="pv-single" className="mt-0.5" />
+                      <label htmlFor="pv-single" className="text-sm leading-snug cursor-pointer">
+                        <span className="font-medium">Um título na lista</span>
+                        <span className="block text-xs text-muted-foreground mt-0.5">
+                          Informe a quantidade de parcelas; permanece uma única despesa.
+                        </span>
+                      </label>
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <RadioGroupItem value="multi_dates" id="pv-multi" className="mt-0.5" />
+                      <label htmlFor="pv-multi" className="text-sm leading-snug cursor-pointer">
+                        <span className="font-medium">Várias datas (faturado em vezes)</span>
+                        <span className="block text-xs text-muted-foreground mt-0.5">
+                          Uma despesa por parcela, com vencimento e valor; a soma fecha o total da NF.
+                        </span>
+                      </label>
+                    </div>
+                  </RadioGroup>
+                </div>
+              )}
+
+              {formData.paymentTermsType === 'parcelado' && parceladoVariant === 'single_row' && (
                 <div className="max-w-xs">
                   <Label htmlFor="installmentCount" className={cn(expenseFieldErrors.installmentCount && 'text-destructive')}>
                     Parcelas <span className="text-destructive">*</span>
@@ -1579,7 +1814,114 @@ export function ExpenseManagement() {
                     placeholder="ex.: 3, 6, 12"
                     aria-invalid={!!expenseFieldErrors.installmentCount}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">Quantidade total de parcelas.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Quantidade total de parcelas (título único).</p>
+                </div>
+              )}
+
+              {isMultiParcelDates && (
+                <div className="rounded-lg border border-border p-4 space-y-3 bg-muted/20">
+                  <p className="text-sm font-medium">Parcelas (datas e valores)</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                      <Label className="text-xs">Quantidade</Label>
+                      <Input
+                        type="number"
+                        min={2}
+                        step={1}
+                        value={multiParcelCount}
+                        onChange={(e) => {
+                          setMultiParcelCount(e.target.value);
+                          setFormData((prev) => ({ ...prev, installmentCount: e.target.value }));
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">1º vencimento</Label>
+                      <Input
+                        type="date"
+                        value={multiFirstDue}
+                        onChange={(e) => setMultiFirstDue(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Intervalo (dias)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={multiIntervalDays}
+                        onChange={(e) => setMultiIntervalDays(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <Button type="button" variant="secondary" className="w-full" onClick={fillEqualInstallments}>
+                        Preencher parcelas iguais
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Gera valores iguais (centavos na última parcela) e datas somando o intervalo. Edite a tabela
+                    abaixo se precisar.
+                  </p>
+                  {installmentRows.length > 0 && (
+                    <div className="overflow-x-auto border rounded-md">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="text-left p-2 w-12">#</th>
+                            <th className="text-left p-2">Vencimento</th>
+                            <th className="text-right p-2">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {installmentRows.map((row, idx) => (
+                            <tr key={idx} className="border-b border-border/60">
+                              <td className="p-2 text-muted-foreground">{idx + 1}</td>
+                              <td className="p-2">
+                                <Input
+                                  type="date"
+                                  className="h-8"
+                                  value={row.dueDate}
+                                  onChange={(e) => {
+                                    const next = [...installmentRows];
+                                    next[idx] = { ...next[idx], dueDate: e.target.value };
+                                    setInstallmentRows(next);
+                                  }}
+                                />
+                              </td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  className="h-8 text-right"
+                                  value={row.amount}
+                                  onChange={(e) => {
+                                    const next = [...installmentRows];
+                                    next[idx] = { ...next[idx], amount: e.target.value };
+                                    setInstallmentRows(next);
+                                  }}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {installmentRows.length > 0 && formData.amount.trim() && (
+                    <p className="text-xs">
+                      Soma das parcelas:{' '}
+                      <span className="font-semibold">
+                        {sumMoneyParts(
+                          installmentRows.map((r) => parseFloat(String(r.amount).replace(',', '.')) || 0)
+                        ).toFixed(2)}
+                      </span>{' '}
+                      · Total informado:{' '}
+                      <span className="font-semibold">
+                        {parseFloat(formData.amount.replace(',', '.')).toFixed(2)}
+                      </span>
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1654,10 +1996,12 @@ export function ExpenseManagement() {
                 {submitLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    {editingExpenseId ? 'Salvando…' : 'Registrando…'}
+                    {editingExpenseId ? 'Salvando…' : isMultiParcelDates ? 'Criando parcelas…' : 'Registrando…'}
                   </>
                 ) : editingExpenseId ? (
                   'Salvar alterações'
+                ) : isMultiParcelDates ? (
+                  'Criar parcelas'
                 ) : (
                   'Criar Despesa'
                 )}

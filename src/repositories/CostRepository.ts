@@ -289,36 +289,55 @@ export class CostRepository {
     return { inventoryValue, purchasesMonthTotal };
   }
 
+  private static expenseInsertRow(expense: Omit<OperationalExpense, 'id' | 'createdAt' | 'updatedAt'>) {
+    return {
+      company_id: expense.companyId,
+      expense_type_id: expense.expenseTypeId,
+      cost_center_id: expense.costCenterId,
+      amount: expense.amount,
+      description: expense.description,
+      reference_number: expense.referenceNumber,
+      due_date: expense.dueDate,
+      payment_date: expense.paymentDate,
+      payment_status: expense.paymentStatus,
+      payment_method: expense.paymentMethod,
+      payment_terms_type: expense.paymentTermsType ?? 'avista',
+      invoice_days: expense.paymentTermsType === 'faturado' ? expense.invoiceDays ?? null : null,
+      installment_count:
+        expense.paymentTermsType === 'parcelado' ? expense.installmentCount ?? null : null,
+      expense_group_id: expense.expenseGroupId ?? null,
+      installment_index: expense.installmentIndex ?? null,
+      installment_of: expense.installmentOf ?? null,
+      supplier_id: expense.supplierId ?? null,
+      stock_entry_id: expense.stockEntryId ?? null,
+      user_id: expense.userId,
+      attachments: expense.attachments,
+      tags: expense.tags,
+      notes: expense.notes
+    };
+  }
+
   static async createExpense(expense: Omit<OperationalExpense, 'id' | 'createdAt' | 'updatedAt'>): Promise<OperationalExpense> {
     const { data, error } = await supabase
       .from('operational_expenses')
-      .insert({
-        company_id: expense.companyId,
-        expense_type_id: expense.expenseTypeId,
-        cost_center_id: expense.costCenterId,
-        amount: expense.amount,
-        description: expense.description,
-        reference_number: expense.referenceNumber,
-        due_date: expense.dueDate,
-        payment_date: expense.paymentDate,
-        payment_status: expense.paymentStatus,
-        payment_method: expense.paymentMethod,
-        payment_terms_type: expense.paymentTermsType ?? 'avista',
-        invoice_days: expense.paymentTermsType === 'faturado' ? expense.invoiceDays ?? null : null,
-        installment_count:
-          expense.paymentTermsType === 'parcelado' ? expense.installmentCount ?? null : null,
-        supplier_id: expense.supplierId,
-        stock_entry_id: expense.stockEntryId ?? null,
-        user_id: expense.userId,
-        attachments: expense.attachments,
-        tags: expense.tags,
-        notes: expense.notes
-      })
+      .insert(this.expenseInsertRow(expense))
       .select()
       .single();
 
     if (error) throw error;
     return data as OperationalExpense;
+  }
+
+  /** Várias despesas em um insert (ex.: parcelas da mesma NF). */
+  static async createExpensesBatch(
+    items: Array<Omit<OperationalExpense, 'id' | 'createdAt' | 'updatedAt'>>
+  ): Promise<OperationalExpense[]> {
+    if (items.length === 0) return [];
+    const rows = items.map((e) => this.expenseInsertRow(e));
+    const { data, error } = await supabase.from('operational_expenses').insert(rows).select();
+
+    if (error) throw error;
+    return (data || []) as OperationalExpense[];
   }
 
   static async updateExpense(id: string, updates: Partial<OperationalExpense>): Promise<OperationalExpense> {
@@ -357,6 +376,9 @@ export class CostRepository {
       patch.installment_count =
         updates.paymentTermsType === 'parcelado' ? updates.installmentCount ?? null : null;
     }
+    if (updates.expenseGroupId !== undefined) patch.expense_group_id = updates.expenseGroupId;
+    if (updates.installmentIndex !== undefined) patch.installment_index = updates.installmentIndex;
+    if (updates.installmentOf !== undefined) patch.installment_of = updates.installmentOf;
 
     if (updates.supplierId !== undefined) {
       patch.supplier_id = updates.supplierId ?? null;
@@ -474,6 +496,17 @@ export class CostRepository {
       .from('operational_expenses')
       .delete()
       .eq('id', id);
+
+    if (error) throw error;
+  }
+
+  /** Remove todas as parcelas do mesmo grupo (mesma NF). */
+  static async deleteExpenseGroup(companyId: string, expenseGroupId: string): Promise<void> {
+    const { error } = await supabase
+      .from('operational_expenses')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('expense_group_id', expenseGroupId);
 
     if (error) throw error;
   }

@@ -53,6 +53,12 @@ export interface OperationalExpense {
   invoiceDays?: number;
   /** Quantidade de parcelas quando parcelado. */
   installmentCount?: number;
+  /** Mesmo UUID em todas as parcelas de uma mesma NF / lançamento. */
+  expenseGroupId?: string | null;
+  /** Parcela atual (1..N) quando parte de um grupo. */
+  installmentIndex?: number | null;
+  /** Total de parcelas do grupo. */
+  installmentOf?: number | null;
   supplierId?: string | null;
   /** Opcional: entrada de estoque (compra) vinculada à despesa */
   stockEntryId?: string | null;
