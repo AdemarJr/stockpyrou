@@ -182,7 +182,10 @@ app.post("/make-server-8a20b27d/invoices/register", async (c) => {
 app.get("/make-server-8a20b27d/zig/stores", async (c) => {
   try {
     const redeId = c.req.query("rede") || "35c5259d-4d3a-4934-9dd2-78a057a3aa8f";
-    const stores = await zig.getStores(redeId);
+    const companyId = c.req.query("companyId") || undefined;
+    const headerToken = c.req.header("X-ZIG-TOKEN") || undefined;
+    const token = await zig.resolveZigTokenForStores(companyId, headerToken);
+    const stores = await zig.getStores(token, redeId);
     return c.json({ stores });
   } catch (error: any) {
     console.error('Zig Stores Error:', error);
@@ -220,10 +223,10 @@ app.get("/make-server-8a20b27d/zig/stores", async (c) => {
 
 app.post("/make-server-8a20b27d/zig/config", async (c) => {
   try {
-    const { companyId, storeId, redeId } = await c.req.json();
+    const { companyId, storeId, redeId, zigToken } = await c.req.json();
     if (!companyId || !storeId) return c.json({ error: "Missing required fields" }, 400);
     
-    await zig.saveConfig(companyId, storeId, redeId);
+    await zig.saveConfig(companyId, storeId, redeId, zigToken);
     return c.json({ success: true });
   } catch (error: any) {
     console.error('Zig Config Error:', error);
@@ -272,13 +275,14 @@ app.post("/make-server-8a20b27d/zig/preview", async (c) => {
 // Zig Confirm Sales (Processa vendas confirmadas)
 app.post("/make-server-8a20b27d/zig/confirm", async (c) => {
   try {
-    const { companyId, transactionIds, startDate, endDate, registeredOnly } = await c.req.json();
+    const { companyId, transactionIds, startDate, endDate, registeredOnly, lineItems } = await c.req.json();
     if (!companyId || !transactionIds) {
       return c.json({ error: "Missing companyId or transactionIds" }, 400);
     }
 
     const result = await zig.confirmSales(companyId, transactionIds, startDate, endDate, {
       registeredOnly: !!registeredOnly,
+      lineItems: Array.isArray(lineItems) ? lineItems : undefined,
     });
     return c.json(result);
   } catch (error: any) {

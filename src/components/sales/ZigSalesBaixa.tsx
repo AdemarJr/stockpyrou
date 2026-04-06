@@ -1,15 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Store, Check, AlertCircle, Settings, Network, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp, Zap } from 'lucide-react';
-import { Switch } from '../ui/switch';
-import { Label } from '../ui/label';
+import { RefreshCw, Store, AlertCircle, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-
-interface ZigStore {
-  id: string;
-  name: string;
-}
 
 interface PendingSale {
   transactionId: string;
@@ -64,15 +57,9 @@ interface PendingSaleGroup {
   hasAddition: boolean;
 }
 
-export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void }) {
+export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void }) {
   const { currentCompany } = useCompany();
-  
-  // All hooks must be called before any conditional return
-  const [stores, setStores] = useState<ZigStore[]>([]);
-  const [selectedStore, setSelectedStore] = useState<string>('');
-  const [redeId, setRedeId] = useState<string>('35c5259d-4d3a-4934-9dd2-78a057a3aa8f');
-  const [loading, setLoading] = useState(false);
-  const [fetchingStores, setFetchingStores] = useState(false);
+
   const [configLoaded, setConfigLoaded] = useState(false);
   
   // Date selection
@@ -90,9 +77,6 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
   const [productSearch, setProductSearch] = useState('');
   const [showOnlyNotFound, setShowOnlyNotFound] = useState(false);
   const [previewRange, setPreviewRange] = useState<{ start: string; end: string } | null>(null);
-  const [autoBaixaEnabled, setAutoBaixaEnabled] = useState(false);
-  const [savingAutoBaixa, setSavingAutoBaixa] = useState(false);
-  const [autoRunning, setAutoRunning] = useState(false);
 
   const groupedSalesByDate = useMemo(() => {
     const result: Record<string, PendingSaleGroup[]> = {};
@@ -225,208 +209,30 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
     return { start, end };
   };
 
-  const fetchStores = async (overrideRedeId?: string) => {
-    if (!currentCompany) return;
-    
-    const redeToUse = (overrideRedeId ?? redeId)?.trim();
-    
-    if (!redeToUse) {
-      toast.error('Informe o ID da Rede para listar as lojas.');
-      return;
-    }
-
-    setFetchingStores(true);
-    try {
-      const url = new URL(`${SERVER_URL}/zig/stores`);
-      url.searchParams.append('rede', redeToUse);
-
-      const res = await fetch(url.toString(), {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`
-        }
-      });
-      
-      const data = await res.json().catch(() => ({}));
-
-      if (data.available === false && data.needsConfiguration) {
-        toast.warning(data.warning || 'Integração ZIG não disponível. Configure um token válido.');
-        setStores([]);
-        return;
-      }
-
-      if (!res.ok) {
-        const errorMessage = data.error || data.message || res.statusText || 'Erro ao carregar lojas';
-        throw new Error(errorMessage);
-      }
-      
-      const fetchedStores = data.stores || [];
-      setStores(fetchedStores);
-      
-      if (fetchedStores.length === 0) {
-        toast.info('Nenhuma loja encontrada para esta Rede.');
-      } else {
-        toast.success(`${fetchedStores.length} lojas carregadas.`);
-      }
-    } catch (error: any) {
-      console.error('Error fetching stores:', error);
-      toast.error(error.message);
-    } finally {
-      setFetchingStores(false);
-    }
-  };
-
-  const loadAutoBaixa = async () => {
-    if (!currentCompany?.id) return;
-    try {
-      const res = await fetch(`${SERVER_URL}/zig/auto-baixa/${currentCompany.id}`, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAutoBaixaEnabled(!!data.enabled);
-      }
-    } catch (error) {
-      console.error('Error loading auto-baixa config:', error);
-    }
-  };
-
   const loadConfig = async () => {
     if (!currentCompany?.id) return;
-    
+
     try {
       const res = await fetch(`${SERVER_URL}/zig/config/${currentCompany.id}`, {
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`
-        }
+          Authorization: `Bearer ${publicAnonKey}`,
+        },
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.config) {
-          if (data.config.redeId) {
-            setRedeId(data.config.redeId);
-            fetchStores(data.config.redeId);
-          }
-          if (data.config.storeId) {
-             setSelectedStore(data.config.storeId);
-             setConfigLoaded(true);
-          }
-        }
+        setConfigLoaded(!!data.config?.storeId);
+      } else {
+        setConfigLoaded(false);
       }
     } catch (error) {
       console.error('Error loading config:', error);
-    }
-    void loadAutoBaixa();
-  };
-
-  const saveAutoBaixa = async (enabled: boolean) => {
-    if (!currentCompany?.id) return;
-    setSavingAutoBaixa(true);
-    try {
-      const res = await fetch(`${SERVER_URL}/zig/auto-baixa`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
-        body: JSON.stringify({ companyId: currentCompany.id, enabled })
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Falha ao salvar' }));
-        throw new Error(err.error || 'Falha ao salvar');
-      }
-      setAutoBaixaEnabled(enabled);
-      toast.success(
-        enabled
-          ? 'Baixa automática ativada. Configure o agendamento no servidor (cron) para rodar sem abrir o sistema.'
-          : 'Baixa automática desativada.'
-      );
-    } catch (error: any) {
-      toast.error(error.message || 'Erro ao salvar');
-    } finally {
-      setSavingAutoBaixa(false);
-    }
-  };
-
-  const handleAutoRunNow = async () => {
-    if (!currentCompany?.id) return;
-    if (!configLoaded) {
-      toast.error('Salve a configuração da loja ZIG antes.');
-      return;
-    }
-    setAutoRunning(true);
-    try {
-      const res = await fetch(`${SERVER_URL}/zig/auto-run`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
-        body: JSON.stringify({ companyId: currentCompany.id })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Falha ao executar');
-      }
-      if (data.skipped && data.message) {
-        toast.message(data.message);
-      } else {
-        toast.success(data.message || `Processado: ${data.processed ?? 0} grupo(s).`);
-      }
-      if (onSyncComplete) onSyncComplete();
-    } catch (error: any) {
-      toast.error(error.message || 'Erro na baixa automática');
-    } finally {
-      setAutoRunning(false);
-    }
-  };
-
-  const handleSaveConfig = async () => {
-    if (!currentCompany?.id) return;
-    
-    if (!selectedStore) {
-      toast.error('Selecione uma loja antes de salvar.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const res = await fetch(`${SERVER_URL}/zig/config`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
-        body: JSON.stringify({
-          companyId: currentCompany.id,
-          storeId: selectedStore,
-          redeId: redeId.trim()
-        })
-      });
-      
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Falha ao salvar' }));
-        throw new Error(err.error || 'Failed to save config');
-      }
-      
-      toast.success('Configuração salva com sucesso!');
-      setConfigLoaded(true);
-    } catch (error: any) {
-      toast.error(`Erro: ${error.message}`);
-    } finally {
-      setLoading(false);
+      setConfigLoaded(false);
     }
   };
 
   const handlePreviewSales = async () => {
     if (!currentCompany?.id) return;
     
-    if (!selectedStore) {
-      toast.error('Selecione uma loja primeiro');
-      return;
-    }
-
     const { start, end } = getDateRange();
 
     try {
@@ -490,7 +296,23 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
 
     try {
       setConfirming(true);
-      
+
+      const flatSales = Object.values(salesByDate).flat() as PendingSale[];
+      const lineItems = flatSales
+        .filter((s) => selectedSales.includes(s.transactionId))
+        .map((s) => ({
+          transactionId: s.transactionId,
+          productSku: s.productSku,
+          productName: s.productName,
+          quantity: s.quantity,
+        }));
+
+      if (lineItems.length === 0) {
+        toast.error('Não há linhas do preview para baixar. Feche e busque as vendas novamente.');
+        setConfirming(false);
+        return;
+      }
+
       const res = await fetch(`${SERVER_URL}/zig/confirm`, {
         method: 'POST',
         headers: { 
@@ -501,7 +323,8 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
           companyId: currentCompany.id,
           transactionIds: selectedSales,
           startDate: previewRange?.start,
-          endDate: previewRange?.end
+          endDate: previewRange?.end,
+          lineItems,
         })
       });
 
@@ -624,8 +447,8 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
              <Store className="w-6 h-6 text-pink-600" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Integração ZIG</h2>
-            <p className="text-sm text-gray-500">Baixa automática por lote de vendas</p>
+            <h2 className="text-xl font-bold text-gray-900">Vendas ZIG — baixa no estoque</h2>
+            <p className="text-sm text-gray-500">Busque o que foi vendido na ZIG e confirme a baixa no PyrouStock</p>
           </div>
         </div>
         
@@ -638,109 +461,20 @@ export function ZigIntegration({ onSyncComplete }: { onSyncComplete?: () => void
       </div>
 
       <div className="space-y-6">
-        <div className="p-5 bg-gray-50 rounded-xl border border-gray-100 space-y-5">
-          <div className="flex items-center gap-2 text-pink-700 font-semibold text-sm mb-1">
-            <span className="flex items-center justify-center w-5 h-5 bg-pink-100 rounded-full text-[10px]">1</span>
-            Configuração da Rede
+        {!configLoaded && (
+          <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm flex gap-2 items-start">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <span>
+              Configure o token ZIG, rede e loja em <strong className="font-semibold">Integrações</strong> antes de buscar vendas
+              aqui.
+            </span>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">ID da Rede (Obrigatório)</label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Network className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input
-                    type="text"
-                    value={redeId}
-                    onChange={(e) => setRedeId(e.target.value)}
-                    placeholder="Ex: 35c5259d-4d3a-4934-9dd2-78a057a3aa8f"
-                    className="w-full pl-9 pr-4 py-2.5 rounded-lg border text-gray-500 border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 text-sm"
-                  />
-                </div>
-                <button
-                  onClick={() => fetchStores()}
-                  disabled={fetchingStores || !redeId}
-                  className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 transition-all font-medium text-sm shadow-sm"
-                >
-                  {fetchingStores ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  Listar
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Selecione a Loja</label>
-              <div className="flex gap-2">
-                <select
-                  value={selectedStore}
-                  onChange={(e) => {
-                    setSelectedStore(e.target.value);
-                    setConfigLoaded(false);
-                  }}
-                  disabled={stores.length === 0}
-                  className="flex-1 rounded-lg border-gray-300 shadow-sm text-gray-500 focus:border-pink-500 focus:ring-pink-500 disabled:bg-gray-100 disabled:text-gray-400 text-sm"
-                >
-                  <option value="">{stores.length === 0 ? 'Busque as lojas primeiro' : 'Selecione uma loja...'}</option>
-                  {stores.map(store => (
-                    <option key={store.id} value={store.id}>{store.name}</option>
-                  ))}</select>
-                <button
-                  onClick={handleSaveConfig}
-                  disabled={loading || !selectedStore}
-                  className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white font-medium transition-all shadow-sm text-sm ${
-                    configLoaded 
-                      ? 'bg-green-600 hover:bg-green-700' 
-                      : 'bg-pink-600 hover:bg-pink-700'
-                  } disabled:opacity-50`}
-                >
-                  {configLoaded ? <Check className="w-4 h-4" /> : <Settings className="w-4 h-4" />}
-                  {configLoaded ? 'Salvo' : 'Salvar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-5 bg-amber-50/90 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900 space-y-4">
-          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 font-semibold text-sm mb-1">
-            <Zap className="w-5 h-5 text-amber-600" />
-            Baixa automática no dia seguinte
-          </div>
-          <p className="text-xs text-amber-900/85 dark:text-amber-200/90 leading-relaxed">
-            No dia seguinte ao fechamento das vendas, o sistema pode dar baixa <strong>só para produtos já cadastrados</strong> no
-            Stockpyrou (SKU, código de barras, nome ou mapeamento). Vendas de ontem são consideradas no fuso{' '}
-            <strong>America/São_Paulo</strong>. Se <strong>qualquer</strong> item da venda não tiver produto correspondente, a
-            transação inteira fica de fora até você tratar no preview manual.
-          </p>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Switch
-                id="zig-auto-baixa"
-                checked={autoBaixaEnabled}
-                onCheckedChange={(v) => void saveAutoBaixa(v)}
-                disabled={savingAutoBaixa || !configLoaded}
-              />
-              <Label htmlFor="zig-auto-baixa" className="text-sm text-amber-950 dark:text-amber-100 cursor-pointer">
-                Ativar baixa automática diária
-              </Label>
-            </div>
-            <button
-              type="button"
-              onClick={() => void handleAutoRunNow()}
-              disabled={autoRunning || !configLoaded}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
-            >
-              {autoRunning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-              Executar agora (ontem)
-            </button>
-          </div>
-        </div>
+        )}
 
         <div className="p-5 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl border border-indigo-100 space-y-4">
           <div className="flex items-center gap-2 text-indigo-700 font-semibold text-sm mb-1">
-            <span className="flex items-center justify-center w-5 h-5 bg-indigo-100 rounded-full text-[10px]">2</span>
-            Selecione o Período das Vendas
+            <span className="flex items-center justify-center w-5 h-5 bg-indigo-100 rounded-full text-[10px]">1</span>
+            Período das vendas (ZIG)
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">

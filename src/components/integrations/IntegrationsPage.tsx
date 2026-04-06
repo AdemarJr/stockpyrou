@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plug } from 'lucide-react';
-import { ZigIntegration } from '../sales/ZigIntegration';
+import { ZigIntegrationSettings } from '../sales/ZigIntegrationSettings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 
 interface IntegrationsPageProps {
@@ -16,7 +16,8 @@ export function IntegrationsPage({ onSyncComplete }: IntegrationsPageProps) {
           Integrações
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Conecte sistemas externos ao estoque e às vendas. Novas integrações podem ser adicionadas aqui.
+          Credenciais e parâmetros de conexão. Buscar vendas e dar baixa no estoque ficam no{' '}
+          <strong className="font-medium text-foreground">Ponto de Venda</strong> (aba ZIG / Baixa).
         </p>
       </div>
 
@@ -24,7 +25,7 @@ export function IntegrationsPage({ onSyncComplete }: IntegrationsPageProps) {
         <h2 id="zig-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           ZIG
         </h2>
-        <ZigIntegration onSyncComplete={onSyncComplete} />
+        <ZigIntegrationSettings onSyncComplete={onSyncComplete} />
       </section>
 
       <section aria-labelledby="more-heading">

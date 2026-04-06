@@ -9,6 +9,7 @@ import { ProductService } from '../../services/ProductService';
 import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
 import { SaleReceipt } from './SaleReceipt';
+import { ZigSalesBaixa } from './ZigSalesBaixa';
 import { useIsMobile } from '../ui/use-mobile';
 
 interface POSProps {
@@ -38,6 +39,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastSale, setLastSale] = useState<{ items: any[], total: number, date: Date } | null>(null);
+  const [posTab, setPosTab] = useState<'manual' | 'zig'>('manual');
 
   // Scanner State
   const [isScanning, setIsScanning] = useState(false);
@@ -359,20 +361,60 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   return (
     <div className="flex flex-col h-full bg-gray-50 -m-4 md:-m-6 pb-16 md:pb-0">
       {/* Header da Página */}
-      <div className="bg-white border-b px-4 md:px-6 py-3 md:py-4 flex justify-between items-center gap-3 sticky top-0 z-30">
+      <div className="bg-white border-b px-4 md:px-6 py-3 md:py-4 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center sticky top-0 z-30">
         <h1 className="text-lg md:text-2xl font-bold text-gray-800 shrink-0">Ponto de Venda</h1>
-        {onOpenIntegrations && (
-          <button
-            type="button"
-            onClick={onOpenIntegrations}
-            className="flex items-center gap-1.5 text-xs md:text-sm font-medium text-pink-600 hover:text-pink-700 whitespace-nowrap shrink-0"
+        <div className="flex flex-wrap items-center gap-2 justify-end">
+          <div
+            className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5"
+            role="tablist"
+            aria-label="Modo do ponto de venda"
           >
-            <Plug className="w-4 h-4" aria-hidden />
-            Integrações (ZIG)
-          </button>
-        )}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={posTab === 'manual'}
+              onClick={() => setPosTab('manual')}
+              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-colors ${
+                posTab === 'manual'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Venda manual
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={posTab === 'zig'}
+              onClick={() => setPosTab('zig')}
+              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-colors ${
+                posTab === 'zig'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              ZIG / Baixa
+            </button>
+          </div>
+          {onOpenIntegrations && (
+            <button
+              type="button"
+              onClick={onOpenIntegrations}
+              className="flex items-center gap-1.5 text-xs md:text-sm font-medium text-pink-600 hover:text-pink-700 whitespace-nowrap shrink-0"
+            >
+              <Plug className="w-4 h-4" aria-hidden />
+              Integrações
+            </button>
+          )}
+        </div>
       </div>
 
+      {posTab === 'zig' ? (
+        <div className="flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
+          <ZigSalesBaixa onSyncComplete={onSaleComplete} />
+        </div>
+      ) : (
+      <>
       <div className="flex flex-1 overflow-hidden relative">
           {/* Coluna da Esquerda: Catálogo */}
           <div className={`flex-1 p-4 md:p-6 overflow-y-auto ${showCart && isMobile ? 'hidden' : 'block'}`}>
@@ -654,6 +696,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           saleDate={lastSale.date}
           onClose={() => setShowReceipt(false)}
         />
+      )}
+      </>
       )}
     </div>
   );
