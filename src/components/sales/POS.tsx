@@ -169,13 +169,28 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       if (item.type === 'product') {
         const product = products.find(p => p.id === item.id);
         if (product) {
-          const current = impactMap.get(item.id) || { 
-            name: product.name, 
-            quantity: 0, 
-            unit: product.measurementUnit 
-          };
-          current.quantity += item.quantity;
-          impactMap.set(item.id, current);
+          const bundleItems = Array.isArray((product as any).bundleItems) ? (product as any).bundleItems : [];
+          if (bundleItems.length > 0) {
+            bundleItems.forEach((b: any) => {
+              const p2 = products.find(p => p.id === b.productId);
+              if (!p2) return;
+              const current = impactMap.get(b.productId) || {
+                name: p2.name,
+                quantity: 0,
+                unit: p2.measurementUnit,
+              };
+              current.quantity += (Number(b.quantity) || 0) * item.quantity;
+              impactMap.set(b.productId, current);
+            });
+          } else {
+            const current = impactMap.get(item.id) || { 
+              name: product.name, 
+              quantity: 0, 
+              unit: product.measurementUnit 
+            };
+            current.quantity += item.quantity;
+            impactMap.set(item.id, current);
+          }
         }
       } else if (item.type === 'recipe') {
         const recipe = recipes.find(r => r.id === item.id);
@@ -295,17 +310,39 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       // Processa cada item do carrinho sequencialmente
       for (const item of cart) {
         if (item.type === 'product') {
-          // Venda direta de produto
-          await ProductService.updateStock(item.id, -item.quantity);
-          await StockRepository.createMovement({
-            companyId: currentCompany.id,
-            productId: item.id,
-            type: 'saida',
-            quantity: item.quantity,
-            reason: 'Venda PDV',
-            notes: `Venda Manual: ${item.quantity}x ${item.name}`,
-            userId: user?.id
-          });
+          const product = products.find((p) => p.id === item.id);
+          const bundleItems = product && Array.isArray((product as any).bundleItems) ? (product as any).bundleItems : [];
+
+          if (bundleItems.length > 0) {
+            // Produto composto (combo/promo): baixa itens do estoque (não baixa o "pai")
+            for (const b of bundleItems) {
+              const qtyToDeduct = (Number(b.quantity) || 0) * item.quantity;
+              if (!b.productId || qtyToDeduct <= 0) continue;
+
+              await ProductService.updateStock(b.productId, -qtyToDeduct);
+              await StockRepository.createMovement({
+                companyId: currentCompany.id,
+                productId: b.productId,
+                type: 'saida',
+                quantity: qtyToDeduct,
+                reason: 'Venda PDV (Combo)',
+                notes: `Venda Combo: ${item.quantity}x ${item.name}`,
+                userId: user?.id
+              });
+            }
+          } else {
+            // Venda direta de produto
+            await ProductService.updateStock(item.id, -item.quantity);
+            await StockRepository.createMovement({
+              companyId: currentCompany.id,
+              productId: item.id,
+              type: 'saida',
+              quantity: item.quantity,
+              reason: 'Venda PDV',
+              notes: `Venda Manual: ${item.quantity}x ${item.name}`,
+              userId: user?.id
+            });
+          }
         } else if (item.type === 'recipe') {
           // Venda de receita (baixa ingredientes)
           const recipe = recipes.find(r => r.id === item.id);

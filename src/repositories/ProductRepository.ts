@@ -7,6 +7,13 @@ import type { Product } from '../types';
  */
 export class ProductRepository {
   private static readonly TABLE = 'products';
+  
+  private static extractDescription(product: Product): any {
+    const out: any = {};
+    if (product.shelfLife != null) out.shelfLife = product.shelfLife;
+    if (product.bundleItems != null) out.bundleItems = product.bundleItems;
+    return out;
+  }
 
   /**
    * Busca todos os produtos ordenados por nome para uma empresa específica
@@ -87,8 +94,16 @@ export class ProductRepository {
     if (updates.sellingPrice !== undefined) updateData.sale_price = updates.sellingPrice;
     if (updates.supplierId !== undefined) updateData.supplier_id = updates.supplierId || null;
     if (updates.barcode !== undefined) updateData.barcode = updates.barcode || null;
-    if (updates.shelfLife !== undefined) {
-      updateData.description = JSON.stringify({ shelfLife: updates.shelfLife });
+    if (updates.shelfLife !== undefined || updates.bundleItems !== undefined) {
+      // Mantém campos existentes na description quando possível.
+      const existing = await this.findById(id);
+      const existingDesc = existing ? this.extractDescription(existing) : {};
+      const nextDesc: any = {
+        ...existingDesc,
+      };
+      if (updates.shelfLife !== undefined) nextDesc.shelfLife = updates.shelfLife;
+      if (updates.bundleItems !== undefined) nextDesc.bundleItems = updates.bundleItems;
+      updateData.description = JSON.stringify(nextDesc);
     }
     if (updates.image !== undefined) updateData.image_url = updates.image || null;
 
@@ -155,6 +170,7 @@ export class ProductRepository {
    * Mapeia dados do banco para entidade do domínio
    */
   private static mapToEntity(data: any): Product {
+    const parsedDesc = data.description ? tryParseDescription(data.description) : null;
     return {
       id: data.id,
       companyId: data.company_id,
@@ -167,7 +183,8 @@ export class ProductRepository {
       currentStock: data.current_stock || 0,
       averageCost: data.cost_price || 0,
       supplierId: data.supplier_id || undefined,
-      shelfLife: data.description ? tryParseDescription(data.description)?.shelfLife : undefined,
+      shelfLife: parsedDesc?.shelfLife,
+      bundleItems: Array.isArray(parsedDesc?.bundleItems) ? parsedDesc.bundleItems : undefined,
       barcode: data.barcode || undefined,
       sellingPrice: data.sale_price || 0,
       image: data.image_url || undefined,
@@ -180,6 +197,9 @@ export class ProductRepository {
    * Mapeia entidade do domínio para dados do banco
    */
   private static mapToDatabase(product: Partial<Product>): any {
+    const desc: any = {};
+    if (product.shelfLife) desc.shelfLife = product.shelfLife;
+    if (product.bundleItems) desc.bundleItems = product.bundleItems;
     return {
       name: product.name,
       category: product.category || null,
@@ -191,7 +211,7 @@ export class ProductRepository {
       sale_price: product.sellingPrice || 0,
       supplier_id: product.supplierId || null,
       barcode: product.barcode || null,
-      description: product.shelfLife ? JSON.stringify({ shelfLife: product.shelfLife }) : null,
+      description: Object.keys(desc).length > 0 ? JSON.stringify(desc) : null,
       image_url: product.image || null,
       status: 'active',
     };

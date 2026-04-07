@@ -38,6 +38,14 @@ export interface Product {
   averageCost: number; // CMP - Custo Médio Ponderado
   supplierId?: string;
   shelfLife?: number; // Validade em dias (armazenado em description)
+  /**
+   * Produto composto (promo/combo): ao vender/baixar este produto, o estoque deve ser baixado
+   * nos itens abaixo (em vez do produto "pai").
+   */
+  bundleItems?: Array<{
+    productId: string;
+    quantity: number;
+  }>;
   barcode?: string;
   sellingPrice?: number;
   image?: string;

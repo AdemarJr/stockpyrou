@@ -1327,6 +1327,20 @@ async function processStockDeduction(
   recipes: any[], 
   refId: string
 ) {
+  const bundleItems = parseBundleItemsFromProduct(product);
+  if (bundleItems.length > 0) {
+    for (const b of bundleItems) {
+      const neededQty = b.quantity * qty;
+      if (!b.productId || !Number.isFinite(neededQty) || neededQty <= 0) continue;
+      await deductStock(
+        b.productId,
+        neededQty,
+        `Venda ZIG (Combo: ${product.name}) - Ref: ${refId}`,
+      );
+    }
+    return;
+  }
+
   const recipe = recipes.find(r => r.product_id === product.id);
 
   if (recipe && recipe.recipe_ingredients && recipe.recipe_ingredients.length > 0) {
@@ -1336,6 +1350,25 @@ async function processStockDeduction(
     }
   } else {
     await deductStock(product.id, qty, `Venda ZIG - Ref: ${refId}`);
+  }
+}
+
+function parseBundleItemsFromProduct(product: any): Array<{ productId: string; quantity: number }> {
+  try {
+    const desc = product?.description;
+    const parsed =
+      typeof desc === "string" && desc.trim().startsWith("{") ? JSON.parse(desc) :
+      (desc && typeof desc === "object" ? desc : null);
+    const items = parsed?.bundleItems;
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((x: any) => ({
+        productId: String(x?.productId || ""),
+        quantity: Number(x?.quantity || 0),
+      }))
+      .filter((x) => x.productId && Number.isFinite(x.quantity) && x.quantity > 0);
+  } catch {
+    return [];
   }
 }
 

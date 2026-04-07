@@ -37,6 +37,8 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
     barcode: '',
     supplierId: '',
     shelfLife: 0,
+    isBundle: false,
+    bundleItems: [] as Array<{ productId: string; quantity: number }>,
   });
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ProductFieldErrorKey, boolean>>>({});
 
@@ -71,6 +73,8 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
         barcode: product.barcode || '',
         supplierId: product.supplierId || '',
         shelfLife: product.shelfLife || 0,
+        isBundle: Array.isArray(product.bundleItems) && product.bundleItems.length > 0,
+        bundleItems: Array.isArray(product.bundleItems) ? product.bundleItems : [],
       });
     }
   }, [product]);
@@ -85,7 +89,14 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
     if (formData.sellingPrice <= 0) err.sellingPrice = true;
     setFieldErrors(err);
     if (Object.keys(err).length > 0) return;
-    onSave(formData);
+    const cleanedBundleItems = (formData.bundleItems || [])
+      .filter((x) => x && x.productId && Number.isFinite(x.quantity) && x.quantity > 0);
+
+    onSave({
+      ...formData,
+      // Se desmarcar, limpamos para garantir que não fique “combo” gravado no banco.
+      bundleItems: formData.isBundle ? cleanedBundleItems : [],
+    });
   };
 
   const handleChange = (field: string, value: any) => {
@@ -97,6 +108,29 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
         return next;
       });
     }
+  };
+
+  const productsForBundle = (existingProducts || []).filter((p) => p.id !== product?.id);
+
+  const addBundleRow = () => {
+    setFormData((prev) => ({
+      ...prev,
+      bundleItems: [...prev.bundleItems, { productId: '', quantity: 1 }],
+    }));
+  };
+
+  const removeBundleRow = (idx: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      bundleItems: prev.bundleItems.filter((_, i) => i !== idx),
+    }));
+  };
+
+  const updateBundleRow = (idx: number, patch: Partial<{ productId: string; quantity: number }>) => {
+    setFormData((prev) => ({
+      ...prev,
+      bundleItems: prev.bundleItems.map((row, i) => (i === idx ? { ...row, ...patch } : row)),
+    }));
   };
   
   const qrCodeRef = useRef<HTMLDivElement>(null);
@@ -362,6 +396,78 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
                 <p id="shelfLife-help" className="text-xs text-muted-foreground">
                   Tempo médio de validade. Usado para sugerir data de vencimento nas entradas.
                 </p>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-2">
+              <Checkbox
+                id="isBundle"
+                checked={formData.isBundle}
+                onCheckedChange={(checked) => handleChange('isBundle', checked)}
+                aria-describedby="bundle-help"
+              />
+              <label htmlFor="isBundle" className="text-foreground cursor-pointer">
+                Produto em promoção/combo (baixa itens do estoque)
+              </label>
+            </div>
+            <p id="bundle-help" className="text-xs text-muted-foreground ml-6">
+              Ex: “Chopp em Dobro” baixa 2× Chopp; “Whisky + 8 Redbull” baixa 1× Whisky e 8× Redbull.
+            </p>
+
+            {formData.isBundle && (
+              <div className="ml-6 mt-3 space-y-3 rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-foreground">Itens do combo</p>
+                    <p className="text-xs text-muted-foreground">
+                      Ao vender este produto, o sistema baixa estes itens (pode ficar negativo).
+                    </p>
+                  </div>
+                  <Button type="button" onClick={addBundleRow} variant="outline">
+                    Adicionar item
+                  </Button>
+                </div>
+
+                {formData.bundleItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Adicione pelo menos 1 item para o combo.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {formData.bundleItems.map((row, idx) => (
+                      <div key={idx} className="grid grid-cols-1 md:grid-cols-[1fr_140px_auto] gap-2 items-end">
+                        <div>
+                          <label className="block text-xs text-muted-foreground mb-1">Produto</label>
+                          <select
+                            value={row.productId}
+                            onChange={(e) => updateBundleRow(idx, { productId: e.target.value })}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white dark:bg-gray-800 dark:border-gray-700"
+                          >
+                            <option value="">Selecione…</option>
+                            {productsForBundle.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-muted-foreground mb-1">Quantidade</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={row.quantity}
+                            onChange={(e) => updateBundleRow(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                          />
+                        </div>
+
+                        <Button type="button" variant="ghost" onClick={() => removeBundleRow(idx)}>
+                          <XCircle className="w-5 h-5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

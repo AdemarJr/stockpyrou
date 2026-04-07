@@ -98,11 +98,7 @@ export class StockService {
       throw new Error('Produto não pertence à empresa selecionada');
     }
 
-    if (product.currentStock < quantity) {
-      throw new Error('Estoque insuficiente');
-    }
-
-    // Atualizar estoque (negativo)
+    // Atualizar estoque (pode ficar negativo)
     await ProductService.updateStock(productId, -quantity);
 
     // Criar movimentação

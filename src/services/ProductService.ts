@@ -98,9 +98,7 @@ export class ProductService {
       throw new Error('Estoque mínimo não pode ser negativo');
     }
 
-    if (product.currentStock !== undefined && product.currentStock < 0) {
-      throw new Error('Estoque atual não pode ser negativo');
-    }
+    // Estoque pode ficar negativo (baixa antes da entrada / integrações).
 
     if (product.averageCost !== undefined && product.averageCost < 0) {
       throw new Error('Custo médio não pode ser negativo');
