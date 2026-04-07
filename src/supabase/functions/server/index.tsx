@@ -2146,8 +2146,14 @@ app.post("/make-server-8a20b27d/cashier/open", async (c) => {
     const body = await c.req.json();
     const { initialBalance, cashierId, cashierName } = body;
 
+    // Usar service role no backend: esta rota já valida token; ANON_KEY aqui pode bater em RLS e bloquear escrita/leitura.
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
     const headerCompanyId = c.req.header('X-Company-Id');
-    const companyId = await getCompanyId(profile, supabase, headerCompanyId);
+    const companyId = await getCompanyId(profile, supabaseAdmin, headerCompanyId);
     if (!companyId) {
       return c.json({ error: 'Company ID not found' }, 400);
     }
@@ -2156,7 +2162,7 @@ app.post("/make-server-8a20b27d/cashier/open", async (c) => {
     const finalCashierName = cashierName || profile.fullName;
 
     // Check if there's already an open register for this user in SQL
-    const { data: existingRegisters, error: checkError } = await supabase
+    const { data: existingRegisters, error: checkError } = await supabaseAdmin
       .from('cash_registers')
       .select('*')
       .eq('company_id', companyId)
@@ -2189,7 +2195,7 @@ app.post("/make-server-8a20b27d/cashier/open", async (c) => {
     }
 
     // Create new register in SQL
-    const { data: newRegister, error: insertError } = await supabase
+    const { data: newRegister, error: insertError } = await supabaseAdmin
       .from('cash_registers')
       .insert({
         company_id: companyId,
@@ -2246,9 +2252,15 @@ app.get("/make-server-8a20b27d/cashier/current", async (c) => {
       return c.json({ error: 'Invalid token' }, 401);
     }
 
+    // Usar service role no backend: esta rota já valida token; ANON_KEY aqui pode bater em RLS e bloquear leitura.
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
     // Get companyId from header, profile, or user_companies table
     const headerCompanyId = c.req.header('X-Company-Id');
-    const companyId = await getCompanyId(profile, supabase, headerCompanyId);
+    const companyId = await getCompanyId(profile, supabaseAdmin, headerCompanyId);
     
     if (!companyId) {
       return c.json({ error: 'User has no company association' }, 400);
@@ -2257,7 +2269,7 @@ app.get("/make-server-8a20b27d/cashier/current", async (c) => {
     console.log('🔍 Looking for open register for user:', profile.id, 'company:', companyId);
     
     // Query SQL for open register
-    const { data: openRegisters, error: queryError } = await supabase
+    const { data: openRegisters, error: queryError } = await supabaseAdmin
       .from('cash_registers')
       .select('*')
       .eq('company_id', companyId)
@@ -2279,7 +2291,7 @@ app.get("/make-server-8a20b27d/cashier/current", async (c) => {
     const register = openRegisters[0];
 
     // Get sales for this register
-    const { data: salesData, error: salesError } = await supabase
+    const { data: salesData, error: salesError } = await supabaseAdmin
       .from('sales')
       .select('*')
       .eq('register_id', register.id)
@@ -2945,8 +2957,14 @@ app.get("/make-server-8a20b27d/reports/sales", async (c) => {
       return c.json({ error: 'Invalid token' }, 401);
     }
 
+    // Usar service role no backend: esta rota já valida token; ANON_KEY aqui pode bater em RLS e bloquear leitura.
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
     const headerCompanyId = c.req.header('X-Company-Id');
-    const companyId = await getCompanyId(profile, supabase, headerCompanyId);
+    const companyId = await getCompanyId(profile, supabaseAdmin, headerCompanyId);
     if (!companyId) {
       return c.json({ error: 'Company ID not found' }, 400);
     }
@@ -2956,7 +2974,7 @@ app.get("/make-server-8a20b27d/reports/sales", async (c) => {
     const endDate = c.req.query('endDate');
     
     // Build query
-    let query = supabase
+    let query = supabaseAdmin
       .from('sales')
       .select('*')
       .eq('company_id', companyId)
@@ -3013,8 +3031,14 @@ app.get("/make-server-8a20b27d/reports/closures", async (c) => {
       return c.json({ error: 'Invalid token' }, 401);
     }
 
+    // Usar service role no backend: esta rota já valida token; ANON_KEY aqui pode bater em RLS e bloquear leitura.
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
     const headerCompanyId = c.req.header('X-Company-Id');
-    const companyId = await getCompanyId(profile, supabase, headerCompanyId);
+    const companyId = await getCompanyId(profile, supabaseAdmin, headerCompanyId);
     if (!companyId) {
       return c.json({ error: 'Company ID not found' }, 400);
     }
@@ -3024,7 +3048,7 @@ app.get("/make-server-8a20b27d/reports/closures", async (c) => {
     const endDate = c.req.query('endDate');
     
     // Build query for closed registers
-    let query = supabase
+    let query = supabaseAdmin
       .from('cash_registers')
       .select('*')
       .eq('company_id', companyId)
@@ -3051,13 +3075,13 @@ app.get("/make-server-8a20b27d/reports/closures", async (c) => {
     const detailedClosures = await Promise.all(
       (closedRegisters || []).map(async (reg) => {
         // Get sales
-        const { data: sales } = await supabase
+        const { data: sales } = await supabaseAdmin
           .from('sales')
           .select('*')
           .eq('register_id', reg.id);
 
         // Get movements
-        const { data: movements } = await supabase
+        const { data: movements } = await supabaseAdmin
           .from('cash_movements')
           .select('*')
           .eq('register_id', reg.id);
@@ -3116,8 +3140,14 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
       return c.json({ error: 'Invalid token' }, 401);
     }
 
+    // Usar service role no backend: esta rota já valida token; ANON_KEY aqui pode bater em RLS e bloquear leitura.
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
     const headerCompanyId = c.req.header('X-Company-Id');
-    const companyId = await getCompanyId(profile, supabase, headerCompanyId);
+    const companyId = await getCompanyId(profile, supabaseAdmin, headerCompanyId);
     if (!companyId) {
       return c.json({ error: 'Company ID not found' }, 400);
     }
@@ -3129,7 +3159,7 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
     const productId = c.req.query('productId');
     
     // Build query for stock entries
-    let query = supabase
+    let query = supabaseAdmin
       .from('stock_entries')
       .select('*, suppliers(name), products(name)')
       .eq('company_id', companyId)

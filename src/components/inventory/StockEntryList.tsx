@@ -41,7 +41,12 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
         (entry.batchNumber?.toLowerCase().includes(q) ?? false) ||
         (supplier?.name.toLowerCase().includes(q) ?? false);
       const matchesSupplier = filterSupplier ? entry.supplierId === filterSupplier : true;
-      const entryDay = new Date(entry.entryDate).toISOString().split('T')[0];
+      // Evita bug de fuso (toISOString pode "virar o dia" e quebrar filtro por período).
+      const entryDayRaw = (entry.entryDate || '').split('T')[0];
+      const entryDay =
+        entryDayRaw && /^\d{4}-\d{2}-\d{2}$/.test(entryDayRaw)
+          ? entryDayRaw
+          : new Date(entry.entryDate).toISOString().split('T')[0];
       const matchesFrom = !dateFrom || entryDay >= dateFrom;
       const matchesTo = !dateTo || entryDay <= dateTo;
       return matchesSearch && matchesSupplier && matchesFrom && matchesTo;
