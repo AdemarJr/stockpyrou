@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 
 interface CashierCloseProps {

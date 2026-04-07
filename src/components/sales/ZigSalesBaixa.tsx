@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { RefreshCw, Store, AlertCircle, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 
 interface PendingSale {
   transactionId: string;
@@ -77,6 +77,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
   const [productSearch, setProductSearch] = useState('');
   const [showOnlyNotFound, setShowOnlyNotFound] = useState(false);
   const [previewRange, setPreviewRange] = useState<{ start: string; end: string } | null>(null);
+  /** ID da sessão gravada no servidor no último preview — confirmação usa KV em vez de refazer GET na ZIG. */
+  const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
 
   const groupedSalesByDate = useMemo(() => {
     const result: Record<string, PendingSaleGroup[]> = {};
@@ -181,31 +183,62 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
   const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 
+  const edgeAuthHeaders = {
+    Authorization: `Bearer ${publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+
+  /** YYYY-MM-DD no calendário de São Paulo (mesma base do servidor ZIG). */
+  const ymdSaoPaulo = (d: Date) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+
+  const yesterdayYmdSaoPaulo = () => {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const todayStr = fmt.format(new Date());
+    const [y, mo, d] = todayStr.split('-').map((x) => parseInt(x, 10));
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    dt.setUTCDate(dt.getUTCDate() - 1);
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  };
+
   const getDateRange = () => {
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    let start: string, end: string;
-    
+    const todaySp = ymdSaoPaulo(new Date());
+    const yesterdaySp = yesterdayYmdSaoPaulo();
+
+    let start: string;
+    let end: string;
+
     switch (dateFilter) {
       case 'yesterday':
-        start = yesterday.toISOString().split('T')[0];
-        end = yesterday.toISOString().split('T')[0];
+        start = yesterdaySp;
+        end = yesterdaySp;
         break;
       case 'today':
-        start = today.toISOString().split('T')[0];
-        end = today.toISOString().split('T')[0];
+        start = todaySp;
+        end = todaySp;
         break;
       case 'custom':
-        start = customStartDate || yesterday.toISOString().split('T')[0];
-        end = customEndDate || today.toISOString().split('T')[0];
+        start = customStartDate || yesterdaySp;
+        end = customEndDate || todaySp;
         break;
       default:
-        start = yesterday.toISOString().split('T')[0];
-        end = yesterday.toISOString().split('T')[0];
+        start = yesterdaySp;
+        end = yesterdaySp;
     }
-    
+
     return { start, end };
   };
 
@@ -214,9 +247,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
     try {
       const res = await fetch(`${SERVER_URL}/zig/config/${currentCompany.id}`, {
-        headers: {
-          Authorization: `Bearer ${publicAnonKey}`,
-        },
+        headers: { ...edgeAuthHeaders },
       });
       if (res.ok) {
         const data = await res.json();
@@ -238,12 +269,13 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     try {
       setLoadingPreview(true);
       setSalesByDate({});
-      
+      setPreviewSessionId(null);
+
       const res = await fetch(`${SERVER_URL}/zig/preview`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
+          ...edgeAuthHeaders,
         },
         body: JSON.stringify({
           companyId: currentCompany.id,
@@ -264,7 +296,12 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
         setPreviewRange({ start, end });
         setProductSearch('');
         setShowOnlyNotFound(false);
-        
+        setPreviewSessionId(
+          typeof data.previewSessionId === 'string' && data.previewSessionId.length > 0
+            ? data.previewSessionId
+            : null,
+        );
+
         // Selecionar automaticamente vendas válidas
         const allValidSales = data.sales.filter((s: PendingSale) => !s.notFound).map((s: PendingSale) => s.transactionId);
         setSelectedSales(allValidSales);
@@ -275,6 +312,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
         setShowPreview(true);
         toast.success(`${data.totalSales} vendas encontradas em ${Object.keys(data.salesByDate).length} dias!`);
       } else {
+        setPreviewSessionId(null);
         toast.info('Nenhuma venda nova encontrada neste período.');
       }
       
@@ -313,24 +351,39 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
         return;
       }
 
+      const confirmBody = JSON.stringify({
+        companyId: currentCompany.id,
+        transactionIds: selectedSales,
+        startDate: previewRange?.start,
+        endDate: previewRange?.end,
+        lineItems,
+        ...(previewSessionId ? { previewSessionId } : {}),
+        fromPreview: true,
+      });
+
+      const confirmHeaders = {
+        'Content-Type': 'application/json',
+        'X-Zig-Confirm-Source': 'preview',
+        ...edgeAuthHeaders,
+      };
+
       const res = await fetch(`${SERVER_URL}/zig/confirm`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
-        body: JSON.stringify({
-          companyId: currentCompany.id,
-          transactionIds: selectedSales,
-          startDate: previewRange?.start,
-          endDate: previewRange?.end,
-          lineItems,
-        })
+        headers: confirmHeaders,
+        body: confirmBody,
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Erro no processamento' }));
-        throw new Error(err.error || 'Erro na resposta do servidor');
+        let msg =
+          (typeof err.error === 'string' && err.error) || 'Erro na resposta do servidor';
+        if (/Falha ao buscar vendas ZIG/i.test(msg)) {
+          msg =
+            'A Edge Function no Supabase ainda está com build antigo: o POST /zig/confirm não pode chamar a API ZIG (só baixa local com snapshot). ' +
+            'Faça o deploy da função `make-server-8a20b27d` a partir deste repositório (pasta `supabase/functions/make-server-8a20b27d`). ' +
+            `Confira com GET …/zig/meta (deve mostrar callsZigApiOnConfirm: false). Detalhe: ${msg}`;
+        }
+        throw new Error(msg);
       }
 
       const data = await res.json();
@@ -340,6 +393,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
       setSalesByDate({});
       setSelectedSales([]);
       setPreviewRange(null);
+      setPreviewSessionId(null);
       setProductSearch('');
       setShowOnlyNotFound(false);
       
@@ -448,7 +502,9 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
           </div>
           <div>
             <h2 className="text-xl font-bold text-gray-900">Vendas ZIG — baixa no estoque</h2>
-            <p className="text-sm text-gray-500">Busque o que foi vendido na ZIG e confirme a baixa no PyrouStock</p>
+            <p className="text-sm text-gray-500">
+              Buscar vendas na ZIG, conferir o preview e confirmar a baixa no PyrouStock (a confirmação não refaz o GET na ZIG).
+            </p>
           </div>
         </div>
         
@@ -541,6 +597,11 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
             {loadingPreview ? <RefreshCw className="w-5 h-5 animate-spin" /> : <ShoppingCart className="w-5 h-5" />}
             {loadingPreview ? 'Carregando...' : 'Buscar Vendas Pendentes'}
           </button>
+          <p className="text-[11px] text-indigo-800/80 leading-snug">
+            O manual da ZIG usa <code className="bg-white/80 px-1 rounded">dtinicio</code>,{' '}
+            <code className="bg-white/80 px-1 rounded">dtfim</code> (YYYY-MM-DD) e <code className="bg-white/80 px-1 rounded">loja</code>.
+            O servidor busca um dia civil por vez para respeitar o limite da API.
+          </p>
         </div>
       </div>
 

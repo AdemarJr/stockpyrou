@@ -21,7 +21,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { ProductService } from '../../services/ProductService';
 import { toast } from 'sonner@2.0.3';
 

@@ -1,5 +1,19 @@
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
-import * as kv from './kv_store.tsx';
+import * as kv from "./kv_store.tsx";
+
+/**
+ * Integração ZIG ↔ Stockpyrou
+ *
+ * **Caminho de produção (PDV / `ZigSalesBaixa`)** — preferir sempre:
+ * 1. `fetchPendingSales` → GET na API ZIG (`/erp/saida-produtos`), intervalo partido por dia civil; gera `previewSessionId` + KV `zig_preview_session:…`.
+ * 2. `confirmStockFromZigPreviewSnapshot` (rota HTTP `POST …/zig/confirm`) → **não** chama a ZIG; só usa `lineItems` e/ou sessão KV; baixa em `products` / `stock_movements` e marca `zig_processed:…`.
+ *
+ * **Baixa automática (`runAutoBaixaZigOntem`)** — cron / job: busca **ontem** na ZIG, só transações em que todos os itens já existem no Stockpyrou; usa `confirmSales` com intervalo de datas (GET ZIG por dia).
+ *
+ * **Legado (`syncSales`)** — sincronização antiga por intervalo de datas; ainda faz GET na ZIG. Evitar para o fluxo manual; manter só se algo externo depender.
+ *
+ * **Regra geral:** confirmação pelo browser deve passar **só** por `confirmStockFromZigPreviewSnapshot`. Se o erro citar «Falha ao buscar vendas ZIG» no **confirm**, a Edge Function em produção está desatualizada ou o body não trouxe `lineItems` / `previewSessionId`.
+ */
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -76,9 +90,8 @@ const getHeaders = (token: string) => {
 };
 
 /**
- * A API ZIG limita a **no máximo 5 dias** por chamada. Na prática, intervalos >1 dia ainda retornam 500
- * ("mais do que 5 dias por chamada") conforme regra do servidor. Por isso buscamos **um dia por requisição**
- * (dtinicio === dtfim), sequenciando o intervalo.
+ * A API ZIG limita o intervalo por chamada. Buscamos **um dia civil por requisição**.
+ * Preferimos primeiro `dtinicio = dtfim` (documentação); se falhar, tentamos `dtfim` = dia seguinte (intervalo semiaberto) e filtramos pela data civil.
  */
 const MS_PER_UTC_DAY = 86_400_000;
 
@@ -96,19 +109,26 @@ function formatDateOnly(d: Date): string {
   return `${y}-${mo}-${day}`;
 }
 
-/** Ontem (calendário) em America/Sao_Paulo como YYYY-MM-DD. */
-export function getYesterdayYmdSaoPaulo(): string {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
+/** Hoje (calendário) em America/Sao_Paulo como YYYY-MM-DD. */
+export function getTodayYmdSaoPaulo(): string {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  });
-  const todayStr = fmt.format(new Date());
-  const [y, mo, d] = todayStr.split("-").map((x) => parseInt(x, 10));
+  }).format(new Date());
+}
+
+function addDaysToYmd(ymd: string, deltaDays: number): string {
+  const [y, mo, d] = ymd.split("-").map((x) => parseInt(x, 10));
   const dt = new Date(Date.UTC(y, mo - 1, d));
-  dt.setUTCDate(dt.getUTCDate() - 1);
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
   return formatDateOnly(dt);
+}
+
+/** Ontem (calendário) em America/Sao_Paulo como YYYY-MM-DD. */
+export function getYesterdayYmdSaoPaulo(): string {
+  return addDaysToYmd(getTodayYmdSaoPaulo(), -1);
 }
 
 const SAO_PAULO_TZ = "America/Sao_Paulo";
@@ -150,48 +170,125 @@ function eachYmdInRangeSaoPaulo(startYmd: string, endYmd: string): string[] {
 }
 
 /**
- * Uma chamada GET `saida-produtos`. Sempre `dtinicio === dtfim` (um único dia civil SP).
- * Opcional `rede` — algumas contas exigem; se der erro de intervalo, tentamos de novo sem `rede`.
+ * Documentação oficial (PDF): GET /erp/saida-produtos com dtinicio, dtfim em **YYYY-MM-DD** e loja.
+ * Não há `rede` neste endpoint. Buscamos um dia civil por vez; ver `fetchOneSaidaChunkForDay` para o fallback de intervalo.
  */
-async function fetchOneSaidaChunk(
+/** Texto útil para regex (corpo cru ou campo `message` em JSON de erro ZIG). */
+function zigSaidaErrorPlainText(body: string): string {
+  const t = body.trim();
+  try {
+    const j = JSON.parse(t) as { message?: unknown };
+    if (typeof j?.message === "string" && j.message.length > 0) return j.message;
+  } catch {
+    /* ignore */
+  }
+  return t;
+}
+
+function isZigRangeLimitError(status: number, body: string): boolean {
+  if (status !== 500 && status !== 400) return false;
+  const text = zigSaidaErrorPlainText(body);
+  return /5\s*dias|mais do que\s*5|requisitar\s+mais|limite.*dia|intervalo.*dia/i.test(text);
+}
+
+type SaidaFetchResult =
+  | { ok: true; data: ZigSale[] }
+  | { ok: false; status: number; body: string };
+
+async function fetchSaidaProdutosOnce(
   token: string,
   storeId: string,
   dtinicio: string,
   dtfim: string,
-  redeId?: string,
-): Promise<ZigSale[]> {
-  const buildUrl = (includeRede: boolean) => {
-    const params = new URLSearchParams();
-    params.set("dtinicio", dtinicio);
-    params.set("dtfim", dtfim);
-    params.set("loja", storeId);
-    if (includeRede && redeId?.trim()) {
-      params.set("rede", redeId.trim());
-    }
-    return `${ZIG_API_URL}/erp/saida-produtos?${params.toString()}`;
-  };
+): Promise<SaidaFetchResult> {
+  const params = new URLSearchParams();
+  params.set("dtinicio", dtinicio);
+  params.set("dtfim", dtfim);
+  params.set("loja", storeId);
+  const url = `${ZIG_API_URL}/erp/saida-produtos?${params.toString()}`;
 
-  let res = await fetch(buildUrl(true), { headers: getHeaders(token) });
+  const res = await fetch(url, {
+    headers: {
+      ...getHeaders(token),
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
 
+  const txt = await res.text();
   if (!res.ok) {
-    const txt = await res.text();
-    const looksLikeRangeRule =
-      /5\s*dias|mais do que 5|requisitar/i.test(txt) ||
-      /"type"\s*:\s*"Fatal"/i.test(txt);
-    if (looksLikeRangeRule && redeId?.trim()) {
-      console.warn("ZIG: saida-produtos falhou com rede; repetindo sem parâmetro rede");
-      res = await fetch(buildUrl(false), { headers: getHeaders(token) });
-      if (!res.ok) {
-        const txt2 = await res.text();
-        throw new Error(`Falha ao buscar vendas ZIG (${res.status}): ${txt2}`);
-      }
-    } else {
-      throw new Error(`Falha ao buscar vendas ZIG (${res.status}): ${txt}`);
+    return { ok: false, status: res.status, body: txt };
+  }
+  try {
+    const parsed = JSON.parse(txt) as ZigSale[];
+    return { ok: true, data: Array.isArray(parsed) ? parsed : [] };
+  } catch {
+    return { ok: false, status: res.status, body: txt || "JSON inválido" };
+  }
+}
+
+/** Mantém só linhas cuja data civil da transação é `ymd`; se nada bater mas houver linhas, devolve o bruto (API pode omitir formato). */
+function filterSalesToLocalYmd(sales: ZigSale[], ymd: string): ZigSale[] {
+  const filtered = sales.filter((s) => (s.transactionDate || "").split("T")[0] === ymd);
+  if (filtered.length > 0 || sales.length === 0) return filtered;
+  return sales;
+}
+
+/**
+ * Mensagem para o operador: o erro vem da API ZIG (intervalo dtinicio/dtfim), não do PostgreSQL nem do volume de vendas.
+ */
+function zigSaidaRangeLimitHelp(lastStatus: number, lastBody: string): string {
+  const detail = lastBody.length > 800 ? `${lastBody.slice(0, 800)}…` : lastBody;
+  return (
+    `A ZIG devolveu erro de «limite de dias por chamada» (${lastStatus}). ` +
+      `Isso refere-se ao **intervalo de datas numa única requisição HTTP** na API deles — não ao seu banco de dados, nem ao fato de ser «só hoje» ou «poucos produtos». ` +
+      `O Stockpyrou já consulta **um dia civil por vez**. ` +
+      `Se continuar assim, é bug ou regra estranha no servidor ZIG: encaminhe esta resposta ao suporte deles. Detalhe: ${detail}`
+  );
+}
+
+/**
+ * Um dia civil por vez (`ymd` em YYYY-MM-DD, calendário São Paulo).
+ *
+ * Ordem: primeiro **dtinicio = dtfim** (exemplo da documentação ZIG). Depois, **[dtinicio, dtfim)** com `dtfim` = dia seguinte (comum em APIs BR).
+ * A primeira estratégia antiga (semiaberto primeiro) fazia a ZIG devolver 500 «>5 dias» em alguns ambientes mesmo para um único dia civil.
+ */
+async function fetchOneSaidaChunkForDay(
+  token: string,
+  storeId: string,
+  ymd: string,
+): Promise<ZigSale[]> {
+  const ymdNext = addDaysToYmd(ymd, 1);
+  const strategies: [string, string, string][] = [
+    [ymd, ymd, "dtinicio = dtfim (um dia)"],
+    [ymd, ymdNext, "dtfim exclusivo (dia civil)"],
+  ];
+
+  let lastFail: SaidaFetchResult | null = null;
+
+  for (const [di, df, label] of strategies) {
+    console.log(`ZIG: saída-produtos loja=${storeId} ${di}…${df} (${label})`);
+    const r = await fetchSaidaProdutosOnce(token, storeId, di, df);
+    if (r.ok) {
+      return filterSalesToLocalYmd(r.data, ymd);
     }
+    lastFail = r;
+
+    if (isZigRangeLimitError(r.status, r.body)) {
+      console.warn(`ZIG: estratégia «${label}» recusada com limite de intervalo; tentando próxima se houver`);
+      continue;
+    }
+
+    throw new Error(`Falha ao buscar vendas ZIG (${r.status}): ${r.body}`);
   }
 
-  const chunk: ZigSale[] = await res.json();
-  return Array.isArray(chunk) ? chunk : [];
+  if (lastFail && isZigRangeLimitError(lastFail.status, lastFail.body)) {
+    throw new Error(zigSaidaRangeLimitHelp(lastFail.status, lastFail.body));
+  }
+
+  throw new Error(
+    `Falha ao buscar vendas ZIG (${lastFail?.status ?? "?"}): ${lastFail?.body ?? "sem resposta"}`,
+  );
 }
 
 /** Mescla resultados deduplicando por transactionId (mantém primeira ocorrência). */
@@ -203,16 +300,17 @@ function mergeSalesIntoMap(merged: Map<string, ZigSale>, chunk: ZigSale[]) {
   }
 }
 
+/** Pausa entre chamadas ao gateway ZIG. */
+const ZIG_INTER_CALL_DELAY_MS = 150;
+
 /**
- * Intervalo arbitrário: **uma requisição por dia civil (America/Sao_Paulo)**,
- * sempre com dtinicio = dtfim (máx. 1 dia por chamada, dentro do limite ZIG).
+ * Várias chamadas GET, **uma por dia civil (SP)**; cada dia tenta primeiro dtinicio = dtfim (YYYY-MM-DD), com fallback documentado em `fetchOneSaidaChunkForDay`.
  */
 async function fetchZigSaidaProdutosRange(
   token: string,
   storeId: string,
   startIso: string,
   endIso: string,
-  redeId?: string,
 ): Promise<ZigSale[]> {
   const start = parseDateOnly(startIso);
   const end = parseDateOnly(endIso);
@@ -225,11 +323,15 @@ async function fetchZigSaidaProdutosRange(
   const merged = new Map<string, ZigSale>();
 
   console.log(
-    `ZIG: saída-produtos ${startYmd} → ${endYmd} (${days.length} dia(s) em ${SAO_PAULO_TZ}; 1 HTTP/dia), loja=${storeId}${redeId?.trim() ? ` rede=${redeId.trim()}` : ""}`,
+    `ZIG: saída-produtos ${startYmd} → ${endYmd} (${days.length} dia(s) ${SAO_PAULO_TZ}; 1 GET/dia, YYYY-MM-DD), loja=${storeId}`,
   );
 
-  for (const ymd of days) {
-    const chunk = await fetchOneSaidaChunk(token, storeId, ymd, ymd, redeId);
+  for (let i = 0; i < days.length; i++) {
+    const ymd = days[i];
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, ZIG_INTER_CALL_DELAY_MS));
+    }
+    const chunk = await fetchOneSaidaChunkForDay(token, storeId, ymd);
     mergeSalesIntoMap(merged, chunk);
   }
 
@@ -328,6 +430,13 @@ export const getConfig = async (companyId: string) => {
   };
 };
 
+export type ZigConfirmLineItem = {
+  transactionId: string;
+  productSku: string;
+  productName: string;
+  quantity: number;
+};
+
 // Fetch Pending Sales (Preview - Sem processar)
 export const fetchPendingSales = async (companyId: string, startDate?: string, endDate?: string) => {
   const token = await getZigTokenForCompany(companyId);
@@ -345,12 +454,10 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
     apiStartDate = parseDateOnly(startDate);
     apiEndDate = parseDateOnly(endDate);
   } else {
-    const now = new Date();
-    apiEndDate = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-    );
-    apiStartDate = new Date(apiEndDate);
-    apiStartDate.setUTCDate(apiStartDate.getUTCDate() - 4); // 5 dias inclusivos até hoje
+    const endYmd = getTodayYmdSaoPaulo();
+    const startYmd = addDaysToYmd(endYmd, -4); // 5 dias inclusivos (hoje em SP)
+    apiStartDate = parseDateOnly(startYmd);
+    apiEndDate = parseDateOnly(endYmd);
   }
 
   const startStr = formatDateOnly(apiStartDate);
@@ -366,7 +473,6 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
       config.storeId,
       startStr,
       endStr,
-      (config as ZigKvConfig).redeId,
     );
 
     if (!Array.isArray(sales)) {
@@ -556,24 +662,30 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
       }
     }
 
-    return { 
+    const previewSessionId = crypto.randomUUID();
+    const previewLines: ZigConfirmLineItem[] = salesWithProducts.map((s) => ({
+      transactionId: s.transactionId,
+      productSku: s.productSku,
+      productName: s.productName,
+      quantity: s.quantity,
+    }));
+    await kv.set(`zig_preview_session:${companyId}:${previewSessionId}`, {
+      lineItems: previewLines,
+      expiresAt: Date.now() + 48 * 60 * 60 * 1000,
+    });
+
+    return {
       sales: salesWithProducts,
       salesByDate: salesByDate,
       totalSales: salesWithProducts.length,
       totalValue: salesWithProducts.reduce((sum, s) => sum + (s.totalValue || 0), 0),
-      dateRange: { start: startStr, end: endStr }
+      dateRange: { start: startStr, end: endStr },
+      previewSessionId,
     };
   } catch (error: any) {
     console.error("ZIG: Erro ao buscar vendas pendentes:", error);
     throw error;
   }
-};
-
-export type ZigConfirmLineItem = {
-  transactionId: string;
-  productSku: string;
-  productName: string;
-  quantity: number;
 };
 
 type DeductionGroup = {
@@ -658,6 +770,218 @@ function buildDeductionGroupsFromLineItems(
   return groups;
 }
 
+type ExecuteDeductionOpts = {
+  registeredOnly: boolean;
+  previewSessionIdToClear?: string;
+};
+
+/** Baixa de estoque + KV processado; não chama a API ZIG. */
+async function executeZigStockDeductionFromGroups(
+  companyId: string,
+  groups: Map<string, DeductionGroup>,
+  opts: ExecuteDeductionOpts,
+): Promise<{ processed: number; createdProducts: number; message: string }> {
+  const { data: products } = await supabase
+    .from("products")
+    .select("*")
+    .eq("company_id", companyId);
+
+  if (!products) throw new Error("Erro ao carregar produtos do sistema.");
+
+  let recipesData: any[] = [];
+  try {
+    const { data: recipes, error: recipeError } = await supabase
+      .from("recipes")
+      .select("*, recipe_ingredients(*)")
+      .eq("company_id", companyId);
+
+    if (!recipeError && recipes) {
+      recipesData = recipes;
+    }
+  } catch {
+    console.log("Recipes table might not exist, ignoring recipes.");
+  }
+  const processedKeyPrefix = `zig_processed:${companyId}:`;
+
+  if (groups.size === 0) {
+    return {
+      processed: 0,
+      createdProducts: 0,
+      message: "Nenhuma transação selecionada para processar.",
+    };
+  }
+
+  const productMappings = (await kv.get(`zig_product_mappings:${companyId}`)) || {};
+
+  const normalizeName = (name: string) =>
+    name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "");
+
+  const findProduct = (sku: string, zigName?: string) => {
+    if (productMappings && productMappings[sku]) {
+      return products.find((p: any) => p.id === productMappings[sku]);
+    }
+    let product = products.find((p: any) =>
+      p.barcode === sku || (p.sku && p.sku === sku),
+    );
+    if (product) return product;
+    if (!zigName) return null;
+    const zigNameNorm = normalizeName(zigName);
+    product = products.find((p: any) => {
+      const productNameNorm = normalizeName(p.name || "");
+      return (
+        productNameNorm === zigNameNorm ||
+        productNameNorm.includes(zigNameNorm) ||
+        zigNameNorm.includes(productNameNorm)
+      );
+    });
+    return product || null;
+  };
+
+  const createdBySku = new Map<string, any>();
+  let processedGroups = 0;
+  let createdProducts = 0;
+
+  const ensureProduct = async (productSku: string, productName: string) => {
+    const alreadyCreated = createdBySku.get(productSku);
+    if (alreadyCreated) return alreadyCreated;
+
+    const existing = findProduct(productSku, productName);
+    if (existing) return existing;
+
+    const { data: created, error: createError } = await supabase
+      .from("products")
+      .insert({
+        company_id: companyId,
+        name: productName || productSku,
+        category: "outro",
+        unit: "un",
+        min_stock: 0,
+        current_stock: 0,
+        cost_price: 0,
+        sale_price: 0,
+        supplier_id: null,
+        barcode: productSku,
+        description: null,
+        image_url: null,
+        status: "active",
+        safety_stock: 0,
+      })
+      .select()
+      .single();
+
+    if (createError || !created) {
+      throw new Error(createError?.message || "Erro ao criar produto no sistema.");
+    }
+
+    createdProducts++;
+    products.push(created);
+    createdBySku.set(productSku, created);
+    return created;
+  };
+
+  for (const group of groups.values()) {
+    const ref = group.transactionIds.slice(0, 5).join(", ");
+    const reason = `Venda ZIG (Lote) - Ref: ${ref}${group.transactionIds.length > 5 ? "..." : ""}`;
+
+    let product: any;
+    if (opts.registeredOnly) {
+      product = findProduct(group.productSku, group.productName);
+      if (!product) {
+        console.warn(
+          `ZIG: registeredOnly — ignorando SKU sem cadastro: ${group.productSku}`,
+        );
+        continue;
+      }
+    } else {
+      product = await ensureProduct(group.productSku, group.productName);
+    }
+
+    await processStockDeduction(companyId, product, group.totalQty, recipesData, reason);
+
+    for (const id of Array.from(new Set(group.transactionIds))) {
+      await kv.set(`${processedKeyPrefix}${id}`, true);
+    }
+
+    processedGroups++;
+  }
+
+  const sid = opts.previewSessionIdToClear;
+  if (sid) {
+    try {
+      await kv.del(`zig_preview_session:${companyId}:${sid}`);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    processed: processedGroups,
+    createdProducts,
+    message:
+      `${processedGroups} produtos baixados em lote com sucesso${createdProducts > 0 ? ` (produtos criados: ${createdProducts})` : ""}.`,
+  };
+}
+
+/**
+ * Rota dedicada ao PDV: **nunca** chama GET na API ZIG — só snapshot (lineItems ou KV).
+ * Use quando `/zig/confirm` ainda acionar código antigo em produção.
+ */
+export async function confirmStockFromZigPreviewSnapshot(
+  companyId: string,
+  transactionIds: string[],
+  lineItems: ZigConfirmLineItem[] | undefined,
+  previewSessionId: string | undefined,
+  registeredOnly: boolean,
+): Promise<{ processed: number; createdProducts: number; message: string }> {
+  const config = await kv.get(`zig_config:${companyId}`);
+  if (!config?.storeId) {
+    throw new Error("Integração ZIG não configurada.");
+  }
+
+  let snapshotLines: ZigConfirmLineItem[] | undefined;
+  const sid = previewSessionId?.trim();
+
+  if (sid) {
+    const sess = await kv.get(`zig_preview_session:${companyId}:${sid}`) as {
+      lineItems?: ZigConfirmLineItem[];
+      expiresAt?: number;
+    } | null;
+    if (!sess?.lineItems || !Array.isArray(sess.lineItems)) {
+      throw new Error(
+        "Sessão de preview inválida ou expirada. Busque as vendas na ZIG novamente e confirme em seguida.",
+      );
+    }
+    if (typeof sess.expiresAt === "number" && Date.now() > sess.expiresAt) {
+      throw new Error("Sessão de preview expirada. Busque as vendas na ZIG novamente.");
+    }
+    snapshotLines = sess.lineItems;
+  } else if (lineItems?.length) {
+    snapshotLines = lineItems;
+  }
+
+  if (!snapshotLines?.length) {
+    throw new Error(
+      "É necessário o preview: busque «Buscar vendas pendentes» e confirme, ou envie lineItems / previewSessionId válidos.",
+    );
+  }
+
+  const selectedSet = new Set(transactionIds);
+  const groups = buildDeductionGroupsFromLineItems(snapshotLines, selectedSet);
+
+  console.log(
+    `ZIG: confirm snapshot — baixa no Stockpyrou apenas (${transactionIds.length} id(s)), sem API ZIG`,
+  );
+
+  return await executeZigStockDeductionFromGroups(companyId, groups, {
+    registeredOnly,
+    previewSessionIdToClear: sid,
+  });
+}
+
 export type ConfirmSalesOptions = {
   /** Se true, não cria produto novo — só baixa quando já existe cadastro (SKU/nome/mapeamento). */
   registeredOnly?: boolean;
@@ -666,6 +990,21 @@ export type ConfirmSalesOptions = {
    * Se presente, **não** chama a API ZIG na confirmação — só baixa no estoque local.
    */
   lineItems?: ZigConfirmLineItem[];
+  /**
+   * ID retornado em `fetchPendingSales` — linhas gravadas no KV no servidor.
+   * Preferir em relação ao body `lineItems` (evita confirmação sem snapshot quando o POST não repete o array).
+   */
+  previewSessionId?: string;
+  /**
+   * Confirmação a partir do modal de preview (PDV). Se true e não houver snapshot válido,
+   * **não** chama a ZIG — retorna erro claro (evita 500 "5 dias" com deploy antigo ou sessão perdida).
+   */
+  fromPreview?: boolean;
+  /**
+   * `true` quando a chamada vem de `POST /zig/confirm` (navegador). Nunca refaz GET na ZIG sem snapshot;
+   * `false`/omitido para baixa automática interna (`runAutoBaixaZigOntem`), que ainda busca na ZIG.
+   */
+  confirmViaHttp?: boolean;
 };
 
 // Confirm and Process Sales (Dar baixa efetivamente)
@@ -699,12 +1038,51 @@ export const confirmSales = async (
   const startStr = formatDateOnly(apiStartDate);
   const endStr = formatDateOnly(apiEndDate);
 
-  const usePreviewSnapshot =
-    Array.isArray(options?.lineItems) && options!.lineItems!.length > 0;
+  let snapshotLines: ZigConfirmLineItem[] | undefined;
+  const sid = options?.previewSessionId?.trim();
+  if (sid) {
+    const sess = await kv.get(`zig_preview_session:${companyId}:${sid}`) as {
+      lineItems?: ZigConfirmLineItem[];
+      expiresAt?: number;
+    } | null;
+    if (!sess?.lineItems || !Array.isArray(sess.lineItems)) {
+      throw new Error(
+        "Sessão de preview inválida ou expirada. Busque as vendas na ZIG novamente e confirme em seguida.",
+      );
+    }
+    if (typeof sess.expiresAt === "number" && Date.now() > sess.expiresAt) {
+      throw new Error(
+        "Sessão de preview expirada. Busque as vendas na ZIG novamente.",
+      );
+    }
+    snapshotLines = sess.lineItems;
+  } else if (Array.isArray(options?.lineItems) && options!.lineItems!.length > 0) {
+    snapshotLines = options!.lineItems;
+  }
+
+  const usePreviewSnapshot = Array.isArray(snapshotLines) && snapshotLines.length > 0;
+
+  if (options?.confirmViaHttp === true && !usePreviewSnapshot) {
+    throw new Error(
+      "Confirmação pelo app sem snapshot de vendas: clique em «Buscar vendas pendentes», aguarde o preview e confirme em seguida. " +
+        "Esta rota não chama a API ZIG de novo (evita o erro «5 dias»). Se o preview funcionar e isto continuar, publique a Edge Function `make-server-8a20b27d`.",
+    );
+  }
+
+  const hasSnapshotPayload =
+    (Array.isArray(options?.lineItems) && options.lineItems.length > 0) ||
+    !!options?.previewSessionId?.trim();
+
+  if (!usePreviewSnapshot && (options?.fromPreview || hasSnapshotPayload)) {
+    throw new Error(
+      "Não foi possível usar o snapshot do preview na confirmação (sessão expirada ou dados incompletos). " +
+        "Clique em «Buscar vendas pendentes» de novo e confirme em seguida.",
+    );
+  }
 
   console.log(
     usePreviewSnapshot
-      ? `ZIG: Confirmando baixa só no Stockpyrou (${transactionIds.length} id(s), snapshot do preview — sem nova chamada ZIG)`
+      ? `ZIG: Confirmando baixa só no Stockpyrou (${transactionIds.length} id(s), snapshot do preview — sem nova chamada ZIG)${sid ? " [sessão KV]" : ""}`
       : `ZIG: Confirmando e processando ${transactionIds.length} transações (selecionadas); intervalo ${startStr} → ${endStr}${options?.registeredOnly ? " [apenas produtos cadastrados]" : ""}`,
   );
 
@@ -714,7 +1092,7 @@ export const confirmSales = async (
     let groups: Map<string, DeductionGroup>;
 
     if (usePreviewSnapshot) {
-      groups = buildDeductionGroupsFromLineItems(options!.lineItems!, selectedSet);
+      groups = buildDeductionGroupsFromLineItems(snapshotLines!, selectedSet);
     } else {
       const token = await getZigTokenForCompany(companyId);
       const sales: ZigSale[] = await fetchZigSaidaProdutosRange(
@@ -722,7 +1100,6 @@ export const confirmSales = async (
         config.storeId,
         startStr,
         endStr,
-        (config as ZigKvConfig).redeId,
       );
       if (!Array.isArray(sales)) {
         throw new Error("Formato de resposta inválido da API ZIG.");
@@ -730,145 +1107,10 @@ export const confirmSales = async (
       groups = buildDeductionGroupsFromZigSales(sales, selectedSet);
     }
 
-    const { data: products } = await supabase
-      .from('products')
-      .select('*')
-      .eq('company_id', companyId);
-      
-    if (!products) throw new Error("Erro ao carregar produtos do sistema.");
-
-    let recipesData = [];
-    try {
-      const { data: recipes, error: recipeError } = await supabase
-        .from('recipes')
-        .select('*, recipe_ingredients(*)')
-        .eq('company_id', companyId);
-        
-      if (!recipeError && recipes) {
-        recipesData = recipes;
-      }
-    } catch (e) {
-      console.log("Recipes table might not exist, ignoring recipes.");
-    }
-    const processedKeyPrefix = `zig_processed:${companyId}:`;
-
-    if (groups.size === 0) {
-      return { processed: 0, createdProducts: 0, message: "Nenhuma transação selecionada para processar." };
-    }
-
-    // Compartilha a lógica de match (manual/SKU/nome) para localizar ou criar produto.
-    const productMappings = await kv.get(`zig_product_mappings:${companyId}`) || {};
-
-    const normalizeName = (name: string) =>
-      name
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-
-    const findProduct = (sku: string, zigName?: string) => {
-      // 1. Mapeamento manual (SKU -> productId)
-      if (productMappings && productMappings[sku]) {
-        return products.find((p: any) => p.id === productMappings[sku]);
-      }
-
-      // 2. Barcode/SKU exato
-      let product = products.find((p: any) =>
-        p.barcode === sku || (p.sku && p.sku === sku)
-      );
-
-      if (product) return product;
-
-      // 3. Match por nome similar (opcional)
-      if (!zigName) return null;
-      const zigNameNorm = normalizeName(zigName);
-      product = products.find((p: any) => {
-        const productNameNorm = normalizeName(p.name || '');
-        return (
-          productNameNorm === zigNameNorm ||
-          productNameNorm.includes(zigNameNorm) ||
-          zigNameNorm.includes(productNameNorm)
-        );
-      });
-
-      return product || null;
-    };
-
-    const createdBySku = new Map<string, any>();
-    let processedGroups = 0;
-    let createdProducts = 0;
-
-    const ensureProduct = async (productSku: string, productName: string) => {
-      const alreadyCreated = createdBySku.get(productSku);
-      if (alreadyCreated) return alreadyCreated;
-
-      const existing = findProduct(productSku, productName);
-      if (existing) return existing;
-
-      // Auto-cadastro; baixa em seguida pode deixar estoque negativo (corrigido em entradas futuras).
-      const { data: created, error: createError } = await supabase
-        .from('products')
-        .insert({
-          company_id: companyId,
-          name: productName || productSku,
-          category: 'outro',
-          unit: 'un', // padrão seguro do sistema
-          min_stock: 0,
-          current_stock: 0,
-          cost_price: 0,
-          sale_price: 0,
-          supplier_id: null,
-          barcode: productSku,
-          description: null,
-          image_url: null,
-          status: 'active',
-          safety_stock: 0,
-        })
-        .select()
-        .single();
-
-      if (createError || !created) {
-        throw new Error(createError?.message || "Erro ao criar produto no sistema.");
-      }
-
-      createdProducts++;
-      products.push(created);
-      createdBySku.set(productSku, created);
-      return created;
-    };
-
-    for (const group of groups.values()) {
-      const ref = group.transactionIds.slice(0, 5).join(', ');
-      const reason = `Venda ZIG (Lote) - Ref: ${ref}${group.transactionIds.length > 5 ? '...' : ''}`;
-
-      let product: any;
-      if (options?.registeredOnly) {
-        product = findProduct(group.productSku, group.productName);
-        if (!product) {
-          console.warn(
-            `ZIG: registeredOnly — ignorando SKU sem cadastro: ${group.productSku}`,
-          );
-          continue;
-        }
-      } else {
-        product = await ensureProduct(group.productSku, group.productName);
-      }
-
-      await processStockDeduction(companyId, product, group.totalQty, recipesData, reason);
-
-      // Marca cada transação id como processada (para não duplicar)
-      for (const id of Array.from(new Set(group.transactionIds))) {
-        await kv.set(`${processedKeyPrefix}${id}`, true);
-      }
-
-      processedGroups++;
-    }
-
-    return { 
-      processed: processedGroups,
-      createdProducts,
-      message: `${processedGroups} produtos baixados em lote com sucesso${createdProducts > 0 ? ` (produtos criados: ${createdProducts})` : ''}.`
-    };
+    return await executeZigStockDeductionFromGroups(companyId, groups, {
+      registeredOnly: !!options?.registeredOnly,
+      previewSessionIdToClear: sid,
+    });
   } catch (error: any) {
     console.error("ZIG: Erro ao confirmar vendas:", error);
     throw error;
@@ -983,7 +1225,6 @@ export async function runAutoBaixaZigOntem(companyId: string) {
     config.storeId,
     yesterdayStr,
     yesterdayStr,
-    (config as ZigKvConfig).redeId,
   );
 
   if (!Array.isArray(sales) || sales.length === 0) {
@@ -1114,7 +1355,6 @@ export const syncSales = async (companyId: string) => {
       config.storeId,
       startStr,
       endStr,
-      (config as ZigKvConfig).redeId,
     );
 
     if (!Array.isArray(sales)) {

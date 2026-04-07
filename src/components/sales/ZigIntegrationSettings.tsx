@@ -4,7 +4,7 @@ import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 
 interface ZigStore {
   id: string;

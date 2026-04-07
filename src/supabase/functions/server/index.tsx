@@ -1,10 +1,11 @@
-import { Hono } from "npm:hono";
+import { Hono, type Context } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import * as kv from "./kv_store.tsx";
 import * as auth from "./auth.tsx";
 import * as zig from "./zig_service.tsx";
+import type { ZigConfirmLineItem } from "./zig_service.tsx";
 import * as costs from "./costs.tsx";
 
 // Helper to verify token (Custom or Supabase)
@@ -61,7 +62,20 @@ async function getCompanyId(profile: any, supabase: any, headerCompanyId?: strin
 const app = new Hono();
 
 // Enable logger
-app.use('*', cors());
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "HEAD", "PUT", "POST", "DELETE", "PATCH", "OPTIONS"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "apikey",
+      "X-Client-Info",
+      "X-Zig-Confirm-Source",
+    ],
+  }),
+);
 app.use('*', logger(console.log));
 
 const supabase = createClient(
@@ -178,6 +192,7 @@ app.post("/make-server-8a20b27d/invoices/register", async (c) => {
 });
 
 // ==================== ZIG INTEGRATION ====================
+// Fluxos documentados em `zig_service.tsx` (produção = preview + confirm snapshot).
 
 app.get("/make-server-8a20b27d/zig/stores", async (c) => {
   try {
@@ -272,24 +287,74 @@ app.post("/make-server-8a20b27d/zig/preview", async (c) => {
   }
 });
 
-// Zig Confirm Sales (Processa vendas confirmadas)
-app.post("/make-server-8a20b27d/zig/confirm", async (c) => {
+/**
+ * PDV / navegador: confirma baixa **só** com snapshot (lineItems ou sessão KV).
+ * Não chama `confirmSales` nem GET na API ZIG — evita 500 «5 dias» em produção antiga.
+ * Baixa automática usa `confirmSales` só dentro de `zig_service` (cron), não esta rota.
+ */
+async function handleZigConfirmHttp(c: Context) {
   try {
-    const { companyId, transactionIds, startDate, endDate, registeredOnly, lineItems } = await c.req.json();
+    const body = (await c.req.json()) as Record<string, unknown>;
+    const { companyId, transactionIds, registeredOnly, lineItems, previewSessionId } =
+      body;
     if (!companyId || !transactionIds) {
       return c.json({ error: "Missing companyId or transactionIds" }, 400);
     }
 
-    const result = await zig.confirmSales(companyId, transactionIds, startDate, endDate, {
-      registeredOnly: !!registeredOnly,
-      lineItems: Array.isArray(lineItems) ? lineItems : undefined,
-    });
+    const sid =
+      typeof previewSessionId === "string" && previewSessionId.trim().length > 0
+        ? previewSessionId.trim()
+        : undefined;
+
+    const lineItemsArr = Array.isArray(lineItems) ? lineItems : [];
+
+    if (lineItemsArr.length === 0 && !sid) {
+      return c.json(
+        {
+          error:
+            "Use «Buscar vendas pendentes» antes de confirmar. É necessário lineItems ou previewSessionId no corpo.",
+        },
+        400,
+      );
+    }
+
+    const result = await zig.confirmStockFromZigPreviewSnapshot(
+      companyId as string,
+      transactionIds as string[],
+      lineItemsArr.length > 0 ? (lineItemsArr as ZigConfirmLineItem[]) : undefined,
+      sid,
+      !!registeredOnly,
+    );
+    /** Confirma que esta rota não chama GET na API ZIG (diagnóstico no DevTools → Network). */
+    c.header("X-Zig-Confirm-Handler", "snapshot-only");
     return c.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as { message?: string };
     console.error("Zig Confirm Error:", error);
-    return c.json({ error: error.message }, 500);
+    return c.json({ error: err?.message || "Erro no processamento" }, 500);
   }
-});
+}
+
+app.post("/make-server-8a20b27d/zig/confirm", handleZigConfirmHttp);
+app.post("/zig/confirm", handleZigConfirmHttp);
+
+/** Alias da mesma lógica que `/zig/confirm` (snapshot apenas). */
+app.post("/make-server-8a20b27d/zig/confirm-preview", handleZigConfirmHttp);
+app.post("/zig/confirm-preview", handleZigConfirmHttp);
+
+/** GET: verifique no navegador se o deploy inclui o handler novo (deve listar `confirmStockFromZigPreviewSnapshot`). */
+app.get("/make-server-8a20b27d/zig/meta", (c) =>
+  c.json({
+    zigConfirmPostHandler: "confirmStockFromZigPreviewSnapshot",
+    callsZigApiOnConfirm: false,
+  }),
+);
+app.get("/zig/meta", (c) =>
+  c.json({
+    zigConfirmPostHandler: "confirmStockFromZigPreviewSnapshot",
+    callsZigApiOnConfirm: false,
+  }),
+);
 
 app.get("/make-server-8a20b27d/zig/auto-baixa/:companyId", async (c) => {
   try {

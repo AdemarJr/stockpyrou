@@ -1,6 +1,6 @@
 import { supabase } from '../utils/supabase/client';
 import type { Company, UserCompany } from '../types';
-import { projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/env';
 
 export class CompanyRepository {
   private static readonly TABLE = 'companies';

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, Users, Plus, ShieldCheck, Mail, Lock, UserPlus, Search, Globe, ChevronRight, Activity, Trash2, X, Power, CheckCircle2, AlertCircle, Menu, Key, UserCog } from 'lucide-react';
 import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Company } from '../../types';

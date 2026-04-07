@@ -10,7 +10,7 @@ import { useCompany } from '../../contexts/CompanyContext';
 import { ProductService } from '../../services/ProductService';
 import { useIsMobile } from '../ui/use-mobile';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { ReportCard } from './ReportCard';
 import { ReportTable } from './ReportTable';
 import { ReportTabs, type TabType } from './ReportTabs';

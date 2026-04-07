@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../utils/supabase/client';
 import type { AuthUser, UserProfile } from '../types';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId, publicAnonKey } from '../utils/supabase/env';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
 interface AuthContextType {

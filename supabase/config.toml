@@ -1,0 +1,6 @@
+# Supabase CLI — https://supabase.com/docs/guides/cli/config
+# Ajuste project_id com `supabase link` ou deixe o CLI pedir no deploy.
+
+[functions.make-server-8a20b27d]
+# Auth misto (JWT Supabase + tokens custom); o Hono valida no handler.
+verify_jwt = false

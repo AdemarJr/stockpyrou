@@ -19,7 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import type { UserProfile, UserRole } from '../../types';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { rowMatchesSearch } from '../../utils/listFilters';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';

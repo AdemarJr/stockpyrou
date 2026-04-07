@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Upload, FileText, Download, AlertCircle, CheckCircle2, X, Plus, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import type { Product, Supplier } from '../../types';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 
 interface ImportRow {
   line: number;
