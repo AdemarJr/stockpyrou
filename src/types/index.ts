@@ -1,6 +1,19 @@
 // Types for StockWise Pro System
 
-export type MeasurementUnit = 'kg' | 'g' | 'l' | 'ml' | 'un' | 'cx' | 'pct' | 'porcao' | 'saco';
+export type MeasurementUnit =
+  | 'kg'
+  | 'g'
+  | 'l'
+  | 'lt'
+  | 'ml'
+  | 'un'
+  | 'cx'
+  | 'pct'
+  | 'porcao'
+  | 'saco'
+  | 'm'
+  | 'cm'
+  | 'mm';
 
 export interface UnitConversion {
   unit: MeasurementUnit;

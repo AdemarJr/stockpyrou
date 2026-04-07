@@ -144,8 +144,16 @@ export function QuickProductForm({ onSave, onCancel, onSwitchToFull }: QuickProd
                 <option value="kg">kg</option>
                 <option value="g">g</option>
                 <option value="l">L</option>
+                <option value="lt">lt</option>
                 <option value="ml">mL</option>
                 <option value="un">un</option>
+                <option value="cx">cx</option>
+                <option value="pct">pct</option>
+                <option value="saco">saco</option>
+                <option value="porcao">porção</option>
+                <option value="m">m</option>
+                <option value="cm">cm</option>
+                <option value="mm">mm</option>
               </select>
             </div>
           </div>

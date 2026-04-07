@@ -309,12 +309,16 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
                   <option value="kg">Quilograma (kg)</option>
                   <option value="g">Grama (g)</option>
                   <option value="l">Litro (L)</option>
+                  <option value="lt">Litro (lt)</option>
                   <option value="ml">Mililitro (mL)</option>
                   <option value="un">Unidade (un)</option>
                   <option value="cx">Caixa (cx)</option>
                   <option value="pct">Pacote (pct)</option>
                   <option value="saco">Saco</option>
                   <option value="porcao">Porção</option>
+                  <option value="m">Metro (m)</option>
+                  <option value="cm">Centímetro (cm)</option>
+                  <option value="mm">Milímetro (mm)</option>
                 </select>
               </div>
             </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Package, Calendar, FileText, AlertCircle, Trash2, Edit2, Camera, X, RefreshCw, AlertTriangle, Upload } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { toast } from 'sonner@2.0.3';
-import type { Product, Supplier, StockEntry } from '../../types';
+import type { MeasurementUnit, Product, Supplier, StockEntry, UnitConversion } from '../../types';
 import { cn } from '../ui/utils';
 import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 import { formatCurrency, formatDateTime, calculateWeightedAverageCost } from '../../utils/calculations';
@@ -47,6 +47,8 @@ export function StockEntryForm({
     expirationDate: initialExpirationYmd,
     notes: initialData?.notes || '',
   });
+
+  const [entryUnit, setEntryUnit] = useState<MeasurementUnit | ''>('');
   
   const [isScanning, setIsScanning] = useState(false);
   const [isLoadingCamera, setIsLoadingCamera] = useState(false);
@@ -216,6 +218,7 @@ export function StockEntryForm({
     if (field === 'productId') {
       const product = products.find(p => p.id === value);
       setSelectedProduct(product || null);
+      setEntryUnit((product?.measurementUnit as MeasurementUnit) || '');
       if (product && !isEditing) {
         const updates: any = {
           unitPrice: product.averageCost
@@ -230,6 +233,31 @@ export function StockEntryForm({
       }
     }
   };
+
+  const baseUnit = (selectedProduct?.measurementUnit as MeasurementUnit | undefined) || undefined;
+  const availableUnits: MeasurementUnit[] = (() => {
+    if (!selectedProduct) return [];
+    const base = selectedProduct.measurementUnit as MeasurementUnit;
+    const conv = Array.isArray(selectedProduct.conversions) ? selectedProduct.conversions : [];
+    const extras = conv
+      .filter((c: UnitConversion) => c && c.baseUnit === base && c.unit)
+      .map((c: UnitConversion) => c.unit);
+    return Array.from(new Set([base, ...extras]));
+  })();
+
+  const conversionFactorToBase = (() => {
+    if (!selectedProduct || !baseUnit || !entryUnit) return 1;
+    if (entryUnit === baseUnit) return 1;
+    const conv = (selectedProduct.conversions || []).find(
+      (c) => c.unit === entryUnit && c.baseUnit === baseUnit
+    );
+    const factor = Number(conv?.equivalentTo || 0);
+    return factor > 0 ? factor : 1;
+  })();
+
+  const qtyBase = formData.quantity * conversionFactorToBase;
+  const unitPriceBase =
+    conversionFactorToBase > 0 ? (formData.unitPrice / conversionFactorToBase) : formData.unitPrice;
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -247,7 +275,6 @@ export function StockEntryForm({
     if (Object.keys(err).length > 0) return;
 
     if (!selectedProduct) return;
-    
     const totalPrice = formData.quantity * formData.unitPrice;
     
     // Calculate new weighted average cost
@@ -255,16 +282,16 @@ export function StockEntryForm({
     const newAvgCost = calculateWeightedAverageCost(
       selectedProduct.currentStock,
       selectedProduct.averageCost,
-      formData.quantity,
-      formData.unitPrice
+      qtyBase,
+      unitPriceBase
     );
     
     const entry: Omit<StockEntry, 'id' | 'entryDate' | 'userId'> = {
       productId: formData.productId,
       supplierId: formData.supplierId,
-      quantity: formData.quantity,
-      unitPrice: formData.unitPrice,
-      totalPrice,
+      quantity: qtyBase,
+      unitPrice: unitPriceBase,
+      totalPrice, // mantém valor total da nota (qty*preço na unidade lançada)
       batchNumber: formData.batchNumber,
       expirationDate: formData.expirationDate ? new Date(formData.expirationDate) : undefined,
       notes: formData.notes || undefined,
@@ -292,8 +319,8 @@ export function StockEntryForm({
     ? calculateWeightedAverageCost(
         selectedProduct.currentStock,
         selectedProduct.averageCost,
-        formData.quantity,
-        formData.unitPrice
+        qtyBase,
+        unitPriceBase
       )
     : 0;
   
@@ -449,30 +476,58 @@ export function StockEntryForm({
               <label className="block text-gray-700 mb-2">
                 Quantidade <span className="text-destructive">*</span>
               </label>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={formData.quantity || ''}
-                onChange={(e) => handleChange('quantity', parseFloat(e.target.value) || 0)}
-                aria-invalid={fieldErrors.quantity}
-                className={cn(
-                  'w-full px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
-                  nativeFieldInvalidClass(!!fieldErrors.quantity),
-                  !fieldErrors.quantity && 'border border-gray-300'
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={formData.quantity || ''}
+                  onChange={(e) => handleChange('quantity', parseFloat(e.target.value) || 0)}
+                  aria-invalid={fieldErrors.quantity}
+                  className={cn(
+                    'w-full px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                    nativeFieldInvalidClass(!!fieldErrors.quantity),
+                    !fieldErrors.quantity && 'border border-gray-300'
+                  )}
+                  placeholder="0.00"
+                />
+                {selectedProduct && availableUnits.length > 0 && (
+                  <select
+                    value={entryUnit || selectedProduct.measurementUnit}
+                    onChange={(e) => setEntryUnit(e.target.value as MeasurementUnit)}
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white"
+                    title="Unidade da quantidade informada"
+                  >
+                    {availableUnits.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
                 )}
-                placeholder="0.00"
-              />
+              </div>
               {selectedProduct && (
-                <p className="text-gray-500 mt-1">
-                  Unidade: {selectedProduct.measurementUnit}
-                </p>
+                <div className="text-gray-500 mt-1 space-y-1">
+                  <p>
+                    Estoque deste produto é controlado em <strong>{selectedProduct.measurementUnit}</strong>
+                    {entryUnit && entryUnit !== selectedProduct.measurementUnit
+                      ? ` (lançamento em ${entryUnit})`
+                      : ''}
+                    .
+                  </p>
+                  {entryUnit && entryUnit !== selectedProduct.measurementUnit && (
+                    <p className="text-xs">
+                      Conversão aplicada: 1 {entryUnit} = {conversionFactorToBase} {selectedProduct.measurementUnit}.
+                      No estoque será somado: {qtyBase.toFixed(4)} {selectedProduct.measurementUnit}.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
             
             <div>
               <label className="block text-gray-700 mb-2">
-                Preço Unitário <span className="text-destructive">*</span>
+                Preço Unitário{entryUnit ? ` (${entryUnit})` : ''} <span className="text-destructive">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500">
