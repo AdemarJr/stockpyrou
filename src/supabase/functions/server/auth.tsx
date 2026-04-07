@@ -1,6 +1,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
-import type { UserProfile, UserRole, UserPermissions } from '../../../types/index.ts';
+import type { UserProfile, UserRole, UserPermissions } from "./auth_types.ts";
 
 // Crypto para hash de senha
 import { createHash } from 'node:crypto';

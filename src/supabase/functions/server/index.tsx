@@ -260,19 +260,6 @@ app.get("/make-server-8a20b27d/zig/config/:companyId", async (c) => {
   }
 });
 
-app.post("/make-server-8a20b27d/zig/sync", async (c) => {
-  try {
-    const { companyId } = await c.req.json();
-    if (!companyId) return c.json({ error: "Missing companyId" }, 400);
-    
-    const result = await zig.syncSales(companyId);
-    return c.json(result);
-  } catch (error: any) {
-    console.error("Zig Sync Error:", error);
-    return c.json({ error: error.message }, 500);
-  }
-});
-
 // Zig Preview Pending Sales (Busca vendas sem processar)
 app.post("/make-server-8a20b27d/zig/preview", async (c) => {
   try {
@@ -1155,7 +1142,8 @@ app.get("/make-server-8a20b27d/users", async (c) => {
     }
     
     // Otherwise return all users (for super admin dashboard)
-    const users = await auth.getAllUsers();
+    // `users` pode conter campos adicionais (ex.: `companyId`) vindos de fontes legadas.
+    const users: any[] = (await auth.getAllUsers()) as any[];
 
     // ------------------------------------------------------------------
     // FIX: Also fetch users from company_credentials table (Legacy/Migrated)

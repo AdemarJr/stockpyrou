@@ -10,7 +10,7 @@ import * as kv from "./kv_store.tsx";
  *
  * **Baixa automática (`runAutoBaixaZigOntem`)** — cron / job: busca **ontem** na ZIG, só transações em que todos os itens já existem no Stockpyrou; usa `confirmSales` com intervalo de datas (GET ZIG por dia).
  *
- * **Legado (`syncSales`)** — sincronização antiga por intervalo de datas; ainda faz GET na ZIG. Evitar para o fluxo manual; manter só se algo externo depender.
+ * (Removido) `syncSales` era legado de sincronização por intervalo e causava confusão com o fluxo de preview/confirm.
  *
  * **Regra geral:** confirmação pelo browser deve passar **só** por `confirmStockFromZigPreviewSnapshot`. Se o erro citar «Falha ao buscar vendas ZIG» no **confirm**, a Edge Function em produção está desatualizada ou o body não trouxe `lineItems` / `previewSessionId`.
  */
@@ -1319,122 +1319,6 @@ export async function runAutoBaixaZigOntem(companyId: string) {
     transactionCount: transactionIds.length,
   };
 }
-
-// Sync Logic (DEPRECATED - manter para compatibilidade)
-export const syncSales = async (companyId: string) => {
-  const token = await getZigTokenForCompany(companyId);
-
-  const config = await kv.get(`zig_config:${companyId}`);
-  if (!config || !config.storeId) {
-    throw new Error("Integração ZIG não configurada. Selecione uma loja nas configurações.");
-  }
-
-  const lastSyncKey = `zig_last_sync:${companyId}`;
-  const lastSyncVal = await kv.get(lastSyncKey);
-  
-  let startDate = new Date();
-  startDate.setHours(startDate.getHours() - 24); 
-  
-  if (lastSyncVal) {
-    startDate = new Date(lastSyncVal);
-  }
-  
-  // Subtrai 1 dia do start date para garantir que não haja problemas com timezone
-  const apiStartDate = new Date(startDate);
-  apiStartDate.setDate(apiStartDate.getDate() - 1);
-
-  const endDate = new Date();
-  const startStr = apiStartDate.toISOString().split("T")[0];
-  const endStr = endDate.toISOString().split("T")[0];
-
-  console.log(`ZIG: Sincronizando vendas da loja ${config.storeId} (${startStr} → ${endStr})`);
-
-  try {
-    const sales: ZigSale[] = await fetchZigSaidaProdutosRange(
-      token,
-      config.storeId,
-      startStr,
-      endStr,
-    );
-
-    if (!Array.isArray(sales)) {
-      return { processed: 0, message: "Nenhuma venda retornada." };
-    }
-
-    const newSales = [];
-    const processedKeyPrefix = `zig_processed:${companyId}:`;
-    
-    for (const sale of sales) {
-      const isProcessed = await kv.get(`${processedKeyPrefix}${sale.transactionId}`);
-      if (isProcessed) continue;
-
-      newSales.push(sale);
-    }
-
-    if (newSales.length === 0) {
-      await kv.set(lastSyncKey, endDate.toISOString());
-      return { processed: 0, message: "Sincronização concluída. Nenhuma nova venda." };
-    }
-
-    const { data: products } = await supabase
-      .from('products')
-      .select('*')
-      .eq('company_id', companyId);
-      
-    if (!products) throw new Error("Erro ao carregar produtos do StockWise.");
-
-    let recipesData = [];
-    try {
-      const { data: recipes, error: recipeError } = await supabase
-        .from('recipes')
-        .select('*, recipe_ingredients(*)')
-        .eq('company_id', companyId);
-        
-      if (!recipeError && recipes) {
-        recipesData = recipes;
-      }
-    } catch (e) {
-      console.log("Recipes table might not exist, ignoring recipes.");
-    }
-
-    let processedCount = 0;
-
-    for (const sale of newSales) {
-      if (!sale.productSku) continue;
-      
-      const product = products.find(p => p.barcode === sale.productSku || (p.sku && p.sku === sale.productSku));
-      
-      if (product) {
-        await processStockDeduction(companyId, product, sale.count, recipesData, sale.transactionId);
-        processedCount++;
-      }
-      
-      if (sale.additions && sale.additions.length > 0) {
-        for (const addition of sale.additions) {
-          if (!addition.productSku) continue;
-          
-          const addProduct = products.find(p => p.barcode === addition.productSku || (p.sku && p.sku === addition.productSku));
-          if (addProduct) {
-            await processStockDeduction(companyId, addProduct, addition.count, recipesData, `${sale.transactionId}-add-${addition.productSku}`);
-          }
-        }
-      }
-
-      await kv.set(`${processedKeyPrefix}${sale.transactionId}`, true);
-    }
-
-    await kv.set(lastSyncKey, endDate.toISOString());
-
-    return { 
-      processed: processedCount, 
-      total_found: newSales.length,
-      message: "Sincronização realizada com sucesso." 
-    };
-  } catch (error: any) {
-    console.error("ZIG: Erro fatal na sincronização:", error);
-    throw error;
-  }
-};
 
 async function processStockDeduction(
   companyId: string, 
