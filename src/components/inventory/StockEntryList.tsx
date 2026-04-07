@@ -27,11 +27,9 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
   const safeSuppliers = Array.isArray(suppliers) ? suppliers : [];
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
-  /** Datas aplicadas na lista (atualizam ao Filtrar ou Enter). */
+  /** Datas aplicadas na lista. */
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [draftDateFrom, setDraftDateFrom] = useState('');
-  const [draftDateTo, setDraftDateTo] = useState('');
   
   const filteredEntries = useMemo(() => {
     return safeEntries.filter((entry) => {
@@ -64,18 +62,18 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
     });
   }, [safeEntries, safeProducts, safeSuppliers, searchTerm, filterSupplier, dateFrom, dateTo]);
 
-  const applyDateFilters = useCallback(() => {
-    if (draftDateFrom && draftDateTo && draftDateFrom > draftDateTo) {
-      toast.error('A data inicial deve ser anterior ou igual à data final.');
-      return;
-    }
-    setDateFrom(draftDateFrom);
-    setDateTo(draftDateTo);
-  }, [draftDateFrom, draftDateTo]);
-
   const filterKey = `${searchTerm}|${filterSupplier}|${dateFrom}|${dateTo}`;
   const { paginatedItems, page, setPage, totalPages, from, to, total: filteredTotal } =
     usePagination(filteredEntries, 12, filterKey);
+
+  const applyDateFilters = useCallback(() => {
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      toast.error('A data inicial deve ser anterior ou igual à data final.');
+      return;
+    }
+    // UX: quando filtra, volta pra primeira página (senão parece que "não filtrou").
+    setPage(1);
+  }, [dateFrom, dateTo, setPage]);
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm mt-8">
@@ -94,18 +92,24 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                   type="search"
                   placeholder="Produto, fornecedor, lote, observação..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setPage(1);
+                  }}
                   className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
               
               <select
                 value={filterSupplier}
-                onChange={(e) => setFilterSupplier(e.target.value)}
+                onChange={(e) => {
+                  setFilterSupplier(e.target.value);
+                  setPage(1);
+                }}
                 className="pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent md:min-w-[200px]"
               >
                 <option value="">Todos os Fornecedores</option>
-                {suppliers.map(s => (
+                {safeSuppliers.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
@@ -115,13 +119,10 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                 <Label className="text-xs text-gray-500">Recebimento de</Label>
                 <Input
                   type="date"
-                  value={draftDateFrom}
-                  onChange={(e) => setDraftDateFrom(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      applyDateFilters();
-                    }
+                  value={dateFrom}
+                  onChange={(e) => {
+                    setDateFrom(e.target.value);
+                    setPage(1);
                   }}
                   className="w-[160px]"
                 />
@@ -130,28 +131,24 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                 <Label className="text-xs text-gray-500">até</Label>
                 <Input
                   type="date"
-                  value={draftDateTo}
-                  onChange={(e) => setDraftDateTo(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      applyDateFilters();
-                    }
+                  value={dateTo}
+                  onChange={(e) => {
+                    setDateTo(e.target.value);
+                    setPage(1);
                   }}
                   className="w-[160px]"
                 />
               </div>
               <Button type="button" size="sm" onClick={() => applyDateFilters()}>
-                Filtrar período
+                Aplicar
               </Button>
               <button
                 type="button"
                 className="text-sm text-blue-600 hover:underline px-2"
                 onClick={() => {
-                  setDraftDateFrom('');
-                  setDraftDateTo('');
                   setDateFrom('');
                   setDateTo('');
+                  setPage(1);
                 }}
               >
                 Limpar datas

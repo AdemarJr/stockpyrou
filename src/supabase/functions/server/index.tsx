@@ -73,6 +73,8 @@ app.use(
       "apikey",
       "X-Client-Info",
       "X-Zig-Confirm-Source",
+      "X-Company-Id",
+      "X-Custom-Token",
     ],
   }),
 );
