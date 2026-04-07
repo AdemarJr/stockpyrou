@@ -5,7 +5,13 @@ import { toast } from 'sonner@2.0.3';
 import type { MeasurementUnit, Product, Supplier, StockEntry } from '../../types';
 import { cn } from '../ui/utils';
 import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
-import { formatCurrency, formatDateTime, calculateWeightedAverageCost } from '../../utils/calculations';
+import {
+  formatCurrency,
+  formatDateTime,
+  formatNumber,
+  formatQuantity,
+  calculateWeightedAverageCost,
+} from '../../utils/calculations';
 import { resolveConversionFactorToBase, selectableUnitsForProduct } from '../../utils/measurementUnits';
 import { StockEntryImport } from './StockEntryImport';
 
@@ -600,9 +606,10 @@ export function StockEntryForm({
                   </p>
                   {effectiveEntryUnit && effectiveEntryUnit !== selectedProduct.measurementUnit && (
                     <p className="text-xs">
-                      Conversão aplicada: 1 {effectiveEntryUnit} = {conversionFactorToBase}{' '}
-                      {selectedProduct.measurementUnit}. No estoque será somado: {qtyBase.toFixed(4)}{' '}
-                      {selectedProduct.measurementUnit}.
+                      Conversão aplicada: 1 {effectiveEntryUnit} ={' '}
+                      {formatNumber(conversionFactorToBase, { maxFractionDigits: 6 })}{' '}
+                      {selectedProduct.measurementUnit}. No estoque será somado:{' '}
+                      {formatQuantity(qtyBase)} {selectedProduct.measurementUnit}.
                     </p>
                   )}
                 </div>
@@ -664,6 +671,29 @@ export function StockEntryForm({
               </p>
             </div>
           </div>
+
+          {selectedProduct && formData.quantity > 0 && formData.totalPrice > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+              <p className="font-medium text-gray-800 mb-1">Resumo (estoque na unidade base)</p>
+              <ul className="space-y-1 text-xs sm:text-sm">
+                <li>
+                  Quantidade:{' '}
+                  <strong>
+                    {formatQuantity(qtyBase)} {selectedProduct.measurementUnit}
+                  </strong>
+                </li>
+                <li>
+                  Total: <strong>{formatCurrency(formData.totalPrice)}</strong>
+                </li>
+                <li>
+                  Custo unitário (base): <strong>{formatCurrency(unitPriceBase)}</strong>
+                </li>
+                <li>
+                  Novo custo médio estimado: <strong>{formatCurrency(newAvgCost)}</strong>
+                </li>
+              </ul>
+            </div>
+          )}
           
           {/* Batch and Expiration */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -11,6 +11,7 @@ import {
   TrendingUp,
   Package
 } from 'lucide-react';
+import { formatCurrency, formatQuantity } from '../../utils/calculations';
 
 interface CashierSalesProps {
   register: {
@@ -95,7 +96,7 @@ export function CashierSales({ register }: CashierSalesProps) {
             <DollarSign className="w-8 h-8 opacity-80" />
           </div>
           <p className="text-sm opacity-90 font-bold">Faturamento</p>
-          <p className="text-3xl font-black mt-1">R$ {totalRevenue.toFixed(2)}</p>
+          <p className="text-3xl font-black mt-1 tabular-nums">{formatCurrency(totalRevenue)}</p>
         </div>
 
         <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg">
@@ -112,7 +113,7 @@ export function CashierSales({ register }: CashierSalesProps) {
           </div>
           <p className="text-sm opacity-90 font-bold">Ticket Médio</p>
           <p className="text-3xl font-black mt-1">
-            R$ {totalSales > 0 ? (totalRevenue / totalSales).toFixed(2) : '0.00'}
+            {totalSales > 0 ? formatCurrency(totalRevenue / totalSales) : formatCurrency(0)}
           </p>
         </div>
       </div>
@@ -144,7 +145,7 @@ export function CashierSales({ register }: CashierSalesProps) {
                     </div>
                   </div>
                   <p className="text-2xl font-black text-gray-900">
-                    R$ {data.total.toFixed(2)}
+                    {formatCurrency(data.total)}
                   </p>
                 </div>
               );
@@ -208,7 +209,7 @@ export function CashierSales({ register }: CashierSalesProps) {
                     </div>
                     <div className="text-right">
                       <p className="text-2xl font-black text-gray-900">
-                        R$ {sale.total.toFixed(2)}
+                        {formatCurrency(sale.total)}
                       </p>
                     </div>
                   </div>
@@ -221,11 +222,13 @@ export function CashierSales({ register }: CashierSalesProps) {
                         className="flex items-center justify-between text-sm bg-gray-50 rounded-lg p-2"
                       >
                         <div>
-                          <span className="font-bold text-gray-900">{item.quantity}x</span>
+                          <span className="font-bold text-gray-900 tabular-nums">
+                            {formatQuantity(item.quantity)}x
+                          </span>
                           <span className="text-gray-700 ml-2">{item.name}</span>
                         </div>
                         <span className="font-bold text-gray-900">
-                          R$ {(item.quantity * item.price).toFixed(2)}
+                          {formatCurrency(item.quantity * item.price)}
                         </span>
                       </div>
                     ))}
@@ -237,13 +240,13 @@ export function CashierSales({ register }: CashierSalesProps) {
                       <div>
                         <p className="text-gray-500">Recebido:</p>
                         <p className="font-bold text-gray-900">
-                          R$ {sale.paymentDetails.cashReceived?.toFixed(2)}
+                          {formatCurrency(sale.paymentDetails.cashReceived ?? 0)}
                         </p>
                       </div>
                       <div>
                         <p className="text-gray-500">Troco:</p>
                         <p className="font-bold text-green-600">
-                          R$ {sale.paymentDetails.change?.toFixed(2)}
+                          {formatCurrency(sale.paymentDetails.change ?? 0)}
                         </p>
                       </div>
                     </div>

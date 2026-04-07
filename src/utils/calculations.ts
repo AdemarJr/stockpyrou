@@ -233,9 +233,31 @@ export function forecastDemand(
 
 // Format currency
 export function formatCurrency(value: number): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
+  }).format(value);
+}
+
+/** Número genérico (pt-BR): separador de milhar e decimais configuráveis. */
+export function formatNumber(
+  value: number,
+  opts?: { minFractionDigits?: number; maxFractionDigits?: number },
+): string {
+  if (!Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: opts?.minFractionDigits ?? 0,
+    maximumFractionDigits: opts?.maxFractionDigits ?? 2,
+  }).format(value);
+}
+
+/** Quantidades de estoque (kg, ml, un, etc.) — até 6 casas decimais. */
+export function formatQuantity(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
   }).format(value);
 }
 

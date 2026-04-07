@@ -24,6 +24,7 @@ import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { ProductService } from '../../services/ProductService';
 import { toast } from 'sonner@2.0.3';
+import { formatCurrency, formatQuantity } from '../../utils/calculations';
 
 interface CashierPOSProps {
   register: any;
@@ -459,8 +460,8 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
           </div>
           <div className="text-right">
             <p className="text-xs text-gray-500 dark:text-gray-400">Saldo Atual</p>
-            <p className="text-lg md:text-xl font-black text-green-600 dark:text-green-400">
-              R$ {register.currentBalance.toFixed(2)}
+            <p className="text-lg md:text-xl font-black text-green-600 dark:text-green-400 tabular-nums">
+              {formatCurrency(register.currentBalance)}
             </p>
           </div>
         </div>
@@ -516,7 +517,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               {/* Total */}
               <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white text-center">
                 <p className="text-sm opacity-90 font-bold mb-1">Total da Venda</p>
-                <p className="text-4xl md:text-5xl font-black">R$ {getTotal().toFixed(2)}</p>
+                <p className="text-4xl md:text-5xl font-black tabular-nums">{formatCurrency(getTotal())}</p>
                 <p className="text-sm opacity-75 mt-2">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</p>
               </div>
 
@@ -578,7 +579,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                         onClick={() => setCashReceived(amount.toString())}
                         className="px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-bold text-gray-700 dark:text-gray-300 transition-colors"
                       >
-                        R$ {amount}
+                        {formatCurrency(amount)}
                       </button>
                     ))}
                     <button
@@ -601,7 +602,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                           {getChange() < 0 ? 'Faltam:' : 'Troco:'}
                         </span>
                         <span className={`text-2xl font-black ${getChange() < 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
-                          R$ {Math.abs(getChange()).toFixed(2)}
+                          {formatCurrency(Math.abs(getChange()))}
                         </span>
                       </div>
                     </div>
@@ -697,10 +698,12 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   <div className="flex items-end justify-between gap-1">
                     <div>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Estoque</p>
-                      <p className="text-sm font-bold text-gray-900 dark:text-white">{product.currentStock}</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
+                        {formatQuantity(product.currentStock)}
+                      </p>
                     </div>
-                    <p className="text-lg md:text-xl font-black text-green-600 dark:text-green-400">
-                      R$ {product.sellingPrice.toFixed(2)}
+                    <p className="text-lg md:text-xl font-black text-green-600 dark:text-green-400 tabular-nums">
+                      {formatCurrency(product.sellingPrice || 0)}
                     </p>
                   </div>
                 </button>
@@ -763,7 +766,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                         {item.name}
                       </h4>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        R$ {item.price.toFixed(2)} cada
+                        {formatCurrency(item.price)} cada
                       </p>
                     </div>
                     <button
@@ -808,8 +811,8 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                       </button>
                     </div>
 
-                    <p className="text-lg font-black text-gray-900 dark:text-white">
-                      R$ {(item.price * item.quantity).toFixed(2)}
+                    <p className="text-lg font-black text-gray-900 dark:text-white tabular-nums">
+                      {formatCurrency(item.price * item.quantity)}
                     </p>
                   </div>
                 </div>
@@ -822,8 +825,8 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
             <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-lg font-bold text-gray-700 dark:text-gray-300">Total</span>
-                <span className="text-3xl font-black text-blue-600 dark:text-blue-400">
-                  R$ {getTotal().toFixed(2)}
+                <span className="text-3xl font-black text-blue-600 dark:text-blue-400 tabular-nums">
+                  {formatCurrency(getTotal())}
                 </span>
               </div>
 

@@ -3,7 +3,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Package, Search, Filter, Edit2, Trash2, Calendar, FileText, MoreVertical } from 'lucide-react';
 import type { Product, Supplier, StockEntry } from '../../types';
-import { formatCurrency, formatDateTime } from '../../utils/calculations';
+import { formatCurrency, formatDateTime, formatQuantity } from '../../utils/calculations';
 import { useIsMobile } from '../ui/use-mobile';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Button } from '../ui/button';
@@ -193,7 +193,9 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                   <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t border-gray-200">
                     <div>
                       <p className="text-[10px] uppercase font-bold text-gray-400">Quantidade</p>
-                      <p className="text-sm font-bold">{entry.quantity} {product?.measurementUnit}</p>
+                      <p className="text-sm font-bold">
+                        {formatQuantity(entry.quantity)} {product?.measurementUnit}
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className="text-[10px] uppercase font-bold text-gray-400">Total</p>
@@ -249,8 +251,8 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                     <td className="px-6 py-4 text-gray-600">
                       {supplier?.name || '-'}
                     </td>
-                    <td className="px-6 py-4 text-right text-gray-900">
-                      {entry.quantity} {product?.measurementUnit}
+                    <td className="px-6 py-4 text-right text-gray-900 tabular-nums">
+                      {formatQuantity(entry.quantity)} {product?.measurementUnit}
                     </td>
                     <td className="px-6 py-4 text-right text-gray-600">
                       {formatCurrency(entry.unitPrice)}
