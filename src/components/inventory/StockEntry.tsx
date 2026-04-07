@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Package, Calendar, FileText, AlertCircle, Trash2, Edit2, Camera, X, RefreshCw, AlertTriangle, Upload } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { toast } from 'sonner@2.0.3';
-import type { MeasurementUnit, Product, Supplier, StockEntry, UnitConversion } from '../../types';
+import type { MeasurementUnit, Product, Supplier, StockEntry } from '../../types';
 import { cn } from '../ui/utils';
 import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 import { formatCurrency, formatDateTime, calculateWeightedAverageCost } from '../../utils/calculations';
+import { resolveConversionFactorToBase, selectableUnitsForProduct } from '../../utils/measurementUnits';
 import { StockEntryImport } from './StockEntryImport';
 
 interface StockEntryFormProps {
@@ -38,11 +39,19 @@ export function StockEntryForm({
     }
   })();
 
+  const initialQty = initialData?.quantity || 0;
+  const initialUnit = initialData?.unitPrice || 0;
+  const initialTotal =
+    initialData?.totalPrice != null && initialData.totalPrice > 0
+      ? initialData.totalPrice
+      : initialQty * initialUnit;
+
   const [formData, setFormData] = useState({
     productId: initialData?.productId || '',
     supplierId: initialData?.supplierId || '',
-    quantity: initialData?.quantity || 0,
-    unitPrice: initialData?.unitPrice || 0,
+    quantity: initialQty,
+    unitPrice: initialUnit,
+    totalPrice: initialTotal,
     batchNumber: initialData?.batchNumber || '',
     expirationDate: initialExpirationYmd,
     notes: initialData?.notes || '',
@@ -63,7 +72,13 @@ export function StockEntryForm({
     return null;
   });
 
-  type StockFieldKey = 'productId' | 'supplierId' | 'quantity' | 'unitPrice' | 'expirationDate';
+  type StockFieldKey =
+    | 'productId'
+    | 'supplierId'
+    | 'quantity'
+    | 'unitPrice'
+    | 'totalPrice'
+    | 'expirationDate';
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<StockFieldKey, boolean>>>({});
 
   const stopScanner = async () => {
@@ -206,9 +221,26 @@ export function StockEntryForm({
   };
   
   const handleChange = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    if (field === 'quantity') {
+      const q = typeof value === 'number' ? value : parseFloat(value) || 0;
+      setFormData((prev) => ({
+        ...prev,
+        quantity: q,
+        totalPrice: q * prev.unitPrice,
+      }));
+    } else if (field === 'unitPrice') {
+      const p = typeof value === 'number' ? value : parseFloat(value) || 0;
+      setFormData((prev) => ({
+        ...prev,
+        unitPrice: p,
+        totalPrice: prev.quantity * p,
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, [field]: value }));
+    }
+
     if (fieldErrors[field as StockFieldKey]) {
-      setFieldErrors(prev => {
+      setFieldErrors((prev) => {
         const next = { ...prev };
         delete next[field as StockFieldKey];
         return next;
@@ -216,12 +248,12 @@ export function StockEntryForm({
     }
 
     if (field === 'productId') {
-      const product = products.find(p => p.id === value);
+      const product = products.find((p) => p.id === value);
       setSelectedProduct(product || null);
       setEntryUnit((product?.measurementUnit as MeasurementUnit) || '');
       if (product && !isEditing) {
         const updates: any = {
-          unitPrice: product.averageCost
+          unitPrice: product.averageCost,
         };
         if (product.supplierId) updates.supplierId = product.supplierId;
         if (product.isPerishable && product.shelfLife) {
@@ -229,35 +261,86 @@ export function StockEntryForm({
           date.setDate(date.getDate() + product.shelfLife);
           updates.expirationDate = date.toISOString().split('T')[0];
         }
-        setFormData(prev => ({ ...prev, ...updates }));
+        setFormData((prev) => {
+          const next = { ...prev, ...updates };
+          const q = next.quantity || 0;
+          const up = next.unitPrice || 0;
+          return { ...next, totalPrice: q * up };
+        });
       }
+    }
+  };
+
+  const handleTotalChange = (raw: string) => {
+    const t = parseFloat(raw);
+    setFormData((prev) => {
+      const total = Number.isFinite(t) && t >= 0 ? t : 0;
+      const q = prev.quantity;
+      const unitFromTotal = q > 0 ? total / q : 0;
+      return {
+        ...prev,
+        totalPrice: total,
+        unitPrice: unitFromTotal,
+      };
+    });
+    if (fieldErrors.totalPrice) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next.totalPrice;
+        return next;
+      });
     }
   };
 
   const baseUnit = (selectedProduct?.measurementUnit as MeasurementUnit | undefined) || undefined;
   const availableUnits: MeasurementUnit[] = (() => {
-    if (!selectedProduct) return [];
-    const base = selectedProduct.measurementUnit as MeasurementUnit;
-    const conv = Array.isArray(selectedProduct.conversions) ? selectedProduct.conversions : [];
-    const extras = conv
-      .filter((c: UnitConversion) => c && c.baseUnit === base && c.unit)
-      .map((c: UnitConversion) => c.unit);
-    return Array.from(new Set([base, ...extras]));
+    if (!selectedProduct || !baseUnit) return [];
+    return selectableUnitsForProduct(baseUnit, selectedProduct.conversions);
   })();
 
+  const effectiveEntryUnit = (entryUnit || baseUnit) as MeasurementUnit | undefined;
+
+  const handleEntryUnitChange = (newUnit: MeasurementUnit) => {
+    if (!selectedProduct) {
+      setEntryUnit(newUnit);
+      return;
+    }
+    const bu = selectedProduct.measurementUnit as MeasurementUnit;
+    const oldUnit = (entryUnit || bu) as MeasurementUnit;
+    const conv = selectedProduct.conversions;
+    if (newUnit === oldUnit) {
+      setEntryUnit(newUnit);
+      return;
+    }
+    const fOld = resolveConversionFactorToBase(oldUnit, bu, conv);
+    const fNew = resolveConversionFactorToBase(newUnit, bu, conv);
+    setFormData((prev) => {
+      const qtyBaseVal = prev.quantity * fOld;
+      const qtyNew = fNew > 0 ? qtyBaseVal / fNew : prev.quantity;
+      const total = prev.totalPrice;
+      const unitNew = qtyNew > 0 ? total / qtyNew : 0;
+      return {
+        ...prev,
+        quantity: qtyNew,
+        unitPrice: unitNew,
+        totalPrice: total,
+      };
+    });
+    setEntryUnit(newUnit);
+  };
+
   const conversionFactorToBase = (() => {
-    if (!selectedProduct || !baseUnit || !entryUnit) return 1;
-    if (entryUnit === baseUnit) return 1;
-    const conv = (selectedProduct.conversions || []).find(
-      (c) => c.unit === entryUnit && c.baseUnit === baseUnit
+    if (!selectedProduct || !baseUnit || !effectiveEntryUnit) return 1;
+    return resolveConversionFactorToBase(
+      effectiveEntryUnit,
+      baseUnit,
+      selectedProduct.conversions,
     );
-    const factor = Number(conv?.equivalentTo || 0);
-    return factor > 0 ? factor : 1;
   })();
 
   const qtyBase = formData.quantity * conversionFactorToBase;
-  const unitPriceBase =
-    conversionFactorToBase > 0 ? (formData.unitPrice / conversionFactorToBase) : formData.unitPrice;
+  /** Preço por unidade-base: usa o total informado para evitar erro de arredondamento L/ml. */
+  const unitPriceBase = qtyBase > 0 ? formData.totalPrice / qtyBase : 0;
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -266,7 +349,7 @@ export function StockEntryForm({
     if (!formData.productId) err.productId = true;
     if (!formData.supplierId) err.supplierId = true;
     if (!formData.quantity || formData.quantity <= 0) err.quantity = true;
-    if (!formData.unitPrice || formData.unitPrice <= 0) err.unitPrice = true;
+    if (!formData.totalPrice || formData.totalPrice <= 0) err.totalPrice = true;
     const rowProduct = products.find((p) => p.id === formData.productId);
     if (rowProduct?.isPerishable && !formData.expirationDate?.trim()) {
       err.expirationDate = true;
@@ -275,7 +358,7 @@ export function StockEntryForm({
     if (Object.keys(err).length > 0) return;
 
     if (!selectedProduct) return;
-    const totalPrice = formData.quantity * formData.unitPrice;
+    const totalPrice = formData.totalPrice;
     
     // Calculate new weighted average cost
     // NOTE: In edit mode, this calculation is for display only, the service handles the complex revert logic
@@ -306,6 +389,7 @@ export function StockEntryForm({
         supplierId: '',
         quantity: 0,
         unitPrice: 0,
+        totalPrice: 0,
         batchNumber: '',
         expirationDate: '',
         notes: '',
@@ -314,7 +398,6 @@ export function StockEntryForm({
     }
   };
   
-  const totalPrice = formData.quantity * formData.unitPrice;
   const newAvgCost = selectedProduct
     ? calculateWeightedAverageCost(
         selectedProduct.currentStock,
@@ -494,7 +577,7 @@ export function StockEntryForm({
                 {selectedProduct && availableUnits.length > 0 && (
                   <select
                     value={entryUnit || selectedProduct.measurementUnit}
-                    onChange={(e) => setEntryUnit(e.target.value as MeasurementUnit)}
+                    onChange={(e) => handleEntryUnitChange(e.target.value as MeasurementUnit)}
                     className="px-3 py-2 rounded-lg border border-gray-300 bg-white"
                     title="Unidade da quantidade informada"
                   >
@@ -510,15 +593,16 @@ export function StockEntryForm({
                 <div className="text-gray-500 mt-1 space-y-1">
                   <p>
                     Estoque deste produto é controlado em <strong>{selectedProduct.measurementUnit}</strong>
-                    {entryUnit && entryUnit !== selectedProduct.measurementUnit
-                      ? ` (lançamento em ${entryUnit})`
+                    {effectiveEntryUnit && effectiveEntryUnit !== selectedProduct.measurementUnit
+                      ? ` (lançamento em ${effectiveEntryUnit})`
                       : ''}
                     .
                   </p>
-                  {entryUnit && entryUnit !== selectedProduct.measurementUnit && (
+                  {effectiveEntryUnit && effectiveEntryUnit !== selectedProduct.measurementUnit && (
                     <p className="text-xs">
-                      Conversão aplicada: 1 {entryUnit} = {conversionFactorToBase} {selectedProduct.measurementUnit}.
-                      No estoque será somado: {qtyBase.toFixed(4)} {selectedProduct.measurementUnit}.
+                      Conversão aplicada: 1 {effectiveEntryUnit} = {conversionFactorToBase}{' '}
+                      {selectedProduct.measurementUnit}. No estoque será somado: {qtyBase.toFixed(4)}{' '}
+                      {selectedProduct.measurementUnit}.
                     </p>
                   )}
                 </div>
@@ -527,7 +611,8 @@ export function StockEntryForm({
             
             <div>
               <label className="block text-gray-700 mb-2">
-                Preço Unitário{entryUnit ? ` (${entryUnit})` : ''} <span className="text-destructive">*</span>
+                Preço Unitário{effectiveEntryUnit ? ` (${effectiveEntryUnit})` : ''}{' '}
+                <span className="text-destructive">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500">
@@ -552,11 +637,31 @@ export function StockEntryForm({
             
             <div>
               <label className="block text-gray-700 mb-2">
-                Valor Total
+                Valor Total <span className="text-destructive">*</span>
               </label>
-              <div className="px-4 py-2 bg-gray-100 rounded-lg text-gray-700">
-                {formatCurrency(totalPrice)}
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500">
+                  R$
+                </span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={formData.totalPrice || ''}
+                  onChange={(e) => handleTotalChange(e.target.value)}
+                  aria-invalid={fieldErrors.totalPrice}
+                  className={cn(
+                    'w-full pl-12 pr-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                    nativeFieldInvalidClass(!!fieldErrors.totalPrice),
+                    !fieldErrors.totalPrice && 'border border-gray-300'
+                  )}
+                  placeholder="0.00"
+                />
               </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Você pode lançar o total da linha; o preço unitário ({effectiveEntryUnit || '—'}) é ajustado
+                automaticamente.
+              </p>
             </div>
           </div>
           
