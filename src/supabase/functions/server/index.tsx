@@ -3184,7 +3184,13 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
 
     if (queryError) {
       console.error('Error getting entries:', queryError);
-      return c.json({ error: 'Erro ao buscar entradas' }, 500);
+      return c.json(
+        {
+          error: 'Erro ao buscar entradas',
+          details: queryError.message,
+        },
+        500,
+      );
     }
 
     // Format entries data

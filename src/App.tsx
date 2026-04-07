@@ -32,6 +32,7 @@ import { QuickSearch } from './components/QuickSearch';
 import { PWAUpdateNotifier } from './components/PWAUpdateNotifier';
 import { CostDashboard } from './components/costs/CostDashboard';
 import { IntegrationsPage } from './components/integrations/IntegrationsPage';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Icons
 import { 
@@ -750,7 +751,8 @@ function MainApp() {
             </>
           )}
           {currentPage === 'stock-entry' && user.permissions.canManageStock && (
-            <div className="space-y-8">
+            <ErrorBoundary title="Erro na tela de Recebimentos">
+              <div className="space-y-8">
               {/* Show create form only if NOT editing, or inside modal? 
                   Better UX: Show create form at top, list below.
                   When editing, scrolling to top or show modal? 
@@ -789,7 +791,8 @@ function MainApp() {
                 }}
                 onDelete={handleDeleteStockEntry}
               />
-            </div>
+              </div>
+            </ErrorBoundary>
           )}
           {currentPage === 'stock-balance' && user.permissions.canManageStock && (
             <StockBalance products={products} onBalanceComplete={() => void refreshData({ silent: true })} />

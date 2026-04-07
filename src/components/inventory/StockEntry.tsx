@@ -25,13 +25,26 @@ export function StockEntryForm({
   isEditing = false,
   onCancelEdit 
 }: StockEntryFormProps) {
+  const initialExpirationYmd = (() => {
+    const exp = initialData?.expirationDate as unknown;
+    if (!exp) return '';
+    if (typeof exp === 'string') return exp.split('T')[0] || '';
+    if (exp instanceof Date) return exp.toISOString().split('T')[0];
+    try {
+      // fallback para timestamps/objetos vindos do DB
+      return new Date(exp as any).toISOString().split('T')[0];
+    } catch {
+      return '';
+    }
+  })();
+
   const [formData, setFormData] = useState({
     productId: initialData?.productId || '',
     supplierId: initialData?.supplierId || '',
     quantity: initialData?.quantity || 0,
     unitPrice: initialData?.unitPrice || 0,
     batchNumber: initialData?.batchNumber || '',
-    expirationDate: initialData?.expirationDate ? initialData.expirationDate.toISOString().split('T')[0] : '',
+    expirationDate: initialExpirationYmd,
     notes: initialData?.notes || '',
   });
   

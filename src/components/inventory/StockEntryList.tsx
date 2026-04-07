@@ -21,6 +21,10 @@ interface StockEntryListProps {
 
 export function StockEntryList({ entries, products, suppliers, onEdit, onDelete }: StockEntryListProps) {
   const isMobile = useIsMobile();
+  // Proteção extra: em casos de falha de carregamento, evita tela branca.
+  const safeEntries = Array.isArray(entries) ? entries : [];
+  const safeProducts = Array.isArray(products) ? products : [];
+  const safeSuppliers = Array.isArray(suppliers) ? suppliers : [];
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
   /** Datas aplicadas na lista (atualizam ao Filtrar ou Enter). */
@@ -30,9 +34,9 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
   const [draftDateTo, setDraftDateTo] = useState('');
   
   const filteredEntries = useMemo(() => {
-    return entries.filter((entry) => {
-      const product = products.find((p) => p.id === entry.productId);
-      const supplier = suppliers.find((s) => s.id === entry.supplierId);
+    return safeEntries.filter((entry) => {
+      const product = safeProducts.find((p) => p.id === entry.productId);
+      const supplier = safeSuppliers.find((s) => s.id === entry.supplierId);
       const q = searchTerm.toLowerCase();
       const matchesSearch =
         !q ||
@@ -42,16 +46,23 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
         (supplier?.name.toLowerCase().includes(q) ?? false);
       const matchesSupplier = filterSupplier ? entry.supplierId === filterSupplier : true;
       // Evita bug de fuso (toISOString pode "virar o dia" e quebrar filtro por período).
-      const entryDayRaw = (entry.entryDate || '').split('T')[0];
-      const entryDay =
-        entryDayRaw && /^\d{4}-\d{2}-\d{2}$/.test(entryDayRaw)
-          ? entryDayRaw
-          : new Date(entry.entryDate).toISOString().split('T')[0];
+      const entryDateVal = (entry as any).entryDate;
+      const entryDayRaw =
+        typeof entryDateVal === 'string' ? entryDateVal.split('T')[0] : '';
+      const entryDay = (() => {
+        if (entryDayRaw && /^\d{4}-\d{2}-\d{2}$/.test(entryDayRaw)) return entryDayRaw;
+        if (entryDateVal instanceof Date) return entryDateVal.toISOString().split('T')[0];
+        try {
+          return new Date(entryDateVal).toISOString().split('T')[0];
+        } catch {
+          return '';
+        }
+      })();
       const matchesFrom = !dateFrom || entryDay >= dateFrom;
       const matchesTo = !dateTo || entryDay <= dateTo;
       return matchesSearch && matchesSupplier && matchesFrom && matchesTo;
     });
-  }, [entries, products, suppliers, searchTerm, filterSupplier, dateFrom, dateTo]);
+  }, [safeEntries, safeProducts, safeSuppliers, searchTerm, filterSupplier, dateFrom, dateTo]);
 
   const applyDateFilters = useCallback(() => {
     if (draftDateFrom && draftDateTo && draftDateFrom > draftDateTo) {
