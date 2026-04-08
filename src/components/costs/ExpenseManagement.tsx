@@ -231,14 +231,24 @@ export function ExpenseManagement() {
     return expenses.filter((e: any) => {
       if (!expenseMatchesStatusFilter(e, filter, today)) return false;
       if (!listSearch.trim()) return true;
+      const amount = parseFloat(String(e.amount ?? '0')) || 0;
+      const paid = expensePaidAmount(e) || 0;
       return rowMatchesSearch(listSearch, [
         e.description,
         e.reference_number,
         e.cost_centers?.name,
         e.expense_types?.name,
         e.suppliers?.name,
+        // Valor: aceita busca por "100", "100,00", "R$ 100", etc.
         e.amount != null ? String(e.amount) : '',
-        e.paid_amount != null ? String(e.paid_amount) : ''
+        amount.toFixed(2),
+        amount.toFixed(2).replace('.', ','),
+        formatCurrency(amount),
+        // Pago: idem
+        e.paid_amount != null ? String(e.paid_amount) : '',
+        paid.toFixed(2),
+        paid.toFixed(2).replace('.', ','),
+        formatCurrency(paid)
       ]);
     });
   }, [expenses, filter, listSearch]);
@@ -548,10 +558,10 @@ export function ExpenseManagement() {
 
     setSubmitLoading(true);
     try {
-      const paymentMethod =
-        formData.paymentStatus === 'paid' && formData.paymentMethod
-          ? formData.paymentMethod
-          : undefined;
+      // Importante: salvar forma de pagamento mesmo quando está "a pagar",
+      // para boletos/parcelas exibirem corretamente e manter rastreio.
+      // Quando pago, continua obrigatório.
+      const paymentMethod = formData.paymentMethod ? formData.paymentMethod : undefined;
       const paymentDate =
         formData.paymentStatus === 'paid' && formData.paymentDate
           ? formData.paymentDate
@@ -571,10 +581,12 @@ export function ExpenseManagement() {
           amount: parseFloat(String(row.amount).replace(',', '.')),
           description: n > 1 ? `${baseDesc || 'Despesa'} (Parcela ${i + 1}/${n})` : baseDesc || undefined,
           referenceNumber: ref || undefined,
+          // Cada parcela precisa respeitar o vencimento informado pelo usuário
+          // (não gerar/derivar a partir da data base).
           dueDate: row.dueDate,
           paymentDate: undefined,
           paymentStatus: 'pending' as PaymentStatus,
-          paymentMethod: undefined,
+          paymentMethod,
           paymentTermsType: 'parcelado' as const,
           invoiceDays: undefined,
           installmentCount: n,
