@@ -411,12 +411,9 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
                 aria-describedby="bundle-help"
               />
               <label htmlFor="isBundle" className="text-foreground cursor-pointer">
-                Produto em promoção/combo (baixa itens do estoque)
+                Produto em promoção/combo (baixa itens em dobro)
               </label>
             </div>
-            <p id="bundle-help" className="text-xs text-muted-foreground ml-6">
-              Ex: “Chopp em Dobro” baixa 2× Chopp; “Whisky + 8 Redbull” baixa 1× Whisky e 8× Redbull.
-            </p>
 
             {formData.isBundle && (
               <div className="ml-6 mt-3 space-y-3 rounded-lg border border-gray-200 p-4">
