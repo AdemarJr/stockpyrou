@@ -148,11 +148,15 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const handleBarcodeDetected = (barcode: string) => {
     const product = products.find(p => p.barcode === barcode);
     if (product) {
+      const salePrice =
+        typeof product.sellingPrice === 'number' && product.sellingPrice > 0
+          ? product.sellingPrice
+          : product.averageCost * 1.5;
       addToCart({
         id: product.id,
         type: 'product',
         name: product.name,
-        price: product.averageCost * 1.5,
+        price: salePrice,
         category: product.category
       });
       toast.success(`Adicionado: ${product.name}`, { duration: 1500 });
@@ -231,7 +235,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       id: p.id,
       type: 'product' as const,
       name: p.name,
-      price: p.averageCost * 1.5, // Preço sugerido (Custo + 50%) se não tiver venda
+      // Preço de venda vem do cadastro do produto.
+      // Fallback: sugere custo + 50% apenas se não existir preço definido.
+      price: (typeof p.sellingPrice === 'number' && p.sellingPrice > 0) ? p.sellingPrice : (p.averageCost * 1.5),
       category: p.category,
       image: p.image
     }))
