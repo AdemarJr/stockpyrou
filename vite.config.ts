@@ -1,14 +1,48 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import type { Plugin } from 'vite';
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
-  import { defineConfig } from 'vite';
-  import react from '@vitejs/plugin-react';
-  import tailwindcss from '@tailwindcss/vite';
-  import path from 'path';
+/**
+ * Rollup (Vite build) on some Linux/CI environments fails to resolve extensionless
+ * relative imports inside @supabase/realtime-js (e.g. `./phoenix/socketAdapter`).
+ * Point them explicitly at the `.js` files next to the importer.
+ */
+function resolveSupabaseRealtimePhoenixImports(): Plugin {
+  return {
+    name: 'resolve-supabase-realtime-phoenix-imports',
+    enforce: 'pre',
+    resolveId(id, importer) {
+      if (!importer || !id.startsWith('./phoenix/')) return null;
+      if (path.extname(id)) return null;
 
-  export default defineConfig({
-    plugins: [react(), tailwindcss()],
-    resolve: {
-      extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
-      alias: {
+      const cleanImporter = importer.split('?')[0].split('#')[0];
+      if (!cleanImporter.includes(`${path.sep}@supabase${path.sep}realtime-js${path.sep}`)) {
+        return null;
+      }
+
+      const base = path.basename(id); // e.g. socketAdapter
+      if (!base || base.includes('..')) return null;
+
+      const resolved = path.join(path.dirname(cleanImporter), 'phoenix', `${base}.js`);
+      try {
+        if (fs.existsSync(resolved)) return resolved;
+      } catch {
+        /* ignore */
+      }
+      return null;
+    },
+  };
+}
+
+export default defineConfig({
+  plugins: [resolveSupabaseRealtimePhoenixImports(), react(), tailwindcss()],
+  resolve: {
+    extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
+    dedupe: ['@supabase/supabase-js', '@supabase/realtime-js'],
+    alias: {
         'vaul@1.1.2': 'vaul',
         'sonner@2.0.3': 'sonner',
         'recharts@2.15.2': 'recharts',
@@ -58,8 +92,8 @@
       target: 'esnext',
       outDir: 'build',
     },
-    server: {
-      port: 3000,
-      open: true,
-    },
-  });
+  server: {
+    port: 3000,
+    open: true,
+  },
+});
