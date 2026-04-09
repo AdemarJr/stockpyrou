@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Building2, Plus, LogOut, ArrowRight } from 'lucide-react';
 import { useCompany } from '../../contexts/CompanyContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { APP_NAME } from '../../config/branding';
 
 export function CompanySelection() {
   const { companies, selectCompany, createCompany, isLoading } = useCompany();
@@ -42,7 +43,7 @@ export function CompanySelection() {
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Bem-vindo ao StockWise Pro
+          Bem-vindo ao {APP_NAME}
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
           {user?.email}

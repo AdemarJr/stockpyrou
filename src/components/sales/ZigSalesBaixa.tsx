@@ -3,6 +3,7 @@ import { RefreshCw, Store, AlertCircle, Calendar, ShoppingCart, Package, X, Chec
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { APP_NAME } from '../../config/branding';
 
 interface PendingSale {
   transactionId: string;
@@ -503,7 +504,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
           <div>
             <h2 className="text-xl font-bold text-gray-900">Vendas ZIG — baixa no estoque</h2>
             <p className="text-sm text-gray-500">
-              Buscar vendas na ZIG, conferir o preview e confirmar a baixa no PyrouStock (a confirmação não refaz o GET na ZIG).
+              Buscar vendas na ZIG, conferir o preview e confirmar a baixa no {APP_NAME} (a confirmação não refaz o GET na ZIG).
             </p>
           </div>
         </div>

@@ -5,6 +5,7 @@ import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Company } from '../../types';
+import { APP_NAME } from '../../config/branding';
 
 interface AdminSaaSProps {
   onLogout: () => void;
@@ -442,7 +443,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
         <div className="flex items-center gap-3">
           <img src={logoImg} alt="Logo" className="w-8 h-8 rounded-lg" />
           <div>
-            <h1 className="font-black text-sm leading-none">PyrouStock</h1>
+            <h1 className="font-black text-sm leading-none">{APP_NAME}</h1>
             <span className="text-[9px] text-slate-400 uppercase tracking-widest font-bold">Painel Admin</span>
           </div>
         </div>
@@ -473,7 +474,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
           <div className="flex items-center gap-3">
             <img src={logoImg} alt="Logo" className="w-10 h-10 rounded-xl" />
             <div>
-              <h1 className="font-black text-lg leading-none">PyrouStock</h1>
+              <h1 className="font-black text-lg leading-none">{APP_NAME}</h1>
               <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Painel de Controle</span>
             </div>
           </div>

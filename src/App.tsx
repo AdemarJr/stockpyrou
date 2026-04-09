@@ -64,6 +64,7 @@ import { PriceHistoryRepository } from './repositories/PriceHistoryRepository';
 import { toast } from 'sonner@2.0.3';
 import { useIsMobile } from './components/ui/use-mobile';
 import logoImg from './public/logo.svg';
+import { APP_NAME, APP_ORIGIN, APP_SITE_URL } from './config/branding';
 
 type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'integrations' | 'users' | 'admin' | 'costs';
 
@@ -80,8 +81,8 @@ function MainApp() {
       { name: 'theme-color', content: '#2563eb' },
       { name: 'apple-mobile-web-app-capable', content: 'yes' },
       { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
-      { name: 'apple-mobile-web-app-title', content: 'PyrouStock' },
-      { name: 'application-name', content: 'PyrouStock' },
+      { name: 'apple-mobile-web-app-title', content: APP_NAME },
+      { name: 'application-name', content: APP_NAME },
       { name: 'msapplication-TileColor', content: '#2563eb' },
       { name: 'mobile-web-app-capable', content: 'yes' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover' }
@@ -97,14 +98,33 @@ function MainApp() {
       meta.setAttribute('content', tag.content);
     });
 
-    // Update Favicon
+    const ogTags: { property: string; content: string }[] = [
+      { property: 'og:site_name', content: APP_NAME },
+      { property: 'og:url', content: APP_SITE_URL },
+      { property: 'og:type', content: 'website' },
+    ];
+    ogTags.forEach((tag) => {
+      let meta = document.querySelector(`meta[property="${tag.property}"]`);
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('property', tag.property);
+        document.head.appendChild(meta);
+      }
+      meta.setAttribute('content', tag.content);
+    });
+
+    document.title = APP_NAME;
+
+    // Favicon: /public/favicon.svg (também declarado no index.html para primeira pintura)
+    const faviconHref = '/favicon.svg';
     let favicon = document.querySelector('link[rel="icon"]');
     if (!favicon) {
       favicon = document.createElement('link');
       favicon.setAttribute('rel', 'icon');
       document.head.appendChild(favicon);
     }
-    favicon.setAttribute('href', logoImg);
+    favicon.setAttribute('type', 'image/svg+xml');
+    favicon.setAttribute('href', faviconHref);
 
     let appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
     if (!appleIcon) {
@@ -112,7 +132,7 @@ function MainApp() {
       appleIcon.setAttribute('rel', 'apple-touch-icon');
       document.head.appendChild(appleIcon);
     }
-    appleIcon.setAttribute('href', logoImg);
+    appleIcon.setAttribute('href', faviconHref);
 
     // Add manifest link
     let link = document.querySelector('link[rel="manifest"]');
@@ -622,8 +642,8 @@ function MainApp() {
           {sidebarOpen ? (
             <>
               <div className="flex items-center gap-2">
-                <img src={logoImg} alt="PyrouStock Logo" className="w-8 h-8 rounded-lg object-contain" />
-                <h1 className="text-blue-600 dark:text-blue-400 font-bold text-xl">PyrouStock</h1>
+                <img src={logoImg} alt={`${APP_NAME} logo`} className="w-8 h-8 rounded-lg object-contain" />
+                <h1 className="text-blue-600 dark:text-blue-400 font-bold text-xl">{APP_NAME}</h1>
               </div>
               <div className="mt-2 flex items-center gap-2 px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-sm text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600" onClick={() => selectCompany('')}>
                 <Building className="w-3 h-3" />
@@ -677,7 +697,7 @@ function MainApp() {
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between sticky top-0 z-40 md:hidden">
         <div className="flex items-center gap-2">
            <img src={logoImg} alt="Logo" className="w-8 h-8 rounded-lg object-contain" />
-           <h1 className="text-blue-600 dark:text-blue-400 font-bold text-lg">PyrouStock</h1>
+           <h1 className="text-blue-600 dark:text-blue-400 font-bold text-lg">{APP_NAME}</h1>
         </div>
         
         <div className="flex items-center gap-2">

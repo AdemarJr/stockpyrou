@@ -5,6 +5,11 @@ import { useAuth } from './AuthContext';
 import { toast } from 'sonner@2.0.3';
 import { projectId } from '../utils/supabase/env';
 import { fetchCompanyStatusJson, fetchWithTimeout } from '../utils/fetchWithTimeout';
+import {
+  readLastCompanyId,
+  writeLastCompanyId,
+  clearLastCompanyId,
+} from '../config/branding';
 
 interface CompanyContextType {
   currentCompany: Company | null;
@@ -115,7 +120,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
             setCurrentCompany((prev) =>
               prev?.id === userCompany.id ? prev : userCompany
             );
-            localStorage.setItem('stockwise_last_company_id', user.companyId);
+            writeLastCompanyId(user.companyId);
             return;
           }
         }
@@ -128,14 +133,14 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
           setCurrentCompany(null);
         }
       } else if (data.length > 0) {
-        const savedCompanyId = localStorage.getItem('stockwise_last_company_id');
+        const savedCompanyId = readLastCompanyId();
         if (savedCompanyId) {
           const savedCompany = data.find(c => c.id === savedCompanyId);
           if (savedCompany) {
             const statusJson = await fetchCompanyStatusJson(projectId, savedCompanyId);
             const status = statusJson?.status;
             if (status === 'inactive') {
-              localStorage.removeItem('stockwise_last_company_id');
+              clearLastCompanyId();
             } else if (status === 'active' || statusJson == null) {
               setCurrentCompany((prev) =>
                 prev?.id === savedCompany.id ? prev : savedCompany
@@ -160,7 +165,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const selectCompany = async (companyId: string): Promise<boolean> => {
     if (!companyId) {
       setCurrentCompany(null);
-      localStorage.removeItem('stockwise_last_company_id');
+      clearLastCompanyId();
       return true;
     }
     
@@ -176,7 +181,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
       const company = companies.find(c => c.id === companyId);
       if (company) {
         setCurrentCompany(company);
-        localStorage.setItem('stockwise_last_company_id', companyId);
+        writeLastCompanyId(companyId);
         return true;
       }
       return false;

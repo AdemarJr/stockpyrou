@@ -4,6 +4,7 @@ import { useCompany } from '../../contexts/CompanyContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner@2.0.3';
 import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
+import { APP_NAME } from '../../config/branding';
 
 interface SaleReceiptItem {
   name: string;
@@ -73,7 +74,7 @@ export function SaleReceipt({ items, total, saleDate, onClose }: SaleReceiptProp
   const generateTextReceipt = () => {
     const lines = [
       '========================================',
-      currentCompany?.name.toUpperCase() || 'PYROUSTOCK',
+      currentCompany?.name.toUpperCase() || APP_NAME.toUpperCase(),
       '========================================',
       `Cupom Fiscal: ${receiptNumber}`,
       `Data: ${formatDateTime(saleDate)}`,
@@ -205,7 +206,7 @@ export function SaleReceipt({ items, total, saleDate, onClose }: SaleReceiptProp
           {/* Divider */}
           <div className="border-t border-dashed border-gray-300 dark:border-gray-600 print:border-gray-400 mt-6 pt-4">
             <p className="text-center text-[10px] text-gray-500 dark:text-gray-500 print:text-gray-600">
-              Documento gerado pelo PyrouStock
+              Documento gerado pelo {APP_NAME}
             </p>
           </div>
         </div>

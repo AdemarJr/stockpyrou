@@ -602,16 +602,16 @@ async function bootstrapAdminUser(email: string, password: string): Promise<{ su
     // Special Handling for SaaS Super Admin
     if (email === 'admin@stockwise.com') {
       userId = '1c52f3a8-0bf6-4d86-b432-d0390d552cee'; // Fixed ID for Super Admin
-      fullName = 'Super Admin StockWise';
+      fullName = 'Super Admin StockPyrou';
       
       // Ensure we have a company for the super admin (some DBs require this FK)
       // Try to find a "System" or "Admin" company, or default to the first available one
       const { data: systemCompany } = await supabase
         .from('companies')
         .select('id')
-        .ilike('name', '%StockWise%')
+        .or('name.ilike.%StockWise%,name.ilike.%StockPyrou%')
         .limit(1)
-        .single();
+        .maybeSingle();
         
       if (systemCompany) {
         companyId = systemCompany.id;
@@ -619,7 +619,7 @@ async function bootstrapAdminUser(email: string, password: string): Promise<{ su
         // Create a system company if it doesn't exist
         const { data: newCompany, error: createCompanyError } = await supabase
           .from('companies')
-          .insert({ name: 'StockWise System', cnpj: '00.000.000/0000-00' })
+          .insert({ name: 'StockPyrou System', cnpj: '00.000.000/0000-00' })
           .select('id')
           .single();
           

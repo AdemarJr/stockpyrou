@@ -37,6 +37,7 @@ import image_e6773d54ec7685ec36adaaee57705c2d461a8da0 from 'figma:asset/e6773d54
 import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
 import dashboardAppImg from "figma:asset/0a1edac33c22f30efd413c7ef8bd73eb4788f257.png";
 import { ImageWithFallback } from '../figma/ImageWithFallback';
+import { APP_NAME, APP_ORIGIN, APP_SITE_URL } from '../../config/branding';
 
 interface LandingPageProps {
   onLoginClick: () => void;
@@ -45,6 +46,9 @@ interface LandingPageProps {
 
 export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+
+  const waHref = (text: string) =>
+    `https://wa.me/5592994764780?text=${encodeURIComponent(text)}`;
 
   const features = [
     {
@@ -200,9 +204,9 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             <div className="flex items-center gap-2">
-              <img src={logoImg} alt="PyrouStock Logo" className="w-10 h-10 rounded-xl" />
+              <img src={logoImg} alt={`${APP_NAME} logo`} className="w-10 h-10 rounded-xl" />
               <span className="text-2xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                PyrouStock
+                {APP_NAME}
               </span>
             </div>
 
@@ -217,7 +221,7 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
                 Acessar Painel
               </button>
               <a 
-                href="https://wa.me/5592994764780?text=Olá! Gostaria de conhecer o PyrouStock" 
+                href={waHref(`Olá! Gostaria de conhecer o ${APP_NAME}`)} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="bg-blue-600 text-white px-6 py-3 rounded-full font-bold text-sm hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
@@ -252,7 +256,7 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
               Acessar Painel
             </button>
             <a 
-              href="https://wa.me/5592994764780?text=Olá! Gostaria de conhecer o PyrouStock"
+              href={waHref(`Olá! Gostaria de conhecer o ${APP_NAME}`)}
               className="block w-full text-center bg-blue-600 text-white py-4 rounded-xl font-bold"
             >
               Falar com Consultor
@@ -291,7 +295,7 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
               transition={{ delay: 0.2 }}
               className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto lg:mx-0 leading-relaxed"
             >
-              Simplifique sua operação com o PyrouStock. Um SaaS multi-tenant completo com <strong className="text-gray-900">Dark Mode</strong>, <strong className="text-gray-900">busca instantânea (⌘K)</strong> e gestão de estoque e PDV inteligente.
+              Simplifique sua operação com o {APP_NAME}. Um SaaS multi-tenant completo com <strong className="text-gray-900">Dark Mode</strong>, <strong className="text-gray-900">busca instantânea (⌘K)</strong> e gestão de estoque e PDV inteligente.
             </motion.p>
             
             {/* Feature Pills */}
@@ -322,7 +326,7 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
               className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4"
             >
               <a 
-                href="https://wa.me/5592994764780?text=Olá! Gostaria de falar com um consultor PyrouStock"
+                href={waHref(`Olá! Gostaria de falar com um consultor ${APP_NAME}`)}
                 className="w-full sm:w-auto px-10 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl font-bold text-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-2xl shadow-blue-200 flex items-center justify-center gap-2 group"
               >
                 Começar Agora
@@ -411,7 +415,7 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       <section className="py-20 px-4 bg-gradient-to-br from-gray-50 to-blue-50/30">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-blue-600 font-bold text-lg mb-4">Por que escolher o PyrouStock?</h2>
+            <h2 className="text-blue-600 font-bold text-lg mb-4">Por que escolher o {APP_NAME}?</h2>
             <p className="text-3xl md:text-4xl font-black text-gray-900">Diferenciais que fazem a diferença</p>
           </div>
           
@@ -550,7 +554,7 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
               ))}
             </div>
             <a 
-              href="https://wa.me/5592994764780?text=Olá! Gostaria de ter o PyrouStock no meu celular"
+              href={waHref(`Olá! Gostaria de ter o ${APP_NAME} no meu celular`)}
               className="inline-flex items-center gap-3 px-8 py-4 bg-white text-blue-900 rounded-2xl font-bold text-lg hover:bg-blue-50 transition-all"
             >
               Quero no meu celular
@@ -565,10 +569,10 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
         <div className="max-w-5xl mx-auto bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[3rem] p-8 md:p-16 text-center text-white relative overflow-hidden shadow-2xl">
           <div className="relative z-10 space-y-8">
             <h2 className="text-3xl md:text-5xl font-black">Pronto para profissionalizar sua gestão?</h2>
-            <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">Agende uma demonstração gratuita com um de nossos consultores e veja como o PyrouStock pode transformar seu negócio hoje.</p>
+            <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">Agende uma demonstração gratuita com um de nossos consultores e veja como o {APP_NAME} pode transformar seu negócio hoje.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4">
               <a 
-                href="https://wa.me/5592994764780?text=Olá! Gostaria de agendar uma demonstração do PyrouStock"
+                href={waHref(`Olá! Gostaria de agendar uma demonstração do ${APP_NAME}`)}
                 className="bg-white text-blue-600 px-10 py-5 rounded-2xl font-black text-lg hover:bg-blue-50 transition-all shadow-xl flex items-center justify-center gap-2"
               >
                 <MessageCircle className="w-6 h-6" />
@@ -592,11 +596,18 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       <footer className="py-12 border-t border-gray-100">
         <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex items-center gap-2">
-            <img src={logoImg} alt="PyrouStock Logo" className="w-8 h-8 rounded-lg" />
-            <span className="font-black text-xl text-gray-900">PyrouStock</span>
+            <img src={logoImg} alt={`${APP_NAME} logo`} className="w-8 h-8 rounded-lg" />
+            <span className="font-black text-xl text-gray-900">{APP_NAME}</span>
           </div>
-          <div className="text-gray-500 text-sm font-medium">
-            © 2026 PyrouStock. Todos os direitos reservados.
+          <div className="text-gray-500 text-sm font-medium text-center md:text-left">
+            <p>© 2026 {APP_NAME}. Todos os direitos reservados.</p>
+            <a
+              href={APP_SITE_URL}
+              className="text-blue-600 hover:underline mt-1 inline-block break-all"
+              rel="noopener noreferrer"
+            >
+              {APP_ORIGIN}
+            </a>
           </div>
           <div className="flex gap-6 items-center">
             {onAdminClick && (

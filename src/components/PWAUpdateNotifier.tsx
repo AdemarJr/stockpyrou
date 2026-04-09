@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, Download, X } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { APP_NAME } from '../config/branding';
 
 export function PWAUpdateNotifier() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -21,10 +22,13 @@ export function PWAUpdateNotifier() {
     try {
       // Service Worker inline como Blob (evita problemas de MIME type)
       const swCode = `
-// Service Worker para PyrouStock PWA - Versão Inline
-const VERSION = '2.1.0';
-const CACHE_NAME = \`pyroustock-v\${VERSION}\`;
-const DATA_CACHE_NAME = \`pyroustock-data-v\${VERSION}\`;
+// Service Worker StockPyrou PWA — versão inline
+const VERSION = '2.2.0';
+const CACHE_NAME = \`stockpyrou-v\${VERSION}\`;
+const DATA_CACHE_NAME = \`stockpyrou-data-v\${VERSION}\`;
+
+const isAppCache = (name) =>
+  name.startsWith('pyroustock-') || name.startsWith('stockpyrou-');
 
 const STATIC_CACHE = [
   '/',
@@ -70,7 +74,7 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName.startsWith('pyroustock-') && 
+            if (isAppCache(cacheName) && 
                 cacheName !== CACHE_NAME && 
                 cacheName !== DATA_CACHE_NAME) {
               console.log('[SW] Removing old cache:', cacheName);
@@ -215,7 +219,7 @@ self.addEventListener('message', (event) => {
       caches.keys().then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName.startsWith('pyroustock-')) {
+            if (isAppCache(cacheName)) {
               return caches.delete(cacheName);
             }
           })
@@ -362,7 +366,7 @@ console.log(\`[SW] Service Worker versão \${VERSION} pronto!\`);
           <div className="flex-1">
             <h3 className="font-black text-gray-900 mb-1">Nova Versão Disponível!</h3>
             <p className="text-sm text-gray-600 mb-4">
-              Uma atualização do PyrouStock está pronta. Clique em atualizar para obter as novidades.
+              Uma atualização do {APP_NAME} está pronta. Clique em atualizar para obter as novidades.
             </p>
             <div className="flex items-center gap-2">
               <button

@@ -6,6 +6,7 @@ import { toast } from 'sonner@2.0.3';
 import { cn } from '../ui/utils';
 import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
 import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
+import { APP_NAME } from '../../config/branding';
 
 interface LoginProps {
   onBackToLanding?: () => void;
@@ -89,7 +90,7 @@ export function Login({ onBackToLanding }: LoginProps) {
           <div className="bg-white rounded-2xl p-4 w-20 h-20 mx-auto mb-4 flex items-center justify-center shadow-lg">
             <img src={logoImg} alt="Logo" className="w-12 h-12 object-contain" />
           </div>
-          <h1 className="mb-2 text-3xl font-black">PyrouStock</h1>
+          <h1 className="mb-2 text-3xl font-black">{APP_NAME}</h1>
           <p className="text-blue-100">Sistema de Gestão de Estoque Inteligente</p>
         </div>
 
@@ -229,7 +230,7 @@ export function Login({ onBackToLanding }: LoginProps) {
 
       {/* Footer */}
       <div className="absolute bottom-4 left-0 right-0 text-center text-gray-600">
-        <p>© 2026 PyrouStock - Todos os direitos reservados</p>
+        <p>© 2026 {APP_NAME} — Todos os direitos reservados</p>
       </div>
     </div>
   );

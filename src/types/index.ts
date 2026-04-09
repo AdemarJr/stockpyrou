@@ -1,4 +1,4 @@
-// Types for StockWise Pro System
+// Types for StockPyrou
 
 export type MeasurementUnit =
   | 'kg'

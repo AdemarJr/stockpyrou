@@ -1,4 +1,4 @@
-// Calculation utilities for StockWise Pro
+// Calculation utilities for StockPyrou
 
 import type { Product, PriceHistory, StockEntry, StockMovement, Recipe, RecipeIngredient } from '../types';
 

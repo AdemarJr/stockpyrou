@@ -3261,7 +3261,7 @@ app.post("/make-server-8a20b27d/send-receipt-email", async (c) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: `${companyName || 'PyrouStock'} <noreply@resend.dev>`,
+        from: `${companyName || 'StockPyrou'} <noreply@resend.dev>`,
         to: [to],
         subject: subject,
         text: text,
