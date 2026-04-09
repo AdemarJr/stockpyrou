@@ -8,7 +8,7 @@ import * as kv from "./kv_store.tsx";
  * 1. `fetchPendingSales` → GET na API ZIG (`/erp/saida-produtos`), intervalo partido por dia civil; gera `previewSessionId` + KV `zig_preview_session:…`.
  * 2. `confirmStockFromZigPreviewSnapshot` (rota HTTP `POST …/zig/confirm`) → **não** chama a ZIG; só usa `lineItems` e/ou sessão KV; baixa em `products` / `stock_movements` e marca `zig_processed:…`.
  *
- * **Baixa automática (`runAutoBaixaZigOntem`)** — cron / job: busca **ontem** na ZIG, só transações em que todos os itens já existem no Stockpyrou; usa `confirmSales` com intervalo de datas (GET ZIG por dia).
+ * **Baixa automática (`runAutoBaixaZigOntem`)** — cron / job: busca **ontem** na ZIG, linhas ainda não processadas; cria produto ausente (`ensureProduct`) e dá baixa; usa `confirmSales` com GET ZIG por dia quando não há snapshot.
  *
  * (Removido) `syncSales` era legado de sincronização por intervalo e causava confusão com o fluxo de preview/confirm.
  *
@@ -72,6 +72,18 @@ interface ZigSale {
   productName: string;
   type: string;
   additions?: { productSku: string; count: number }[];
+}
+
+/**
+ * Uma mesma `transactionId` na ZIG pode ter várias linhas (produtos diferentes no mesmo pedido).
+ * Usamos este id em preview, confirmação e KV `zig_processed` — um registro por linha, não por transação.
+ */
+function zigLineItemId(
+  sale: Pick<ZigSale, "transactionId" | "productSku" | "productId">,
+): string {
+  const sku = sale.productSku ?? "";
+  const pid = sale.productId ?? "";
+  return `${sale.transactionId}|${sku}|${pid}`;
 }
 
 interface ZigStore {
@@ -291,12 +303,20 @@ async function fetchOneSaidaChunkForDay(
   );
 }
 
-/** Mescla resultados deduplicando por transactionId (mantém primeira ocorrência). */
-function mergeSalesIntoMap(merged: Map<string, ZigSale>, chunk: ZigSale[]) {
+/**
+ * Mescla linhas da ZIG por item de venda (transação + SKU + productId).
+ * Se a API repetir a mesma linha, soma `count` em vez de descartar.
+ */
+function mergeZigSalesLines(merged: Map<string, ZigSale>, chunk: ZigSale[]) {
   for (const sale of chunk) {
-    if (sale?.transactionId && !merged.has(sale.transactionId)) {
-      merged.set(sale.transactionId, sale);
+    if (!sale?.transactionId) continue;
+    const key = zigLineItemId(sale);
+    const prev = merged.get(key);
+    if (!prev) {
+      merged.set(key, { ...sale });
+      continue;
     }
+    prev.count = (Number(prev.count) || 0) + (Number(sale.count) || 0);
   }
 }
 
@@ -332,7 +352,7 @@ async function fetchZigSaidaProdutosRange(
       await new Promise((r) => setTimeout(r, ZIG_INTER_CALL_DELAY_MS));
     }
     const chunk = await fetchOneSaidaChunkForDay(token, storeId, ymd);
-    mergeSalesIntoMap(merged, chunk);
+    mergeZigSalesLines(merged, chunk);
   }
 
   return Array.from(merged.values());
@@ -483,7 +503,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
     const processedKeyPrefix = `zig_processed:${companyId}:`;
     
     for (const sale of sales) {
-      const isProcessed = await kv.get(`${processedKeyPrefix}${sale.transactionId}`);
+      const lineId = zigLineItemId(sale);
+      const isProcessed = await kv.get(`${processedKeyPrefix}${lineId}`);
       if (isProcessed) continue;
       newSales.push(sale);
     }
@@ -560,11 +581,14 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
       const product = findProduct(sale);
       const saleDate = sale.transactionDate.split('T')[0]; // YYYY-MM-DD
       
+      const lineId = zigLineItemId(sale);
+
       if (product) {
         const recipe = recipesData.find(r => r.product_id === product.id);
         
         const saleData = {
-          transactionId: sale.transactionId,
+          zigTransactionId: sale.transactionId,
+          transactionId: lineId,
           transactionDate: sale.transactionDate,
           saleDate: saleDate,
           productSku: sale.productSku,
@@ -602,7 +626,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
         
       } else {
         const saleData = {
-          transactionId: sale.transactionId,
+          zigTransactionId: sale.transactionId,
+          transactionId: lineId,
           transactionDate: sale.transactionDate,
           saleDate: saleDate,
           productSku: sale.productSku,
@@ -635,7 +660,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           
           if (addProduct) {
             const addSaleData = {
-              transactionId: `${sale.transactionId}-add-${addition.productSku}`,
+              zigTransactionId: sale.transactionId,
+              transactionId: `${lineId}-add-${addition.productSku}`,
               transactionDate: sale.transactionDate,
               saleDate: saleDate,
               productSku: addition.productSku,
@@ -724,19 +750,20 @@ function buildDeductionGroupsFromZigSales(
 ): Map<string, DeductionGroup> {
   const groups = new Map<string, DeductionGroup>();
   for (const sale of sales) {
-    if (sale.productSku && selectedSet.has(sale.transactionId)) {
+    const lineId = zigLineItemId(sale);
+    if (sale.productSku && selectedSet.has(lineId)) {
       addToDeductionGroup(
         groups,
         sale.productSku,
         sale.productName,
         sale.count,
-        sale.transactionId,
+        lineId,
       );
     }
     if (sale.additions && sale.additions.length > 0) {
       for (const addition of sale.additions) {
         if (!addition.productSku) continue;
-        const additionId = `${sale.transactionId}-add-${addition.productSku}`;
+        const additionId = `${lineId}-add-${addition.productSku}`;
         if (!selectedSet.has(additionId)) continue;
         addToDeductionGroup(
           groups,
@@ -1117,7 +1144,7 @@ export const confirmSales = async (
   }
 };
 
-// --- Baixa automática (dia seguinte = vendas de "ontem" em SP) — só produtos já cadastrados ---
+// --- Baixa automática (dia seguinte = vendas de "ontem" em SP) — cria produto se faltar cadastro ---
 
 export async function getAutoBaixaConfig(companyId: string): Promise<{ enabled: boolean }> {
   const row = await kv.get(`zig_auto_baixa:${companyId}`);
@@ -1128,75 +1155,9 @@ export async function saveAutoBaixaConfig(companyId: string, enabled: boolean): 
   await kv.set(`zig_auto_baixa:${companyId}`, { enabled });
 }
 
-function findProductLineForSale(
-  sale: ZigSale,
-  products: any[],
-  productMappings: Record<string, string>,
-): any | null {
-  if (productMappings[sale.productSku]) {
-    return products.find((p) => p.id === productMappings[sale.productSku]);
-  }
-  let product = products.find(
-    (p) => p.barcode === sale.productSku || (p.sku && p.sku === sale.productSku),
-  );
-  if (product) return product;
-
-  const normalizeName = (name: string) =>
-    name
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]/g, "");
-  const zigNameNorm = normalizeName(sale.productName || "");
-  product = products.find((p) => {
-    const productNameNorm = normalizeName(p.name || "");
-    return (
-      productNameNorm === zigNameNorm ||
-      productNameNorm.includes(zigNameNorm) ||
-      zigNameNorm.includes(productNameNorm)
-    );
-  });
-  return product || null;
-}
-
-function findProductBySkuOnly(
-  sku: string,
-  products: any[],
-  productMappings: Record<string, string>,
-): any | null {
-  if (productMappings[sku]) {
-    return products.find((p) => p.id === productMappings[sku]);
-  }
-  return (
-    products.find((p) => p.barcode === sku || (p.sku && p.sku === sku)) ||
-    null
-  );
-}
-
-/** Todas as linhas da transação (principal + adicionais) precisam existir no Stockpyrou. */
-function transactionFullyRegistered(
-  rows: ZigSale[],
-  products: any[],
-  productMappings: Record<string, string>,
-): boolean {
-  let hasLine = false;
-  for (const s of rows) {
-    if (!s.productSku) continue;
-    hasLine = true;
-    if (!findProductLineForSale(s, products, productMappings)) return false;
-    if (s.additions?.length) {
-      for (const a of s.additions) {
-        if (!a.productSku) continue;
-        if (!findProductBySkuOnly(a.productSku, products, productMappings)) return false;
-      }
-    }
-  }
-  return hasLine;
-}
-
 /**
- * Busca vendas de ontem (America/Sao_Paulo), considera só transações em que **todos** os itens
- * (incluindo adicionais) têm produto cadastrado no Stockpyrou, e dá baixa com `registeredOnly`.
+ * Busca vendas de ontem (America/Sao_Paulo), processa linhas ainda não marcadas em `zig_processed`,
+ * cria produtos ausentes e dá baixa (mesma lógica de `ensureProduct` do fluxo manual).
  */
 export async function runAutoBaixaZigOntem(companyId: string) {
   const auto = await getAutoBaixaConfig(companyId);
@@ -1239,7 +1200,8 @@ export async function runAutoBaixaZigOntem(companyId: string) {
   const processedKeyPrefix = `zig_processed:${companyId}:`;
   const newSales: ZigSale[] = [];
   for (const sale of sales) {
-    const done = await kv.get(`${processedKeyPrefix}${sale.transactionId}`);
+    const lineId = zigLineItemId(sale);
+    const done = await kv.get(`${processedKeyPrefix}${lineId}`);
     if (!done) newSales.push(sale);
   }
 
@@ -1252,40 +1214,14 @@ export async function runAutoBaixaZigOntem(companyId: string) {
     };
   }
 
-  const { data: products } = await supabase
-    .from("products")
-    .select("*")
-    .eq("company_id", companyId);
-
-  if (!products?.length) {
-    return {
-      skipped: true,
-      message: "Nenhum produto cadastrado no Stockpyrou.",
-      processed: 0,
-    };
-  }
-
-  const productMappings =
-    (await kv.get(`zig_product_mappings:${companyId}`)) || {};
-
-  const txMap = new Map<string, ZigSale[]>();
-  for (const s of newSales) {
-    if (!txMap.has(s.transactionId)) txMap.set(s.transactionId, []);
-    txMap.get(s.transactionId)!.push(s);
-  }
-
   const idSet = new Set<string>();
-  for (const [, rows] of txMap) {
-    if (!transactionFullyRegistered(rows, products, productMappings)) {
-      continue;
-    }
-    for (const s of rows) {
-      idSet.add(s.transactionId);
-      if (s.additions?.length) {
-        for (const a of s.additions) {
-          if (a.productSku) {
-            idSet.add(`${s.transactionId}-add-${a.productSku}`);
-          }
+  for (const s of newSales) {
+    const lineId = zigLineItemId(s);
+    idSet.add(lineId);
+    if (s.additions?.length) {
+      for (const a of s.additions) {
+        if (a.productSku) {
+          idSet.add(`${lineId}-add-${a.productSku}`);
         }
       }
     }
@@ -1295,8 +1231,7 @@ export async function runAutoBaixaZigOntem(companyId: string) {
   if (transactionIds.length === 0) {
     return {
       skipped: false,
-      message:
-        "Nenhuma transação de ontem com todos os itens cadastrados no Stockpyrou (verifique SKUs e mapeamentos).",
+      message: "Nenhuma linha de venda pendente para baixa automática.",
       processed: 0,
       date: yesterdayStr,
     };
@@ -1307,7 +1242,7 @@ export async function runAutoBaixaZigOntem(companyId: string) {
     transactionIds,
     yesterdayStr,
     yesterdayStr,
-    { registeredOnly: true },
+    { registeredOnly: false },
   );
 
   return {

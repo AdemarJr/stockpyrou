@@ -6,7 +6,10 @@ import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { APP_NAME } from '../../config/branding';
 
 interface PendingSale {
+  /** Id único da linha (transação ZIG + SKU + productId); usado na confirmação. */
   transactionId: string;
+  /** Id do pedido na ZIG (pode repetir em várias linhas do mesmo cupom). */
+  zigTransactionId?: string;
   transactionDate: string;
   saleDate: string;
   productSku: string;
@@ -53,6 +56,7 @@ interface PendingSaleGroup {
   notFound: boolean;
   matchType: PendingSale['matchType'];
   transactionIds: string[];
+  zigTransactionId?: string;
   hasRecipe: boolean;
   recipeIngredients: RecipeIngredientTotal[];
   hasAddition: boolean;
@@ -101,6 +105,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
           ingredientTotals: Map<string, RecipeIngredientTotal>;
           hasRecipe: boolean;
           hasAddition: boolean;
+          zigTransactionId?: string;
         }
       >();
 
@@ -126,14 +131,18 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
             ingredientTotals: new Map(),
             hasRecipe: !!sale.hasRecipe,
             hasAddition: !!sale.isAddition,
+            zigTransactionId: sale.zigTransactionId,
           });
         }
 
         const g = groupMap.get(groupKey)!;
+        if (!g.zigTransactionId && sale.zigTransactionId) {
+          g.zigTransactionId = sale.zigTransactionId;
+        }
         g.quantity += sale.quantity || 0;
         g.totalValue += sale.totalValue || 0;
         g.transactionIds.push(sale.transactionId);
-        g.notFound = g.notFound && !!sale.notFound;
+        g.notFound = g.notFound || !!sale.notFound;
         g.hasRecipe = g.hasRecipe || !!sale.hasRecipe;
         g.hasAddition = g.hasAddition || !!sale.isAddition;
 
@@ -173,6 +182,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
         notFound: g.notFound,
         matchType: g.matchType,
         transactionIds: Array.from(new Set(g.transactionIds)),
+        zigTransactionId: g.zigTransactionId,
         hasRecipe: g.hasRecipe,
         recipeIngredients: Array.from(g.ingredientTotals.values()),
         hasAddition: g.hasAddition,
@@ -303,9 +313,9 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
             : null,
         );
 
-        // Selecionar automaticamente vendas válidas
-        const allValidSales = data.sales.filter((s: PendingSale) => !s.notFound).map((s: PendingSale) => s.transactionId);
-        setSelectedSales(allValidSales);
+        // Selecionar todas as linhas pendentes (inclui não cadastradas: o servidor cria produto e dá baixa)
+        const allLineIds = data.sales.map((s: PendingSale) => s.transactionId);
+        setSelectedSales(allLineIds);
         
         // Expandir todas as datas por padrão
         setExpandedDates(Object.keys(data.salesByDate));
@@ -745,6 +755,11 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                                       </h5>
                                       <p className="text-xs text-gray-500 mt-0.5">
                                         SKU: {group.productSku}
+                                        {group.zigTransactionId ? (
+                                          <span className="block text-gray-400 mt-0.5">
+                                            Pedido ZIG: {group.zigTransactionId}
+                                          </span>
+                                        ) : null}
                                       </p>
                                     </div>
                                     
