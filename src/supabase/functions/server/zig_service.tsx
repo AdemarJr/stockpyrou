@@ -68,10 +68,51 @@ interface ZigSale {
   productId: string;
   productSku: string;
   unitValue: number;
+  /** Quantidade em unidades inteiras (API ZIG). */
   count: number;
+  /** Quantidade fracionada (peso/volume), quando aplicável — documentação ZIG. */
+  fractionalAmount?: number | null;
   productName: string;
   type: string;
-  additions?: { productSku: string; count: number }[];
+  additions?: {
+    productSku: string;
+    count: number;
+    fractionalAmount?: number | null;
+  }[];
+}
+
+/** Quantidade para baixa: inteiros + parte fracionada quando a ZIG envia. */
+function zigEffectiveCount(sale: Pick<ZigSale, "count" | "fractionalAmount">): number {
+  const c = Number(sale.count) || 0;
+  const raw = sale.fractionalAmount;
+  const f = raw != null && raw !== "" ? Number(raw) : NaN;
+  if (Number.isFinite(f) && f > 0) {
+    return c + f;
+  }
+  return c;
+}
+
+function zigEffectiveAdditionCount(add: {
+  count?: number;
+  fractionalAmount?: number | null;
+}): number {
+  return zigEffectiveCount({
+    count: Number(add.count) || 0,
+    fractionalAmount: add.fractionalAmount,
+  });
+}
+
+/** Data civil (YYYY-MM-DD) da transação no fuso America/Sao_Paulo — evita perder linhas por comparação UTC na string. */
+function transactionYmdSaoPaulo(iso: string | undefined): string | null {
+  if (!iso || !String(iso).trim()) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: SAO_PAULO_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
 }
 
 /**
@@ -239,11 +280,24 @@ async function fetchSaidaProdutosOnce(
   }
 }
 
-/** Mantém só linhas cuja data civil da transação é `ymd`; se nada bater mas houver linhas, devolve o bruto (API pode omitir formato). */
+/**
+ * Mantém linhas cuja data civil em São Paulo é `ymd` (YYYY-MM-DD).
+ * Linhas com `transactionDate` inválido não são descartadas (evita perda de volume).
+ * Se nenhuma linha casar mas a API devolveu dados, devolve o bruto (comportamento legado).
+ */
 function filterSalesToLocalYmd(sales: ZigSale[], ymd: string): ZigSale[] {
-  const filtered = sales.filter((s) => (s.transactionDate || "").split("T")[0] === ymd);
-  if (filtered.length > 0 || sales.length === 0) return filtered;
-  return sales;
+  const filtered = sales.filter((s) => {
+    const civil = transactionYmdSaoPaulo(s.transactionDate);
+    if (civil === null) return true;
+    return civil === ymd;
+  });
+  if (filtered.length === 0 && sales.length > 0) {
+    console.warn(
+      `ZIG: filterSalesToLocalYmd — nenhuma linha com data civil SP=${ymd} (${sales.length} no payload); usando resposta bruta.`,
+    );
+    return sales;
+  }
+  return filtered;
 }
 
 /**
@@ -316,7 +370,9 @@ function mergeZigSalesLines(merged: Map<string, ZigSale>, chunk: ZigSale[]) {
       merged.set(key, { ...sale });
       continue;
     }
-    prev.count = (Number(prev.count) || 0) + (Number(sale.count) || 0);
+    const total = zigEffectiveCount(prev) + zigEffectiveCount(sale);
+    prev.count = total;
+    prev.fractionalAmount = null;
   }
 }
 
@@ -579,7 +635,10 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
       if (!sale.productSku) continue;
       
       const product = findProduct(sale);
-      const saleDate = sale.transactionDate.split('T')[0]; // YYYY-MM-DD
+      const qtyEff = zigEffectiveCount(sale);
+      const saleDate =
+        transactionYmdSaoPaulo(sale.transactionDate) ||
+        (sale.transactionDate || "").split("T")[0];
       
       const lineId = zigLineItemId(sale);
 
@@ -593,9 +652,9 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           saleDate: saleDate,
           productSku: sale.productSku,
           productName: sale.productName,
-          quantity: sale.count,
+          quantity: qtyEff,
           unitValue: sale.unitValue,
-          totalValue: sale.unitValue * sale.count,
+          totalValue: sale.unitValue * qtyEff,
           systemProduct: {
             id: product.id,
             name: product.name,
@@ -613,7 +672,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
                 productName: ingProduct?.name || 'Desconhecido',
                 quantity: ing.quantity || ing.amount,
                 unit: ingProduct?.unit || 'un',
-                quantityNeeded: (ing.quantity || ing.amount) * sale.count
+                quantityNeeded: (ing.quantity || ing.amount) * qtyEff
               };
             }) || []
           } : null
@@ -632,9 +691,9 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           saleDate: saleDate,
           productSku: sale.productSku,
           productName: sale.productName,
-          quantity: sale.count,
+          quantity: qtyEff,
           unitValue: sale.unitValue,
-          totalValue: sale.unitValue * sale.count,
+          totalValue: sale.unitValue * qtyEff,
           systemProduct: null,
           hasRecipe: false,
           recipe: null,
@@ -659,6 +718,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           );
           
           if (addProduct) {
+            const addQty = zigEffectiveAdditionCount(addition);
             const addSaleData = {
               zigTransactionId: sale.transactionId,
               transactionId: `${lineId}-add-${addition.productSku}`,
@@ -666,7 +726,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
               saleDate: saleDate,
               productSku: addition.productSku,
               productName: `${sale.productName} (Adicional)`,
-              quantity: addition.count,
+              quantity: addQty,
               unitValue: 0,
               totalValue: 0,
               systemProduct: {
@@ -756,7 +816,7 @@ function buildDeductionGroupsFromZigSales(
         groups,
         sale.productSku,
         sale.productName,
-        sale.count,
+        zigEffectiveCount(sale),
         lineId,
       );
     }
@@ -769,7 +829,7 @@ function buildDeductionGroupsFromZigSales(
           groups,
           addition.productSku,
           `${sale.productName} (Adicional)`,
-          addition.count,
+          zigEffectiveAdditionCount(addition),
           additionId,
         );
       }
