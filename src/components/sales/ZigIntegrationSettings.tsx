@@ -26,8 +26,53 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
   const [autoBaixaEnabled, setAutoBaixaEnabled] = useState(false);
   const [savingAutoBaixa, setSavingAutoBaixa] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
+  const [zigEnabled, setZigEnabled] = useState(true);
+  const [savingZigEnabled, setSavingZigEnabled] = useState(false);
 
   const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
+
+  const loadZigEnabled = async () => {
+    if (!currentCompany?.id) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/zig/enabled/${currentCompany.id}`, {
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setZigEnabled(data.enabled !== false);
+      }
+    } catch (error) {
+      console.error("Error loading zig enabled:", error);
+    }
+  };
+
+  const saveZigEnabled = async (enabled: boolean) => {
+    if (!currentCompany?.id) return;
+    setSavingZigEnabled(true);
+    try {
+      const res = await fetch(`${SERVER_URL}/zig/enabled`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({ companyId: currentCompany.id, enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Falha ao salvar");
+      }
+      setZigEnabled(enabled);
+      toast.success(enabled ? "Integração ZIG ativada." : "Integração ZIG desativada.");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(message || "Erro ao salvar");
+    } finally {
+      setSavingZigEnabled(false);
+    }
+  };
 
   const fetchStores = async (overrideRedeId?: string) => {
     if (!currentCompany) return;
@@ -127,6 +172,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
     } catch (error) {
       console.error('Error loading config:', error);
     }
+    void loadZigEnabled();
     void loadAutoBaixa();
   };
 
@@ -287,6 +333,28 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
       </div>
 
       <div className="space-y-6">
+        <div className="p-5 bg-indigo-50 rounded-xl border border-indigo-100 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-semibold text-indigo-900">Ativar integração (Vendas/Baixa)</div>
+              <p className="text-xs text-indigo-900/80">
+                Desative se não usar a ZIG. Isso bloqueia preview/baixa e a baixa automática desta empresa.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch
+                id="zig-enabled-toggle"
+                checked={zigEnabled}
+                onCheckedChange={(v) => void saveZigEnabled(v)}
+                disabled={savingZigEnabled}
+              />
+              <Label htmlFor="zig-enabled-toggle" className="text-sm text-indigo-900 cursor-pointer">
+                {zigEnabled ? "Ativo" : "Desativado"}
+              </Label>
+            </div>
+          </div>
+        </div>
+
         <div className="p-5 bg-gray-50 rounded-xl border border-gray-100 space-y-5">
           <div className="flex items-center gap-2 text-pink-700 font-semibold text-sm mb-1">
             <span className="flex items-center justify-center w-5 h-5 bg-pink-100 rounded-full text-[10px]">1</span>
@@ -330,7 +398,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
                 <button
                   type="button"
                   onClick={() => void fetchStores()}
-                  disabled={fetchingStores || !redeId}
+                  disabled={fetchingStores || !redeId || !zigEnabled}
                   className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 transition-all font-medium text-sm shadow-sm"
                 >
                   {fetchingStores ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -364,7 +432,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
                 <button
                   type="button"
                   onClick={() => void handleSaveConfig()}
-                  disabled={loading || !selectedStore}
+                  disabled={loading || !selectedStore || !zigEnabled}
                   className={`px-4 py-2 rounded-lg flex items-center gap-2 text-white font-medium transition-all shadow-sm text-sm ${
                     configLoaded ? 'bg-green-600 hover:bg-green-700' : 'bg-pink-600 hover:bg-pink-700'
                   } disabled:opacity-50`}
@@ -392,7 +460,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
                 id="zig-auto-baixa-settings"
                 checked={autoBaixaEnabled}
                 onCheckedChange={(v) => void saveAutoBaixa(v)}
-                disabled={savingAutoBaixa || !configLoaded}
+                disabled={savingAutoBaixa || !configLoaded || !zigEnabled}
               />
               <Label htmlFor="zig-auto-baixa-settings" className="text-sm text-amber-950 dark:text-amber-100 cursor-pointer">
                 Ativar baixa automática diária
@@ -401,7 +469,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
             <button
               type="button"
               onClick={() => void handleAutoRunNow()}
-              disabled={autoRunning || !configLoaded}
+              disabled={autoRunning || !configLoaded || !zigEnabled}
               className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
             >
               {autoRunning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
