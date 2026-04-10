@@ -1237,6 +1237,11 @@ export async function getAutoBaixaConfig(companyId: string): Promise<{ enabled: 
 }
 
 export async function saveAutoBaixaConfig(companyId: string, enabled: boolean): Promise<void> {
+  if (enabled && !(await getZigEnabled(companyId))) {
+    throw new Error(
+      "Ative a integração ZIG (Vendas/Baixa) antes de ligar a baixa automática.",
+    );
+  }
   await kv.set(`zig_auto_baixa:${companyId}`, { enabled });
 }
 

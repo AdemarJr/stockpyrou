@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { RefreshCw, Store, AlertCircle, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { APP_NAME } from '../../config/branding';
 
@@ -64,8 +65,11 @@ interface PendingSaleGroup {
 
 export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void }) {
   const { currentCompany } = useCompany();
+  const { user } = useAuth();
 
   const [configLoaded, setConfigLoaded] = useState(false);
+  /** Alinhado ao servidor: preview/baixa bloqueados quando desligado em Integrações. */
+  const [zigIntegrationEnabled, setZigIntegrationEnabled] = useState(true);
   
   // Date selection
   const [dateFilter, setDateFilter] = useState<'yesterday' | 'today' | 'custom'>('yesterday');
@@ -199,6 +203,30 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     apikey: publicAnonKey,
   };
 
+  const loadZigIntegrationFlag = async () => {
+    if (!currentCompany?.id) return;
+    const token =
+      user?.accessToken?.trim() ||
+      (typeof localStorage !== 'undefined' ? localStorage.getItem('pyroustock_custom_token')?.trim() : '') ||
+      '';
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/zig/enabled/${currentCompany.id}`, {
+        headers: {
+          apikey: publicAnonKey,
+          Authorization: `Bearer ${token}`,
+          'X-Company-Id': currentCompany.id,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setZigIntegrationEnabled(data.enabled !== false);
+      }
+    } catch {
+      /* mantém estado atual */
+    }
+  };
+
   /** YYYY-MM-DD no calendário de São Paulo (mesma base do servidor ZIG). */
   const ymdSaoPaulo = (d: Date) =>
     new Intl.DateTimeFormat('en-CA', {
@@ -274,7 +302,11 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
   const handlePreviewSales = async () => {
     if (!currentCompany?.id) return;
-    
+    if (!zigIntegrationEnabled) {
+      toast.error('Integração ZIG desativada. Ative em Integrações → ZIG.');
+      return;
+    }
+
     const { start, end } = getDateRange();
 
     try {
@@ -337,7 +369,11 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
   const handleConfirmSales = async () => {
     if (!currentCompany?.id) return;
-    
+    if (!zigIntegrationEnabled) {
+      toast.error('Integração ZIG desativada.');
+      return;
+    }
+
     if (selectedSales.length === 0) {
       toast.error('Selecione pelo menos uma venda para processar.');
       return;
@@ -486,9 +522,10 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
   useEffect(() => {
     if (currentCompany?.id) {
-      loadConfig();
+      void loadConfig();
+      void loadZigIntegrationFlag();
     }
-  }, [currentCompany?.id]);
+  }, [currentCompany?.id, user?.accessToken]);
 
   // Safety check - render loading state if no company
   if (!currentCompany) {
@@ -528,6 +565,16 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
       </div>
 
       <div className="space-y-6">
+        {!zigIntegrationEnabled && (
+          <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-900 text-sm flex gap-2 items-start">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <span>
+              A integração ZIG está <strong className="font-semibold">desativada</strong> para esta empresa. Ative em{' '}
+              <strong className="font-semibold">Integrações</strong> para buscar vendas e dar baixa.
+            </span>
+          </div>
+        )}
+
         {!configLoaded && (
           <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm flex gap-2 items-start">
             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
@@ -602,7 +649,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
           <button
             onClick={handlePreviewSales}
-            disabled={loadingPreview || !configLoaded}
+            disabled={loadingPreview || !configLoaded || !zigIntegrationEnabled}
             className="w-full px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:bg-gray-400 flex items-center justify-center gap-2.5 transition-all font-semibold shadow-md active:scale-95"
           >
             {loadingPreview ? <RefreshCw className="w-5 h-5 animate-spin" /> : <ShoppingCart className="w-5 h-5" />}
@@ -839,7 +886,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
               </button>
               <button
                 onClick={handleConfirmSales}
-                disabled={confirming || selectedGroupCount === 0}
+                disabled={confirming || selectedGroupCount === 0 || !zigIntegrationEnabled}
                 className="flex-1 px-4 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {confirming ? (

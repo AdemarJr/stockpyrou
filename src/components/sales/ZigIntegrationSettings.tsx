@@ -4,6 +4,7 @@ import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
 
 interface ZigStore {
@@ -13,6 +14,7 @@ interface ZigStore {
 
 export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: () => void }) {
   const { currentCompany } = useCompany();
+  const { user } = useAuth();
 
   const [stores, setStores] = useState<ZigStore[]>([]);
   const [selectedStore, setSelectedStore] = useState<string>('');
@@ -31,20 +33,40 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
 
   const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 
-  const edgeHeaders = {
+  /** Sessão do usuário para rotas que exigem JWT/custom (ex.: toggle ZIG). */
+  const sessionBearer =
+    user?.accessToken?.trim() ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('pyroustock_custom_token')?.trim() : null) ||
+    '';
+
+  const edgeHeadersAnon = {
     Authorization: `Bearer ${publicAnonKey}`,
     apikey: publicAnonKey,
+  };
+
+  const edgeHeadersSession = (): Record<string, string> => {
+    const h: Record<string, string> = {
+      apikey: publicAnonKey,
+      Authorization: `Bearer ${sessionBearer || publicAnonKey}`,
+    };
+    if (currentCompany?.id) {
+      h['X-Company-Id'] = currentCompany.id;
+    }
+    return h;
   };
 
   const loadZigEnabled = async () => {
     if (!currentCompany?.id) return;
     try {
       const res = await fetch(`${SERVER_URL}/zig/enabled/${currentCompany.id}`, {
-        headers: edgeHeaders,
+        headers: edgeHeadersSession(),
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         setZigEnabled(data.enabled !== false);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.warn("loadZigEnabled:", res.status, err);
       }
     } catch (error) {
       console.error("Error loading zig enabled:", error);
@@ -53,19 +75,35 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
 
   const saveZigEnabled = async (enabled: boolean) => {
     if (!currentCompany?.id) return;
+    if (!sessionBearer) {
+      toast.error("Faça login novamente para alterar a integração ZIG.");
+      return;
+    }
     setSavingZigEnabled(true);
     try {
       const res = await fetch(`${SERVER_URL}/zig/enabled`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...edgeHeaders,
+          ...edgeHeadersSession(),
         },
         body: JSON.stringify({ companyId: currentCompany.id, enabled }),
       });
-      const data = await res.json().catch(() => ({}));
+      const raw = await res.text();
+      let data: { error?: string } = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        /* ignore */
+      }
       if (!res.ok) {
-        throw new Error(data.error || "Falha ao salvar");
+        throw new Error(
+          data.error ||
+            (res.status === 401              ? "Sessão expirada ou inválida. Entre de novo."
+              : res.status === 403
+                ? "Sem permissão para alterar integrações."
+                : raw?.slice(0, 120) || `Erro ${res.status}`),
+        );
       }
       setZigEnabled(enabled);
       toast.success(enabled ? "Integração ZIG ativada." : "Integração ZIG desativada.");
@@ -95,6 +133,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
 
       const headers: Record<string, string> = {
         Authorization: `Bearer ${publicAnonKey}`,
+        apikey: publicAnonKey,
       };
       const t = zigToken.trim();
       if (t) headers['X-ZIG-TOKEN'] = t;
@@ -135,9 +174,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
     if (!currentCompany?.id) return;
     try {
       const res = await fetch(`${SERVER_URL}/zig/auto-baixa/${currentCompany.id}`, {
-        headers: {
-          Authorization: `Bearer ${publicAnonKey}`,
-        },
+        headers: edgeHeadersAnon,
       });
       if (res.ok) {
         const data = await res.json();
@@ -153,9 +190,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
 
     try {
       const res = await fetch(`${SERVER_URL}/zig/config/${currentCompany.id}`, {
-        headers: {
-          Authorization: `Bearer ${publicAnonKey}`,
-        },
+        headers: edgeHeadersAnon,
       });
       if (res.ok) {
         const data = await res.json();
@@ -187,7 +222,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${publicAnonKey}`,
+          ...edgeHeadersAnon,
         },
         body: JSON.stringify({ companyId: currentCompany.id, enabled }),
       });
@@ -221,7 +256,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${publicAnonKey}`,
+          ...edgeHeadersAnon,
         },
         body: JSON.stringify({ companyId: currentCompany.id }),
       });
@@ -263,7 +298,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${publicAnonKey}`,
+          ...edgeHeadersAnon,
         },
         body: JSON.stringify({
           companyId: currentCompany.id,

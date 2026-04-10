@@ -59,6 +59,47 @@ async function getCompanyId(profile: any, supabase: any, headerCompanyId?: strin
   return null;
 }
 
+/** Exige sessão válida e vínculo com a empresa para ler/gravar toggle ZIG (não usar só anon). */
+async function assertZigToggleAccess(
+  c: Context,
+  companyId: string,
+  requireManageSettings: boolean,
+): Promise<Response | null> {
+  const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "")?.trim();
+  if (!token) {
+    return c.json(
+      {
+        error:
+          "Não autorizado. Faça login novamente; o toggle ZIG exige sua sessão (não apenas a chave pública).",
+      },
+      401,
+    );
+  }
+  const profile = await verifyAnyToken(token);
+  if (!profile) {
+    return c.json({ error: "Sessão inválida ou expirada." }, 401);
+  }
+  if (requireManageSettings && !profile.permissions?.canManageSettings) {
+    return c.json(
+      { error: "Sem permissão para alterar integrações (apenas administradores)." },
+      403,
+    );
+  }
+  if (profile.role === "superadmin") {
+    return null;
+  }
+  const supabaseAdmin = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  );
+  const headerCo = c.req.header("X-Company-Id")?.trim() || null;
+  const resolved = await getCompanyId(profile, supabaseAdmin, headerCo);
+  if (resolved !== companyId) {
+    return c.json({ error: "Sem permissão para esta empresa." }, 403);
+  }
+  return null;
+}
+
 const app = new Hono();
 
 // Enable logger
@@ -266,6 +307,8 @@ app.get("/make-server-8a20b27d/zig/config/:companyId", async (c) => {
 app.get("/make-server-8a20b27d/zig/enabled/:companyId", async (c) => {
   try {
     const companyId = c.req.param("companyId");
+    const denied = await assertZigToggleAccess(c, companyId, false);
+    if (denied) return denied;
     const enabled = await zig.getZigEnabled(companyId);
     return c.json({ enabled });
   } catch (error: any) {
@@ -276,10 +319,22 @@ app.get("/make-server-8a20b27d/zig/enabled/:companyId", async (c) => {
 
 app.post("/make-server-8a20b27d/zig/enabled", async (c) => {
   try {
-    const { companyId, enabled } = await c.req.json();
-    if (!companyId || typeof enabled !== "boolean") {
-      return c.json({ error: "Missing companyId or enabled (boolean)" }, 400);
+    const body = await c.req.json();
+    const companyId = body?.companyId;
+    const enabledIn = body?.enabled;
+    if (!companyId || typeof companyId !== "string") {
+      return c.json({ error: "Missing companyId" }, 400);
     }
+    let enabled: boolean;
+    if (typeof enabledIn === "boolean") {
+      enabled = enabledIn;
+    } else if (enabledIn === "true" || enabledIn === "false") {
+      enabled = enabledIn === "true";
+    } else {
+      return c.json({ error: "Campo enabled deve ser true ou false." }, 400);
+    }
+    const denied = await assertZigToggleAccess(c, companyId, true);
+    if (denied) return denied;
     await zig.setZigEnabled(companyId, enabled);
     return c.json({ success: true, enabled });
   } catch (error: any) {
@@ -292,6 +347,8 @@ app.post("/make-server-8a20b27d/zig/enabled", async (c) => {
 app.get("/zig/enabled/:companyId", async (c) => {
   try {
     const companyId = c.req.param("companyId");
+    const denied = await assertZigToggleAccess(c, companyId, false);
+    if (denied) return denied;
     const enabled = await zig.getZigEnabled(companyId);
     return c.json({ enabled });
   } catch (error: any) {
@@ -302,10 +359,22 @@ app.get("/zig/enabled/:companyId", async (c) => {
 
 app.post("/zig/enabled", async (c) => {
   try {
-    const { companyId, enabled } = await c.req.json();
-    if (!companyId || typeof enabled !== "boolean") {
-      return c.json({ error: "Missing companyId or enabled (boolean)" }, 400);
+    const body = await c.req.json();
+    const companyId = body?.companyId;
+    const enabledIn = body?.enabled;
+    if (!companyId || typeof companyId !== "string") {
+      return c.json({ error: "Missing companyId" }, 400);
     }
+    let enabled: boolean;
+    if (typeof enabledIn === "boolean") {
+      enabled = enabledIn;
+    } else if (enabledIn === "true" || enabledIn === "false") {
+      enabled = enabledIn === "true";
+    } else {
+      return c.json({ error: "Campo enabled deve ser true ou false." }, 400);
+    }
+    const denied = await assertZigToggleAccess(c, companyId, true);
+    if (denied) return denied;
     await zig.setZigEnabled(companyId, enabled);
     return c.json({ success: true, enabled });
   } catch (error: any) {
@@ -320,6 +389,19 @@ app.post("/make-server-8a20b27d/zig/preview", async (c) => {
     const { companyId, startDate, endDate } = await c.req.json();
     if (!companyId) return c.json({ error: "Missing companyId" }, 400);
     
+    const result = await zig.fetchPendingSales(companyId, startDate, endDate);
+    return c.json(result);
+  } catch (error: any) {
+    console.error("Zig Preview Error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.post("/zig/preview", async (c) => {
+  try {
+    const { companyId, startDate, endDate } = await c.req.json();
+    if (!companyId) return c.json({ error: "Missing companyId" }, 400);
+
     const result = await zig.fetchPendingSales(companyId, startDate, endDate);
     return c.json(result);
   } catch (error: any) {
