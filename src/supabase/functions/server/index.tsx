@@ -3831,4 +3831,35 @@ app.get("/make-server-8a20b27d/costs/analytics/breakeven", async (c) => {
   }
 });
 
-Deno.serve(app.fetch);
+/**
+ * O pathname visto pela Edge Function varia (só sufixo após o nome, com prefixo
+ * `/make-server-8a20b27d`, ou ainda `/functions/v1/...`). Normaliza para o
+ * formato usado nas rotas (`/make-server-8a20b27d/...`).
+ */
+function normalizeEdgePathname(pathname: string): string {
+  const fn = "/make-server-8a20b27d";
+  const viaGateway = "/functions/v1/make-server-8a20b27d";
+  let p = pathname;
+  if (p.startsWith(viaGateway)) {
+    p = p.slice(viaGateway.length);
+    if (p === "") p = "/";
+  }
+  if (!p.startsWith(fn)) {
+    if (p === "/") {
+      p = fn;
+    } else {
+      p = `${fn}${p.startsWith("/") ? p : `/${p}`}`;
+    }
+  }
+  return p;
+}
+
+Deno.serve((incoming) => {
+  const url = new URL(incoming.url);
+  const normalized = normalizeEdgePathname(url.pathname);
+  if (normalized === url.pathname) {
+    return app.fetch(incoming);
+  }
+  url.pathname = normalized;
+  return app.fetch(new Request(url, incoming));
+});

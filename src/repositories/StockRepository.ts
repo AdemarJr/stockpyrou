@@ -163,20 +163,33 @@ export class StockRepository {
       throw error;
     }
 
-    return (data || []).map(item => ({
-      id: item.id,
-      companyId: item.company_id,
-      productId: item.product_id,
-      type: item.movement_type,
-      quantity: item.quantity,
-      reason: item.notes || '',
-      wasteReason: undefined,
-      cost: item.total_value || item.unit_cost || undefined,
-      batchNumber: undefined,
-      date: new Date(item.movement_date),
-      userId: item.created_by || undefined,
-      notes: item.notes || undefined,
-    }));
+    return (data || []).map((item) => {
+      const qty = Number(item.quantity) || 0;
+      const unitCost = Number(item.unit_cost) || 0;
+      const totalValRaw = item.total_value;
+      const totalVal =
+        totalValRaw != null && totalValRaw !== ''
+          ? Number(totalValRaw)
+          : NaN;
+      /** Valor da linha: total_value quando existe; senão quantidade × custo unitário (evita confundir unit com total). */
+      const lineCost =
+        Number.isFinite(totalVal) && totalVal > 0 ? totalVal : qty * unitCost;
+
+      return {
+        id: item.id,
+        companyId: item.company_id,
+        productId: item.product_id,
+        type: item.movement_type,
+        quantity: item.quantity,
+        reason: item.notes || '',
+        wasteReason: undefined,
+        cost: lineCost > 0 ? lineCost : undefined,
+        batchNumber: undefined,
+        date: new Date(item.movement_date),
+        userId: item.created_by || undefined,
+        notes: item.notes || undefined,
+      };
+    });
   }
 
   static async createMovement(movement: Omit<StockMovement, 'id' | 'date'> & { userId?: string }): Promise<StockMovement> {

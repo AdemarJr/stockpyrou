@@ -12,10 +12,17 @@ interface DashboardProps {
 
 type DashboardPeriod = '7d' | '30d' | '90d' | 'ytd' | 'all';
 
+function startOfLocalDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+/** Início do período (00:00 horário local). `all` = sem filtro. */
 function periodStartDate(period: DashboardPeriod): Date | null {
-  const now = new Date();
+  const today0 = startOfLocalDay(new Date());
   if (period === 'all') return null;
-  const d = new Date(now);
+  const d = new Date(today0);
   if (period === '7d') {
     d.setDate(d.getDate() - 7);
   } else if (period === '30d') {
@@ -24,9 +31,21 @@ function periodStartDate(period: DashboardPeriod): Date | null {
     d.setDate(d.getDate() - 90);
   } else if (period === 'ytd') {
     d.setMonth(0, 1);
-    d.setHours(0, 0, 0, 0);
   }
   return d;
+}
+
+function movementInPeriod(m: StockMovement, rangeStart: Date | null): boolean {
+  if (rangeStart === null) return true;
+  return new Date(m.date).getTime() >= rangeStart.getTime();
+}
+
+/** Valor em custo da linha: cost já totalizado; senão qtd × CMP atual do produto. */
+function lineCostAtMovement(m: StockMovement, products: Product[]): number {
+  const q = Number(m.quantity) || 0;
+  if (m.cost != null && Number.isFinite(m.cost) && m.cost > 0) return m.cost;
+  const p = products.find((x) => x.id === m.productId);
+  return q * (p?.averageCost ?? 0);
 }
 
 const PERIOD_LABEL: Record<DashboardPeriod, string> = {
@@ -42,15 +61,18 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
 
   const rangeStart = useMemo(() => periodStartDate(period), [period]);
 
-  const movementsInPeriod = useMemo(() => {
-    if (rangeStart === null) return movements;
-    return movements.filter((m) => new Date(m.date) >= rangeStart);
-  }, [movements, rangeStart]);
+  const movementsInPeriod = useMemo(
+    () => movements.filter((m) => movementInPeriod(m, rangeStart)),
+    [movements, rangeStart],
+  );
 
   // Valor em estoque ao custo (CMP): Σ (estoque atual × custo médio). Snapshot atual — não muda com o período.
   const totalStockValue = products.reduce((sum, p) => sum + (p.currentStock * p.averageCost), 0);
   const potentialSalesValue = products.reduce((sum, p) => sum + (p.currentStock * (p.sellingPrice || 0)), 0);
   const potentialProfit = potentialSalesValue - totalStockValue;
+  /** Alinha com Lucro Potencial: margem % sobre o valor de venda do estoque atual (ponderada). */
+  const marginOnCurrentStockPct =
+    potentialSalesValue > 0 ? ((potentialSalesValue - totalStockValue) / potentialSalesValue) * 100 : 0;
 
   const productsWithStock = products.filter((p) => (p.currentStock || 0) > 0).length;
   const productsWithStockAndCost = products.filter(
@@ -61,8 +83,34 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
   ).length;
 
   const periodWasteMovements = movementsInPeriod.filter((m) => m.type === 'desperdicio');
-  const periodWaste = periodWasteMovements.reduce((sum, m) => sum + (m.cost || 0), 0);
+  const periodWaste = periodWasteMovements.reduce(
+    (sum, m) => sum + lineCostAtMovement(m, products),
+    0,
+  );
   const periodWastePercentage = totalStockValue > 0 ? (periodWaste / totalStockValue) * 100 : 0;
+
+  const periodExitMovements = movementsInPeriod.filter(
+    (m) => m.type === 'saida' && !m.wasteReason,
+  );
+  const periodExitUnits = periodExitMovements.reduce(
+    (sum, m) => sum + (Number(m.quantity) || 0),
+    0,
+  );
+  const periodExitsCost = periodExitMovements.reduce(
+    (sum, m) => sum + lineCostAtMovement(m, products),
+    0,
+  );
+  const periodExitsRevenueEstimate = periodExitMovements.reduce((sum, m) => {
+    const p = products.find((x) => x.id === m.productId);
+    const q = Number(m.quantity) || 0;
+    return sum + q * (p?.sellingPrice ?? 0);
+  }, 0);
+
+  const periodEntryMovements = movementsInPeriod.filter((m) => m.type === 'entrada');
+  const periodEntriesValue = periodEntryMovements.reduce(
+    (sum, m) => sum + lineCostAtMovement(m, products),
+    0,
+  );
   
   const lowStockItems = products.filter(p => {
     const status = getStockStatus(p.currentStock, p.minStock, p.safetyStock);
@@ -70,15 +118,6 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
   }).length;
   
   const expiringItems = products.filter(p => p.isPerishable).length;
-  
-  const averageMargin = recipes.length > 0
-    ? recipes.reduce((sum, r) => sum + r.profitMargin, 0) / recipes.length
-    : products.filter(p => (p.sellingPrice || 0) > 0).length > 0
-      ? products.filter(p => (p.sellingPrice || 0) > 0).reduce((sum, p) => {
-          const margin = ((p.sellingPrice! - p.averageCost) / p.sellingPrice!) * 100;
-          return sum + margin;
-        }, 0) / products.filter(p => (p.sellingPrice || 0) > 0).length
-      : 0;
   
   // Top 5 most sold items (by movement) no período selecionado
   const productSales = movementsInPeriod
@@ -169,13 +208,12 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
         </div>
       </div>
 
-      <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
-        Os cards <strong className="font-medium text-gray-600 dark:text-gray-300">Valor / Potencial / Lucro / Margem</strong> usam o{' '}
-        <strong className="font-medium text-gray-600 dark:text-gray-300">estoque atual</strong>. Desperdício e ranking de vendas usam{' '}
-        <strong className="font-medium text-gray-600 dark:text-gray-300">{PERIOD_LABEL[period]}</strong>.
-      </p>
+      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 pt-2 border-t border-gray-200 dark:border-gray-700">
+        Estoque atual
+        <span className="font-normal text-gray-500 dark:text-gray-400 ml-2">(não muda ao trocar o período)</span>
+      </h3>
       
-      {/* KPI Cards */}
+      {/* KPI Cards — snapshot */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Stock Value */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 md:p-6 shadow-sm">
@@ -232,17 +270,60 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
           </div>
         </div>
         
-        {/* Average Margin */}
+        {/* Margem coerente com Lucro Potencial */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 md:p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm font-medium">Margem Média</p>
-              <p className="mt-1 text-lg md:text-2xl font-bold dark:text-white">{formatPercentage(averageMargin)}</p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm font-medium">Margem no estoque</p>
+              <p className="mt-1 text-lg md:text-2xl font-bold dark:text-white">
+                {formatPercentage(marginOnCurrentStockPct)}
+              </p>
+              <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                Mesma base do Lucro Potencial: (Potencial Venda − Custo) / Potencial Venda.
+              </p>
             </div>
             <div className="bg-orange-100 dark:bg-orange-900/30 rounded-full p-2 md:p-3">
               <DollarSign className="w-5 h-5 md:w-6 md:h-6 text-orange-600 dark:text-orange-400" />
             </div>
           </div>
+        </div>
+      </div>
+
+      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 pt-4">
+        Atividade no período: {PERIOD_LABEL[period]}
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-800 p-4 md:p-6 shadow-sm">
+          <p className="text-gray-500 dark:text-gray-400 text-xs font-medium">Saídas (unidades)</p>
+          <p className="mt-1 text-xl md:text-2xl font-bold dark:text-white">
+            {periodExitUnits.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+          </p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+            Movimentos tipo saída (exceto desperdício) no período.
+          </p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-800 p-4 md:p-6 shadow-sm">
+          <p className="text-gray-500 dark:text-gray-400 text-xs font-medium">Custo das saídas</p>
+          <p className="mt-1 text-xl md:text-2xl font-bold dark:text-white">{formatCurrency(periodExitsCost)}</p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+            Soma dos valores das saídas (total no movimento ou qtd × CMP).
+          </p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-800 p-4 md:p-6 shadow-sm">
+          <p className="text-gray-500 dark:text-gray-400 text-xs font-medium">Receita estimada (saídas)</p>
+          <p className="mt-1 text-xl md:text-2xl font-bold text-blue-700 dark:text-blue-300">
+            {formatCurrency(periodExitsRevenueEstimate)}
+          </p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+            Qtd × preço de venda cadastrado (referência; não substitui relatório fiscal).
+          </p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-800 p-4 md:p-6 shadow-sm">
+          <p className="text-gray-500 dark:text-gray-400 text-xs font-medium">Entradas (valor)</p>
+          <p className="mt-1 text-xl md:text-2xl font-bold dark:text-emerald-600 dark:text-emerald-400">
+            {formatCurrency(periodEntriesValue)}
+          </p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">Movimentos tipo entrada no período.</p>
         </div>
       </div>
       
@@ -252,14 +333,26 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 dark:text-gray-400 text-xs uppercase font-bold">Desperdício no período</p>
+              <p className="text-gray-600 dark:text-gray-400 text-xs uppercase font-bold">Desperdício</p>
               <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{PERIOD_LABEL[period]}</p>
               <p className="mt-1 font-bold dark:text-white">{formatCurrency(periodWaste)}</p>
               <p className="text-red-600 dark:text-red-400 text-xs mt-1">
-                {formatPercentage(periodWastePercentage)} do valor em estoque (custo atual)
+                {formatPercentage(periodWastePercentage)} do valor em estoque (hoje)
               </p>
             </div>
             <TrendingDown className="w-5 h-5 text-red-500 dark:text-red-400" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 dark:text-gray-400 text-xs uppercase font-bold">Movimentos no período</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{PERIOD_LABEL[period]}</p>
+              <p className="mt-1 font-bold dark:text-white">{movementsInPeriod.length}</p>
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">Registros filtrados</p>
+            </div>
+            <Package className="w-5 h-5 text-gray-400" />
           </div>
         </div>
         
@@ -288,16 +381,16 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
           </div>
         </div>
 
-        {/* Total Profit % */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 dark:text-gray-400 text-xs uppercase font-bold">Lucratividade Geral</p>
-              <p className="mt-1 font-bold">
-                {potentialSalesValue > 0 ? (((potentialSalesValue - totalStockValue) / potentialSalesValue) * 100).toFixed(1) : 0}%
+              <p className="text-gray-600 dark:text-gray-400 text-xs uppercase font-bold">Lucro estimado (saídas no período)</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{PERIOD_LABEL[period]}</p>
+              <p className="mt-1 font-bold text-green-700 dark:text-green-400">
+                {formatCurrency(periodExitsRevenueEstimate - periodExitsCost)}
               </p>
-              <p className="text-green-600 dark:text-green-400 text-xs mt-1">
-                Lucro potencial de venda (agregado), não margem média por produto
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+                Receita estimada − custo das saídas
               </p>
             </div>
             <TrendingUp className="w-5 h-5 text-green-500 dark:text-green-400" />
@@ -498,7 +591,9 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
           <div>
             <p className="text-gray-600 dark:text-gray-400">Receitas Ativas</p>
             <p className="mt-1">{recipes.filter(r => r.isActive).length} receitas</p>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Margem média: {formatPercentage(averageMargin)}</p>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              Margem no estoque: {formatPercentage(marginOnCurrentStockPct)}
+            </p>
           </div>
         </div>
       </div>
