@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { TrendingUp, TrendingDown, AlertTriangle, Package, DollarSign, ShoppingCart, AlertCircle, CheckCircle } from 'lucide-react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import type { Product, StockMovement, Recipe } from '../types';
-import { formatCurrency, formatPercentage, getDaysUntilExpiration, getExpirationColor, getStockStatus } from '../utils/calculations';
+import { formatCurrency, formatPercentage, getExpirationColor, getStockStatus } from '../utils/calculations';
 
 interface DashboardProps {
   products: Product[];
@@ -10,28 +10,59 @@ interface DashboardProps {
   recipes: Recipe[];
 }
 
+type DashboardPeriod = '7d' | '30d' | '90d' | 'ytd' | 'all';
+
+function periodStartDate(period: DashboardPeriod): Date | null {
+  const now = new Date();
+  if (period === 'all') return null;
+  const d = new Date(now);
+  if (period === '7d') {
+    d.setDate(d.getDate() - 7);
+  } else if (period === '30d') {
+    d.setDate(d.getDate() - 30);
+  } else if (period === '90d') {
+    d.setDate(d.getDate() - 90);
+  } else if (period === 'ytd') {
+    d.setMonth(0, 1);
+    d.setHours(0, 0, 0, 0);
+  }
+  return d;
+}
+
+const PERIOD_LABEL: Record<DashboardPeriod, string> = {
+  '7d': 'Últimos 7 dias',
+  '30d': 'Últimos 30 dias',
+  '90d': 'Últimos 90 dias',
+  ytd: 'Ano atual',
+  all: 'Todo o período',
+};
+
 export function Dashboard({ products, movements, recipes }: DashboardProps) {
-  // Calculate KPIs
+  const [period, setPeriod] = useState<DashboardPeriod>('30d');
+
+  const rangeStart = useMemo(() => periodStartDate(period), [period]);
+
+  const movementsInPeriod = useMemo(() => {
+    if (rangeStart === null) return movements;
+    return movements.filter((m) => new Date(m.date) >= rangeStart);
+  }, [movements, rangeStart]);
+
+  // Valor em estoque ao custo (CMP): Σ (estoque atual × custo médio). Snapshot atual — não muda com o período.
   const totalStockValue = products.reduce((sum, p) => sum + (p.currentStock * p.averageCost), 0);
   const potentialSalesValue = products.reduce((sum, p) => sum + (p.currentStock * (p.sellingPrice || 0)), 0);
   const potentialProfit = potentialSalesValue - totalStockValue;
-  
-  const today = new Date();
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-  
-  const weeklyWasteMovements = movements.filter(
-    m => m.type === 'desperdicio' && new Date(m.date) >= weekAgo
-  );
-  const weeklyWaste = weeklyWasteMovements.reduce((sum, m) => sum + (m.cost || 0), 0);
-  
-  const monthlyWasteMovements = movements.filter(
-    m => m.type === 'desperdicio' && new Date(m.date) >= monthAgo
-  );
-  const monthlyWaste = monthlyWasteMovements.reduce((sum, m) => sum + (m.cost || 0), 0);
-  
-  const weeklyWastePercentage = totalStockValue > 0 ? (weeklyWaste / totalStockValue) * 100 : 0;
-  const monthlyWastePercentage = totalStockValue > 0 ? (monthlyWaste / totalStockValue) * 100 : 0;
+
+  const productsWithStock = products.filter((p) => (p.currentStock || 0) > 0).length;
+  const productsWithStockAndCost = products.filter(
+    (p) => (p.currentStock || 0) > 0 && (p.averageCost || 0) > 0,
+  ).length;
+  const productsWithStockButNoCost = products.filter(
+    (p) => (p.currentStock || 0) > 0 && !(p.averageCost || 0),
+  ).length;
+
+  const periodWasteMovements = movementsInPeriod.filter((m) => m.type === 'desperdicio');
+  const periodWaste = periodWasteMovements.reduce((sum, m) => sum + (m.cost || 0), 0);
+  const periodWastePercentage = totalStockValue > 0 ? (periodWaste / totalStockValue) * 100 : 0;
   
   const lowStockItems = products.filter(p => {
     const status = getStockStatus(p.currentStock, p.minStock, p.safetyStock);
@@ -49,8 +80,8 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
         }, 0) / products.filter(p => (p.sellingPrice || 0) > 0).length
       : 0;
   
-  // Top 5 most sold items (by movement)
-  const productSales = movements
+  // Top 5 most sold items (by movement) no período selecionado
+  const productSales = movementsInPeriod
     .filter(m => m.type === 'saida' && !m.wasteReason)
     .reduce((acc, m) => {
       acc[m.productId] = (acc[m.productId] || 0) + m.quantity;
@@ -112,10 +143,37 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
   return (
     <div className="space-y-4 md:space-y-6 pb-20 md:pb-0">
       {/* Header */}
-      <div>
-        <h2 className="text-xl md:text-2xl dark:text-white">Dashboard Executivo</h2>
-        <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">Visão geral do seu estoque e operação</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-xl md:text-2xl dark:text-white">Dashboard Executivo</h2>
+          <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
+            Visão geral do estoque (atual) e das movimentações no período escolhido.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1 sm:items-end">
+          <label htmlFor="dashboard-period" className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            Período (movimentações)
+          </label>
+          <select
+            id="dashboard-period"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as DashboardPeriod)}
+            className="text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 min-w-[200px]"
+          >
+            <option value="7d">{PERIOD_LABEL['7d']}</option>
+            <option value="30d">{PERIOD_LABEL['30d']}</option>
+            <option value="90d">{PERIOD_LABEL['90d']}</option>
+            <option value="ytd">{PERIOD_LABEL.ytd}</option>
+            <option value="all">{PERIOD_LABEL.all}</option>
+          </select>
+        </div>
       </div>
+
+      <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+        Os cards <strong className="font-medium text-gray-600 dark:text-gray-300">Valor / Potencial / Lucro / Margem</strong> usam o{' '}
+        <strong className="font-medium text-gray-600 dark:text-gray-300">estoque atual</strong>. Desperdício e ranking de vendas usam{' '}
+        <strong className="font-medium text-gray-600 dark:text-gray-300">{PERIOD_LABEL[period]}</strong>.
+      </p>
       
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -125,6 +183,22 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
             <div>
               <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm font-medium">Valor Total (Custo)</p>
               <p className="mt-1 text-lg md:text-2xl font-bold dark:text-white">{formatCurrency(totalStockValue)}</p>
+              <p className="mt-2 text-[11px] md:text-xs text-gray-500 dark:text-gray-400 leading-snug max-w-[260px]">
+                Soma de <strong className="font-medium text-gray-600 dark:text-gray-300">estoque × custo médio</strong> (CMP).
+                {products.length > 0 && (
+                  <>
+                    {' '}
+                    {productsWithStockAndCost} de {products.length} cadastros têm estoque e custo &gt; 0
+                    {productsWithStockButNoCost > 0 && (
+                      <span className="text-amber-700 dark:text-amber-300">
+                        {' '}
+                        · {productsWithStockButNoCost} com estoque mas custo zerado (não entram no valor)
+                      </span>
+                    )}
+                    .
+                  </>
+                )}
+              </p>
             </div>
             <div className="bg-blue-100 dark:bg-blue-900/30 rounded-full p-2 md:p-3">
               <Package className="w-5 h-5 md:w-6 md:h-6 text-blue-600 dark:text-blue-400" />
@@ -174,13 +248,16 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
       
       {/* Secondary Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Weekly Waste */}
+        {/* Desperdício no período */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 dark:text-gray-400 text-xs uppercase font-bold">Desperdício Semanal</p>
-              <p className="mt-1 font-bold dark:text-white">{formatCurrency(weeklyWaste)}</p>
-              <p className="text-red-600 dark:text-red-400 text-xs mt-1">{formatPercentage(weeklyWastePercentage)} do estoque</p>
+              <p className="text-gray-600 dark:text-gray-400 text-xs uppercase font-bold">Desperdício no período</p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{PERIOD_LABEL[period]}</p>
+              <p className="mt-1 font-bold dark:text-white">{formatCurrency(periodWaste)}</p>
+              <p className="text-red-600 dark:text-red-400 text-xs mt-1">
+                {formatPercentage(periodWastePercentage)} do valor em estoque (custo atual)
+              </p>
             </div>
             <TrendingDown className="w-5 h-5 text-red-500 dark:text-red-400" />
           </div>
@@ -219,7 +296,9 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
               <p className="mt-1 font-bold">
                 {potentialSalesValue > 0 ? (((potentialSalesValue - totalStockValue) / potentialSalesValue) * 100).toFixed(1) : 0}%
               </p>
-              <p className="text-green-600 dark:text-green-400 text-xs mt-1">Margem média ponderada</p>
+              <p className="text-green-600 dark:text-green-400 text-xs mt-1">
+                Lucro potencial de venda (agregado), não margem média por produto
+              </p>
             </div>
             <TrendingUp className="w-5 h-5 text-green-500 dark:text-green-400" />
           </div>
@@ -230,7 +309,8 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top 5 Most Sold */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="mb-4">Top 5 Itens Mais Vendidos</h3>
+          <h3 className="mb-1">Top 5 Itens Mais Vendidos</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">{PERIOD_LABEL[period]}</p>
           {topSoldItems.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={topSoldItems}>
@@ -399,16 +479,20 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
       
       {/* Summary Stats */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:bg-gradient-to-r dark:from-blue-900 dark:to-indigo-900 rounded-lg border border-blue-200 dark:border-blue-700 p-6">
-        <h3 className="mb-4">Resumo do Mês</h3>
+        <h3 className="mb-1">Resumo</h3>
+        <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">Desperdício no período: {PERIOD_LABEL[period]}</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <p className="text-gray-600 dark:text-gray-400">Total Desperdiçado</p>
-            <p className="mt-1">{formatCurrency(monthlyWaste)}</p>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">{formatPercentage(monthlyWastePercentage)} do estoque</p>
+            <p className="mt-1">{formatCurrency(periodWaste)}</p>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">{formatPercentage(periodWastePercentage)} do valor em estoque</p>
           </div>
           <div>
             <p className="text-gray-600 dark:text-gray-400">Produtos Cadastrados</p>
             <p className="mt-1">{products.length} itens</p>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              {productsWithStock} com estoque &gt; 0 · {productsWithStockAndCost} com estoque e custo para o valor em estoque
+            </p>
             <p className="text-gray-600 dark:text-gray-400 mt-1">{products.filter(p => p.isPerishable).length} perecíveis</p>
           </div>
           <div>

@@ -31,13 +31,16 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
 
   const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 
+  const edgeHeaders = {
+    Authorization: `Bearer ${publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+
   const loadZigEnabled = async () => {
     if (!currentCompany?.id) return;
     try {
       const res = await fetch(`${SERVER_URL}/zig/enabled/${currentCompany.id}`, {
-        headers: {
-          Authorization: `Bearer ${publicAnonKey}`,
-        },
+        headers: edgeHeaders,
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -56,7 +59,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${publicAnonKey}`,
+          ...edgeHeaders,
         },
         body: JSON.stringify({ companyId: currentCompany.id, enabled }),
       });

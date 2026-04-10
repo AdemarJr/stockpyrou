@@ -288,6 +288,32 @@ app.post("/make-server-8a20b27d/zig/enabled", async (c) => {
   }
 });
 
+/** Mesmas rotas sem prefixo do deploy (URL …/functions/v1/make-server-8a20b27d/zig/…). */
+app.get("/zig/enabled/:companyId", async (c) => {
+  try {
+    const companyId = c.req.param("companyId");
+    const enabled = await zig.getZigEnabled(companyId);
+    return c.json({ enabled });
+  } catch (error: any) {
+    console.error("Zig enabled get Error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+app.post("/zig/enabled", async (c) => {
+  try {
+    const { companyId, enabled } = await c.req.json();
+    if (!companyId || typeof enabled !== "boolean") {
+      return c.json({ error: "Missing companyId or enabled (boolean)" }, 400);
+    }
+    await zig.setZigEnabled(companyId, enabled);
+    return c.json({ success: true, enabled });
+  } catch (error: any) {
+    console.error("Zig enabled save Error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // Zig Preview Pending Sales (Busca vendas sem processar)
 app.post("/make-server-8a20b27d/zig/preview", async (c) => {
   try {
