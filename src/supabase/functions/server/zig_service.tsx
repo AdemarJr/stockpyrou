@@ -29,8 +29,6 @@ type ZigKvConfig = {
   zigToken?: string;
 };
 
-type ZigEnabledConfig = { enabled: boolean };
-
 /** Token ZIG: 1) KV por empresa (`zigToken`), 2) variável de ambiente `ZIG_API_KEY` (dev/legado). */
 export async function getZigTokenForCompany(companyId: string): Promise<string> {
   const cfg = (await kv.get(`zig_config:${companyId}`)) as ZigKvConfig | null;
@@ -43,38 +41,23 @@ export async function getZigTokenForCompany(companyId: string): Promise<string> 
   );
 }
 
-/** Habilita/desabilita a integração de Vendas/Baixa ZIG por empresa (default: habilitado). */
-export async function getZigEnabled(companyId: string): Promise<boolean> {
-  const row = (await kv.get(`zig_enabled:${companyId}`)) as ZigEnabledConfig | null;
-  if (!row || typeof row.enabled !== "boolean") return true;
-  return row.enabled;
-}
-
-export async function setZigEnabled(companyId: string, enabled: boolean): Promise<void> {
-  await kv.set(`zig_enabled:${companyId}`, { enabled } satisfies ZigEnabledConfig);
-}
-
-async function assertZigEnabled(companyId: string): Promise<void> {
-  const enabled = await getZigEnabled(companyId);
-  if (!enabled) {
-    throw new Error(
-      "Integração ZIG desativada para esta empresa. Ative em Integrações → ZIG para buscar vendas ou dar baixa.",
-    );
-  }
-}
-
 /**
- * Para listar lojas: header `X-ZIG-TOKEN` (setup) ou `companyId` na query (token já salvo no KV).
+ * Lista lojas na ZIG:
+ * - Com `companyId` na query: **só** o token salvo no KV dessa empresa (ignora header — evita misturar token de outra empresa).
+ * - Sem `companyId`: use `X-ZIG-TOKEN` (ex.: testar token antes de salvar na configuração).
  */
 export async function resolveZigTokenForStores(
   companyId: string | undefined,
   headerToken: string | undefined,
 ): Promise<string> {
+  const cid = companyId?.trim();
+  if (cid) {
+    return await getZigTokenForCompany(cid);
+  }
   const h = headerToken?.trim();
   if (h) return h;
-  if (companyId) return await getZigTokenForCompany(companyId);
   throw new Error(
-    "Informe o token ZIG (campo na tela) ou salve a configuração da empresa antes de listar lojas.",
+    "Informe o token ZIG no campo acima (teste antes de salvar) ou salve a configuração da loja para usar o token desta empresa.",
   );
 }
 
@@ -537,7 +520,6 @@ export type ZigConfirmLineItem = {
 
 // Fetch Pending Sales (Preview - Sem processar)
 export const fetchPendingSales = async (companyId: string, startDate?: string, endDate?: string) => {
-  await assertZigEnabled(companyId);
   const token = await getZigTokenForCompany(companyId);
 
   const config = await kv.get(`zig_config:${companyId}`);
@@ -1047,7 +1029,6 @@ export async function confirmStockFromZigPreviewSnapshot(
   previewSessionId: string | undefined,
   registeredOnly: boolean,
 ): Promise<{ processed: number; createdProducts: number; message: string }> {
-  await assertZigEnabled(companyId);
   const config = await kv.get(`zig_config:${companyId}`);
   if (!config?.storeId) {
     throw new Error("Integração ZIG não configurada.");
@@ -1126,7 +1107,6 @@ export const confirmSales = async (
   endDate?: string,
   options?: ConfirmSalesOptions,
 ) => {
-  await assertZigEnabled(companyId);
   const config = await kv.get(`zig_config:${companyId}`);
   if (!config || !config.storeId) {
     throw new Error("Integração ZIG não configurada.");
@@ -1237,11 +1217,6 @@ export async function getAutoBaixaConfig(companyId: string): Promise<{ enabled: 
 }
 
 export async function saveAutoBaixaConfig(companyId: string, enabled: boolean): Promise<void> {
-  if (enabled && !(await getZigEnabled(companyId))) {
-    throw new Error(
-      "Ative a integração ZIG (Vendas/Baixa) antes de ligar a baixa automática.",
-    );
-  }
   await kv.set(`zig_auto_baixa:${companyId}`, { enabled });
 }
 
@@ -1250,14 +1225,6 @@ export async function saveAutoBaixaConfig(companyId: string, enabled: boolean): 
  * cria produtos ausentes e dá baixa (mesma lógica de `ensureProduct` do fluxo manual).
  */
 export async function runAutoBaixaZigOntem(companyId: string) {
-  const enabled = await getZigEnabled(companyId);
-  if (!enabled) {
-    return {
-      skipped: true,
-      message: "Integração ZIG desativada para esta empresa.",
-      processed: 0,
-    };
-  }
   const auto = await getAutoBaixaConfig(companyId);
   if (!auto.enabled) {
     return {

@@ -11,6 +11,7 @@ import { toast } from 'sonner@2.0.3';
 import { SaleReceipt } from './SaleReceipt';
 import { ZigSalesBaixa } from './ZigSalesBaixa';
 import { useIsMobile } from '../ui/use-mobile';
+import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
 
 interface POSProps {
   products: Product[];
@@ -40,6 +41,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastSale, setLastSale] = useState<{ items: any[], total: number, date: Date } | null>(null);
   const [posTab, setPosTab] = useState<'manual' | 'zig'>('manual');
+  /** Integrações → ZIG: quando true, não entra na aba ZIG / Baixa (localStorage). */
+  const [zigBaixaAccessDisabled, setZigBaixaAccessDisabled] = useState(false);
 
   // Scanner State
   const [isScanning, setIsScanning] = useState(false);
@@ -61,6 +64,27 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     setIsScanning(false);
     setIsLoadingCamera(false);
   };
+
+  useEffect(() => {
+    if (!currentCompany?.id) return;
+    const sync = () => setZigBaixaAccessDisabled(readZigBaixaUiDisabled(currentCompany.id));
+    sync();
+    const onUi = (e: Event) => {
+      const ce = e as CustomEvent<{ companyId?: string }>;
+      if (ce.detail?.companyId === currentCompany.id) sync();
+    };
+    window.addEventListener(ZIG_BAIXA_UI_EVENT, onUi);
+    return () => window.removeEventListener(ZIG_BAIXA_UI_EVENT, onUi);
+  }, [currentCompany?.id]);
+
+  useEffect(() => {
+    if (zigBaixaAccessDisabled && posTab === 'zig') {
+      setPosTab('manual');
+    }
+  }, [zigBaixaAccessDisabled, posTab]);
+
+  const activePosTab: 'manual' | 'zig' =
+    zigBaixaAccessDisabled && posTab === 'zig' ? 'manual' : posTab;
 
   useEffect(() => {
     let mounted = true;
@@ -415,10 +439,10 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             <button
               type="button"
               role="tab"
-              aria-selected={posTab === 'manual'}
+              aria-selected={activePosTab === 'manual'}
               onClick={() => setPosTab('manual')}
               className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-colors ${
-                posTab === 'manual'
+                activePosTab === 'manual'
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
@@ -428,12 +452,26 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             <button
               type="button"
               role="tab"
-              aria-selected={posTab === 'zig'}
-              onClick={() => setPosTab('zig')}
+              aria-selected={activePosTab === 'zig'}
+              aria-disabled={zigBaixaAccessDisabled}
+              title={
+                zigBaixaAccessDisabled
+                  ? 'Desativado em Integrações → ZIG. Ative a integração para abrir esta aba.'
+                  : undefined
+              }
+              onClick={() => {
+                if (zigBaixaAccessDisabled) {
+                  toast.info('ZIG / Baixa está desativado. Ative em Integrações → ZIG.');
+                  return;
+                }
+                setPosTab('zig');
+              }}
               className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-colors ${
-                posTab === 'zig'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                zigBaixaAccessDisabled
+                  ? 'text-gray-400 cursor-not-allowed opacity-60'
+                  : activePosTab === 'zig'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
               }`}
             >
               ZIG / Baixa
@@ -452,7 +490,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         </div>
       </div>
 
-      {posTab === 'zig' ? (
+      {activePosTab === 'zig' ? (
         <div className="flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
           <ZigSalesBaixa onSyncComplete={onSaleComplete} />
         </div>
