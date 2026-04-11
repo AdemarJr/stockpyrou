@@ -3092,6 +3092,52 @@ app.get("/make-server-8a20b27d/reports/sales", async (c) => {
   }
 });
 
+/** Comparativo: vendas direto da API ZIG (`saida-produtos`) vs saídas locais da integração ZIG. */
+app.get("/make-server-8a20b27d/reports/zig-saida-comparison", async (c) => {
+  try {
+    const customToken = c.req.header("X-Custom-Token");
+    if (!customToken) {
+      return c.json({ error: "No token provided" }, 401);
+    }
+
+    const profile = await verifyAnyToken(customToken);
+    if (!profile) {
+      return c.json({ error: "Invalid token" }, 401);
+    }
+
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    );
+
+    const headerCompanyId = c.req.header("X-Company-Id");
+    const companyId = await getCompanyId(profile, supabaseAdmin, headerCompanyId);
+    if (!companyId) {
+      return c.json({ error: "Company ID not found" }, 400);
+    }
+
+    const startDate = c.req.query("startDate");
+    const endDate = c.req.query("endDate");
+    if (!startDate || !endDate) {
+      return c.json(
+        { error: "Informe startDate e endDate (YYYY-MM-DD) no período do relatório." },
+        400,
+      );
+    }
+
+    const result = await zig.buildZigSaidaComparisonReport(
+      companyId,
+      startDate,
+      endDate,
+    );
+    return c.json(result);
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    console.error("zig-saida-comparison:", error);
+    return c.json({ error: err?.message || "Erro ao montar comparativo ZIG" }, 500);
+  }
+});
+
 // Get detailed register closures for reports
 app.get("/make-server-8a20b27d/reports/closures", async (c) => {
   try {

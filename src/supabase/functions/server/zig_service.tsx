@@ -598,6 +598,167 @@ async function fetchZigSaidaProdutosRange(
   return Array.from(merged.values());
 }
 
+const MAX_ZIG_SAIDA_REPORT_DAYS = 93;
+
+function movementYmdSaoPauloFromIso(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return ymdFormatterSaoPaulo.format(d);
+}
+
+function accumulateZigSaleForReport(
+  sale: ZigSale,
+  startYmd: string,
+  endYmd: string,
+  global: { lineCount: number; totalQty: number; totalValue: number },
+  byDay: Record<string, { lines: number; qty: number; value: number }>,
+) {
+  const ymd =
+    transactionYmdSaoPaulo(sale.transactionDate) ||
+    (sale.transactionDate || "").split("T")[0];
+  if (!ymd || ymd < startYmd || ymd > endYmd) return;
+
+  const bump = (lines: number, qty: number, value: number) => {
+    global.lineCount += lines;
+    global.totalQty += qty;
+    global.totalValue += value;
+    if (!byDay[ymd]) byDay[ymd] = { lines: 0, qty: 0, value: 0 };
+    byDay[ymd].lines += lines;
+    byDay[ymd].qty += qty;
+    byDay[ymd].value += value;
+  };
+
+  const mainQty = zigEffectiveCount(sale);
+  const mainVal = (Number(sale.unitValue) || 0) * mainQty;
+  bump(1, mainQty, mainVal);
+
+  if (sale.additions?.length) {
+    for (const add of sale.additions) {
+      if (!add?.productSku?.trim()) continue;
+      const aq = zigEffectiveAdditionCount(add);
+      bump(1, aq, 0);
+    }
+  }
+}
+
+/**
+ * Relatório comparativo: vendas em **quantidade/valor** direto da API ZIG (`saida-produtos`)
+ * vs movimentações locais geradas pela integração (notas com «Integração automática ZIG»).
+ * Não filtra «pendentes» — espelha o extrato ZIG do período.
+ */
+export async function buildZigSaidaComparisonReport(
+  companyId: string,
+  startYmd: string,
+  endYmd: string,
+): Promise<{
+  dateRange: { start: string; end: string };
+  zig: {
+    lineCount: number;
+    totalQty: number;
+    totalValue: number;
+    byDay: Record<string, { lines: number; qty: number; value: number }>;
+  };
+  local: {
+    movementCount: number;
+    totalQty: number;
+    totalCost: number;
+    byDay: Record<string, { movements: number; qty: number; cost: number }>;
+  };
+  note: string;
+}> {
+  if (!startYmd?.trim() || !endYmd?.trim() || startYmd > endYmd) {
+    throw new Error("Intervalo de datas inválido.");
+  }
+  const spanDays = eachYmdInRangeSaoPaulo(startYmd, endYmd).length;
+  if (spanDays > MAX_ZIG_SAIDA_REPORT_DAYS) {
+    throw new Error(
+      `Período máximo: ${MAX_ZIG_SAIDA_REPORT_DAYS} dias (inclusivos). Reduza o intervalo no filtro do relatório.`,
+    );
+  }
+
+  const token = await getZigTokenForCompany(companyId);
+  const config = (await kv.get(`zig_config:${companyId}`)) as ZigKvConfig | null;
+  if (!config?.storeId) {
+    throw new Error(
+      "Integração ZIG não configurada. Informe token e loja em Integrações → ZIG.",
+    );
+  }
+
+  const sales = await fetchZigSaidaProdutosRange(
+    token,
+    config.storeId,
+    startYmd,
+    endYmd,
+  );
+
+  const zigGlobal = { lineCount: 0, totalQty: 0, totalValue: 0 };
+  const zigByDay: Record<string, { lines: number; qty: number; value: number }> = {};
+  for (const s of sales) {
+    accumulateZigSaleForReport(s, startYmd, endYmd, zigGlobal, zigByDay);
+  }
+
+  const startIso = `${startYmd}T00:00:00.000-03:00`;
+  const endIso = `${endYmd}T23:59:59.999-03:00`;
+
+  const { data: movRows, error: movErr } = await supabase
+    .from("stock_movements")
+    .select("quantity, movement_date, notes, total_value, unit_cost")
+    .eq("company_id", companyId)
+    .ilike("notes", "%Integração automática ZIG%")
+    .gte("movement_date", startIso)
+    .lte("movement_date", endIso);
+
+  if (movErr) {
+    throw new Error(movErr.message || "Erro ao ler movimentações locais.");
+  }
+
+  const localGlobal = { movementCount: 0, totalQty: 0, totalCost: 0 };
+  const localByDay: Record<string, { movements: number; qty: number; cost: number }> =
+    {};
+
+  for (const row of movRows || []) {
+    const qty = Number(row.quantity) || 0;
+    const tvRaw = row.total_value;
+    const tv =
+      tvRaw != null && tvRaw !== "" ? Number(tvRaw) : NaN;
+    const uc = Number(row.unit_cost) || 0;
+    const cost = Number.isFinite(tv) && tv > 0 ? tv : qty * uc;
+
+    localGlobal.movementCount += 1;
+    localGlobal.totalQty += qty;
+    localGlobal.totalCost += cost;
+
+    const ymd = movementYmdSaoPauloFromIso(row.movement_date as string);
+    if (!ymd) continue;
+    if (!localByDay[ymd]) {
+      localByDay[ymd] = { movements: 0, qty: 0, cost: 0 };
+    }
+    localByDay[ymd].movements += 1;
+    localByDay[ymd].qty += qty;
+    localByDay[ymd].cost += cost;
+  }
+
+  return {
+    dateRange: { start: startYmd, end: endYmd },
+    zig: {
+      lineCount: zigGlobal.lineCount,
+      totalQty: zigGlobal.totalQty,
+      totalValue: zigGlobal.totalValue,
+      byDay: zigByDay,
+    },
+    local: {
+      movementCount: localGlobal.movementCount,
+      totalQty: localGlobal.totalQty,
+      totalCost: localGlobal.totalCost,
+      byDay: localByDay,
+    },
+    note:
+      "Fonte ZIG: GET /erp/saida-produtos (mesmo endpoint da documentação). " +
+      "Local: apenas movimentações com «Integração automática ZIG» (baixa automática ou confirmação no PDV). " +
+      "Receitas e combos podem gerar várias linhas locais por uma linha na ZIG — compare o dia e o valor de venda ZIG com o custo registrado.",
+  };
+}
+
 export const getStores = async (token: string, redeId?: string): Promise<ZigStore[]> => {
   // Log para debug (mascarando o token)
   console.log(`ZIG: Usando token: ${maskToken(token)}`);

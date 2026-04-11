@@ -1003,6 +1003,8 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
           currentPage={currentPage}
           itemsPerPage={itemsPerPage}
           onPageChange={setCurrentPage}
+          reportStartDate={startDate}
+          reportEndDate={endDate}
         />
       )}
 

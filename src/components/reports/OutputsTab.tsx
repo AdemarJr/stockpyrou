@@ -9,6 +9,7 @@ import {
   isExitConsumption,
   lineCostAtMovement,
 } from '../../utils/stockMovementFilters';
+import { ZigSaidaComparisonCard } from './ZigSaidaComparisonCard';
 
 interface OutputsTabProps {
   movements: StockMovement[];
@@ -17,6 +18,9 @@ interface OutputsTabProps {
   currentPage: number;
   itemsPerPage: number;
   onPageChange: (page: number) => void;
+  /** Período do relatório (mesmo filtro global) — usado no comparativo ZIG × integração. */
+  reportStartDate: string;
+  reportEndDate: string;
 }
 
 type OutputKindFilter =
@@ -41,6 +45,8 @@ export function OutputsTab({
   currentPage,
   itemsPerPage,
   onPageChange,
+  reportStartDate,
+  reportEndDate,
 }: OutputsTabProps) {
   const [kindFilter, setKindFilter] = useState<OutputKindFilter>('all');
   const [listSearch, setListSearch] = useState('');
@@ -176,6 +182,8 @@ export function OutputsTab({
 
   return (
     <div className="space-y-6">
+      <ZigSaidaComparisonCard startDate={reportStartDate} endDate={reportEndDate} />
+
       <div className="flex flex-col lg:flex-row gap-3 lg:items-end bg-white dark:bg-gray-900/40 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex-1 min-w-[200px]">
           <label className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1">
