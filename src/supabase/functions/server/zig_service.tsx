@@ -132,6 +132,17 @@ function zigLineItemId(
   return `${sale.transactionId}|${sku}|${pid}`;
 }
 
+/** SKU/código para match e baixa — a ZIG pode enviar linha só com `productId`. */
+function zigSaleMatchKey(
+  sale: Pick<ZigSale, "productSku" | "productId">,
+): string {
+  const s = sale.productSku?.trim();
+  if (s) return s;
+  const p = sale.productId?.trim();
+  if (p) return p;
+  return "";
+}
+
 interface ZigStore {
   id: string;
   name: string;
@@ -249,8 +260,105 @@ function isZigRangeLimitError(status: number, body: string): boolean {
   return /5\s*dias|mais do que\s*5|requisitar\s+mais|limite.*dia|intervalo.*dia/i.test(text);
 }
 
+type ZigSaidaPageMeta = {
+  total?: number;
+  hasNext?: boolean;
+  page?: number;
+  pageSize?: number;
+};
+
+/**
+ * A ZIG pode devolver array cru ou objeto com lista em `data` / `items` / etc.
+ * Antes: não-array virava `[]` e **todas** as vendas sumiam.
+ */
+function parseZigSaidaProdutosBody(txt: string): {
+  rows: ZigSale[];
+  meta?: ZigSaidaPageMeta;
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(txt);
+  } catch {
+    return { rows: [] };
+  }
+  if (Array.isArray(parsed)) {
+    return { rows: parsed as ZigSale[] };
+  }
+  if (parsed && typeof parsed === "object") {
+    const o = parsed as Record<string, unknown>;
+    const arrayKeys = [
+      "data",
+      "items",
+      "result",
+      "saidaProdutos",
+      "saida",
+      "rows",
+      "values",
+      "produtos",
+      "content",
+    ];
+    for (const k of arrayKeys) {
+      const v = o[k];
+      if (Array.isArray(v)) {
+        const total = pickNumericMeta(o, [
+          "total",
+          "totalCount",
+          "totalElements",
+          "count",
+          "totalRecords",
+        ]);
+        const page = pickNumericMeta(o, ["page", "currentPage", "pagina", "number"]);
+        const pageSize = pickNumericMeta(o, [
+          "pageSize",
+          "limit",
+          "perPage",
+          "size",
+          "take",
+        ]);
+        const hasNext =
+          typeof o.hasNext === "boolean"
+            ? o.hasNext
+            : typeof o.has_more === "boolean"
+              ? o.has_more
+              : undefined;
+        const meta: ZigSaidaPageMeta = {};
+        if (total !== undefined) meta.total = total;
+        if (page !== undefined) meta.page = page;
+        if (pageSize !== undefined) meta.pageSize = pageSize;
+        if (hasNext !== undefined) meta.hasNext = hasNext;
+        return {
+          rows: v as ZigSale[],
+          meta: Object.keys(meta).length ? meta : undefined,
+        };
+      }
+    }
+  }
+  return { rows: [] };
+}
+
+function pickNumericMeta(
+  o: Record<string, unknown>,
+  keys: string[],
+): number | undefined {
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && /^\d+$/.test(v)) return parseInt(v, 10);
+  }
+  return undefined;
+}
+
+/** Ordem estável para detectar página duplicada (API ignora `page`). */
+function zigSaidaChunkFingerprint(chunk: ZigSale[]): string {
+  return chunk
+    .filter((s) => s?.transactionId)
+    .map((s) => zigLineItemId(s))
+    .sort()
+    .join("\u0001");
+}
+
 type SaidaFetchResult =
-  | { ok: true; data: ZigSale[] }
+  | { ok: true; data: ZigSale[]; meta?: ZigSaidaPageMeta }
   | { ok: false; status: number; body: string };
 
 async function fetchSaidaProdutosOnce(
@@ -258,11 +366,15 @@ async function fetchSaidaProdutosOnce(
   storeId: string,
   dtinicio: string,
   dtfim: string,
+  page?: number,
 ): Promise<SaidaFetchResult> {
   const params = new URLSearchParams();
   params.set("dtinicio", dtinicio);
   params.set("dtfim", dtfim);
   params.set("loja", storeId);
+  if (page != null && page >= 2) {
+    params.set("page", String(page));
+  }
   const url = `${ZIG_API_URL}/erp/saida-produtos?${params.toString()}`;
 
   const res = await fetch(url, {
@@ -278,11 +390,78 @@ async function fetchSaidaProdutosOnce(
     return { ok: false, status: res.status, body: txt };
   }
   try {
-    const parsed = JSON.parse(txt) as ZigSale[];
-    return { ok: true, data: Array.isArray(parsed) ? parsed : [] };
+    const { rows, meta } = parseZigSaidaProdutosBody(txt);
+    return { ok: true, data: rows, meta };
   } catch {
     return { ok: false, status: res.status, body: txt || "JSON inválido" };
   }
+}
+
+/**
+ * Várias páginas quando a ZIG limita linhas por GET (comum em alto volume).
+ * A 1ª requisição **não** envia `page` (compatível com o comportamento antigo).
+ * Para se a próxima página repetir o mesmo conjunto (API ignora `page`).
+ */
+async function fetchSaidaProdutosAllPagesForWindow(
+  token: string,
+  storeId: string,
+  dtinicio: string,
+  dtfim: string,
+): Promise<SaidaFetchResult> {
+  const merged = new Map<string, ZigSale>();
+  let lastFp: string | null = null;
+  const maxPages = 80;
+
+  for (let page = 1; page <= maxPages; page++) {
+    const pageArg = page === 1 ? undefined : page;
+    const r = await fetchSaidaProdutosOnce(token, storeId, dtinicio, dtfim, pageArg);
+    if (!r.ok) {
+      if (page === 1) return r;
+      console.warn(
+        `ZIG: saída-produtos página ${page} falhou (${r.status}); usando ${merged.size} linha(s) já obtidas.`,
+      );
+      break;
+    }
+
+    const chunk = r.data;
+    if (chunk.length === 0) {
+      if (page === 1) return { ok: true, data: [] };
+      break;
+    }
+
+    const fp = zigSaidaChunkFingerprint(chunk);
+    if (lastFp !== null && fp === lastFp) {
+      console.log(
+        `ZIG: saída-produtos página ${page} idêntica à anterior — fim da paginação (ou API ignora page).`,
+      );
+      break;
+    }
+    lastFp = fp;
+
+    const sizeBefore = merged.size;
+    mergeZigSalesLines(merged, chunk);
+    const grew = merged.size > sizeBefore;
+
+    const m = r.meta;
+    if (m?.hasNext === false) break;
+    if (m?.total != null && merged.size >= m.total) break;
+
+    const needMoreByMeta =
+      m?.hasNext === true ||
+      (m?.total != null && merged.size < m.total);
+    const needMoreHeuristic =
+      m == null &&
+      chunk.length >= 400;
+
+    if (needMoreByMeta || needMoreHeuristic || (page > 1 && grew)) {
+      await new Promise((x) => setTimeout(x, ZIG_INTER_CALL_DELAY_MS));
+      continue;
+    }
+
+    break;
+  }
+
+  return { ok: true, data: Array.from(merged.values()) };
 }
 
 /**
@@ -339,7 +518,7 @@ async function fetchOneSaidaChunkForDay(
 
   for (const [di, df, label] of strategies) {
     console.log(`ZIG: saída-produtos loja=${storeId} ${di}…${df} (${label})`);
-    const r = await fetchSaidaProdutosOnce(token, storeId, di, df);
+    const r = await fetchSaidaProdutosAllPagesForWindow(token, storeId, di, df);
     if (r.ok) {
       return filterSalesToLocalYmd(r.data, ymd);
     }
@@ -600,15 +779,18 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
 
     // Função para encontrar produto com match inteligente
     const findProduct = (sale: ZigSale) => {
-      // 1. Verificar mapeamento manual
-      if (productMappings[sale.productSku]) {
-        return products.find(p => p.id === productMappings[sale.productSku]);
+      const mk = zigSaleMatchKey(sale);
+      if (!mk) return null;
+
+      // 1. Verificar mapeamento manual (SKU ou productId ZIG)
+      if (productMappings[mk]) {
+        return products.find(p => p.id === productMappings[mk]);
       }
       
       // 2. Match por SKU/Barcode
       let product = products.find(p => 
-        p.barcode === sale.productSku || 
-        (p.sku && p.sku === sale.productSku)
+        p.barcode === mk || 
+        (p.sku && p.sku === mk)
       );
       
       if (product) return product;
@@ -637,7 +819,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
     const salesByDate: Record<string, any[]> = {};
     
     for (const sale of newSales) {
-      if (!sale.productSku) continue;
+      const matchKey = zigSaleMatchKey(sale);
+      if (!matchKey) continue;
       
       const product = findProduct(sale);
       const qtyEff = zigEffectiveCount(sale);
@@ -646,6 +829,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
         (sale.transactionDate || "").split("T")[0];
       
       const lineId = zigLineItemId(sale);
+      const displaySku = sale.productSku?.trim() || matchKey;
 
       if (product) {
         const recipe = recipesData.find(r => r.product_id === product.id);
@@ -655,7 +839,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           transactionId: lineId,
           transactionDate: sale.transactionDate,
           saleDate: saleDate,
-          productSku: sale.productSku,
+          productSku: displaySku,
           productName: sale.productName,
           quantity: qtyEff,
           unitValue: sale.unitValue,
@@ -667,8 +851,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
             unit: product.unit
           },
           hasRecipe: !!recipe,
-          matchType: productMappings[sale.productSku] ? 'manual' : 
-                     (product.barcode === sale.productSku || product.sku === sale.productSku) ? 'sku' : 'name',
+          matchType: productMappings[matchKey] ? 'manual' : 
+                     (product.barcode === matchKey || product.sku === matchKey) ? 'sku' : 'name',
           recipe: recipe ? {
             ingredients: recipe.recipe_ingredients?.map((ing: any) => {
               const ingProduct = products.find(p => p.id === (ing.product_id || ing.ingredient_id));
@@ -694,7 +878,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           transactionId: lineId,
           transactionDate: sale.transactionDate,
           saleDate: saleDate,
-          productSku: sale.productSku,
+          productSku: displaySku,
           productName: sale.productName,
           quantity: qtyEff,
           unitValue: sale.unitValue,

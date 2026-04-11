@@ -12,3 +12,4 @@ supabase/functions/make-server-8a20b27d/auth_types.ts
 supabase/functions/make-server-8a20b27d/kv_store.tsx
 supabase/functions/make-server-8a20b27d/zig_service.tsx
 supabase/functions/make-server-8a20b27d/costs.tsx
+docs/MANUAL_COLABORADOR_CELULAR.md
