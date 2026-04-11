@@ -7,6 +7,7 @@ import * as auth from "./auth.tsx";
 import * as zig from "./zig_service.tsx";
 import type { ZigConfirmLineItem } from "./zig_service.tsx";
 import * as costs from "./costs.tsx";
+import { backfillCashierSaleMovements } from "./backfill_sale_movements.tsx";
 
 // Helper to verify token (Custom or Supabase)
 async function verifyAnyToken(token: string) {
@@ -629,6 +630,65 @@ app.post("/make-server-8a20b27d/admin/clear-data", async (c) => {
   } catch (error: any) {
     console.error('❌ [ADMIN] Clear data error:', error);
     return c.json({ error: error.message }, 500);
+  }
+});
+
+/**
+ * Backfill: registra `stock_movements` para vendas do Caixa antigas (estoque já foi baixado; só auditoria).
+ * POST body: { dryRun?: boolean, companyId?: string }
+ * Superadmin pode omitir companyId para processar todas as empresas.
+ */
+app.post("/make-server-8a20b27d/admin/backfill-sale-movements", async (c) => {
+  try {
+    const customToken = c.req.header("X-Custom-Token");
+    if (!customToken) {
+      return c.json({ error: "Token obrigatório" }, 401);
+    }
+
+    const profile = await verifyAnyToken(customToken);
+    if (!profile) {
+      return c.json({ error: "Token inválido" }, 401);
+    }
+
+    const role = profile.role as string;
+    const allowed =
+      role === "superadmin" || role === "admin" || role === "gerente";
+    if (!allowed) {
+      return c.json({ error: "Sem permissão para esta operação" }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const dryRun = !!body.dryRun;
+    const fromBody =
+      typeof body.companyId === "string" ? body.companyId.trim() : "";
+    const fromHeader = c.req.header("X-Company-Id")?.trim() || "";
+    let companyId: string | null = fromBody || fromHeader || null;
+
+    if (role !== "superadmin" && !companyId) {
+      return c.json(
+        { error: "Informe a empresa (companyId no corpo ou cabeçalho X-Company-Id)" },
+        400,
+      );
+    }
+
+    if (role === "superadmin" && !companyId) {
+      companyId = null;
+    }
+
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    );
+
+    const result = await backfillCashierSaleMovements(supabaseAdmin, {
+      companyId,
+      dryRun,
+    });
+
+    return c.json({ success: true, result });
+  } catch (error: any) {
+    console.error("❌ [ADMIN] backfill-sale-movements:", error);
+    return c.json({ error: error?.message ?? "Erro no backfill" }, 500);
   }
 });
 

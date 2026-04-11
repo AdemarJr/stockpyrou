@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, TrendingUp, TrendingDown, ShoppingCart, AlertTriangle, Package, DollarSign, History, User, ClipboardCheck, RefreshCw, Download, FileSpreadsheet, FileJson, Receipt, CreditCard, PackagePlus } from 'lucide-react';
+import { FileText, TrendingUp, TrendingDown, ShoppingCart, AlertTriangle, Package, DollarSign, History, User, ClipboardCheck, RefreshCw, Download, FileSpreadsheet, FileJson, Receipt, CreditCard, PackagePlus, Database } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -17,7 +17,7 @@ import { ReportTabs, type TabType } from './ReportTabs';
 import { ReportExport } from './ReportExport';
 import { EntriesTab } from './EntriesTab';
 import { OutputsTab } from './OutputsTab';
-import { 
+import {
   formatCurrency, 
   formatPercentage, 
   formatDate, 
@@ -27,6 +27,7 @@ import {
   detectPriceVariation,
   forecastDemand,
 } from '../../utils/calculations';
+import { movementDateYmdLocal } from '../../utils/stockMovementFilters';
 
 interface ReportsProps {
   products: Product[];
@@ -71,6 +72,47 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  const [backfillLastResult, setBackfillLastResult] = useState<Record<string, unknown> | null>(null);
+
+  const runSaleBackfill = async (dryRun: boolean) => {
+    if (!user?.accessToken || !currentCompany?.id) {
+      toast.error('Faça login e selecione uma empresa.');
+      return;
+    }
+    setBackfillBusy(true);
+    setBackfillLastResult(null);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/backfill-sale-movements`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${publicAnonKey}`,
+            apikey: publicAnonKey,
+            'X-Custom-Token': user.accessToken,
+            'X-Company-Id': currentCompany.id,
+          },
+          body: JSON.stringify({ dryRun, companyId: currentCompany.id }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha no servidor');
+      setBackfillLastResult((data.result ?? data) as Record<string, unknown>);
+      if (dryRun) {
+        toast.success('Simulação concluída — confira os números abaixo.');
+      } else {
+        const n = (data.result as { movementsInserted?: number })?.movementsInserted ?? 0;
+        toast.success(`Sincronização concluída: ${n} movimento(s) criado(s). Atualizando a página…`);
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao sincronizar');
+    } finally {
+      setBackfillBusy(false);
+    }
+  };
 
   const paginate = (data: any[]) => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -208,21 +250,25 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
     }
   }, [activeTab, startDate, endDate, selectedSupplier, selectedProduct]);
 
-  // Filter Data based on dates and search
+  // Filter Data based on dates and search (data civil local — alinha com o calendário do usuário)
   const filteredMovements = movements.filter(m => {
-    const mDate = new Date(m.date).toISOString().split('T')[0];
+    const mDate = movementDateYmdLocal(m);
     const matchesDate = mDate >= startDate && mDate <= endDate;
     const product = products.find(p => p.id === m.productId);
-    const matchesSearch = !searchQuery || 
-      product?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.reason?.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = searchQuery.trim().toLowerCase();
+    const matchesSearch = !q ||
+      product?.name.toLowerCase().includes(q) ||
+      (product?.barcode && product.barcode.toLowerCase().includes(q)) ||
+      m.reason?.toLowerCase().includes(q) ||
+      (m.notes && m.notes.toLowerCase().includes(q)) ||
+      m.id.toLowerCase().includes(q);
     const matchesCategory = selectedCategory === 'all' || product?.category === selectedCategory;
     const matchesProduct = selectedProduct === 'all' || m.productId === selectedProduct;
     return matchesDate && matchesSearch && matchesCategory && matchesProduct;
   });
 
   const filteredPriceHistory = priceHistory.filter(ph => {
-    const phDate = new Date(ph.date).toISOString().split('T')[0];
+    const phDate = movementDateYmdLocal({ date: ph.date instanceof Date ? ph.date : new Date(ph.date) });
     const matchesDate = phDate >= startDate && phDate <= endDate;
     const product = products.find(p => p.id === ph.productId);
     const matchesSearch = !searchQuery || 
@@ -829,11 +875,13 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
       {/* Filters Bar */}
       <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col md:flex-row gap-4">
         <div className="flex-1">
-          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Buscar Produto/Motivo</label>
+          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+            Buscar (produto, código de barras, motivo, notas, ID)
+          </label>
           <div className="relative">
             <input
               type="text"
-              placeholder="Digite para filtrar..."
+              placeholder="Filtrar movimentações e históricos…"
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="w-full pl-9 pr-4 py-2 border text-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -881,6 +929,58 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
           </button>
         </div>
       </div>
+
+      {(user?.role === 'admin' || user?.role === 'gerente' || user?.role === 'superadmin') && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/90 dark:bg-amber-950/25 dark:border-amber-800/80 p-4 space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+            <div className="flex gap-3">
+              <Database className="w-5 h-5 text-amber-800 dark:text-amber-300 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-amber-950 dark:text-amber-100">
+                  Alinhar vendas do Caixa com o histórico de saídas
+                </p>
+                <p className="text-sm text-amber-950/85 dark:text-amber-100/85 mt-1 max-w-3xl">
+                  Vendas feitas pelo PDV antes da correção atualizavam o estoque, mas não criavam linha em
+                  movimentações. Use primeiro a simulação; depois execute para gravar os registros faltantes
+                  (o estoque atual <strong>não</strong> é alterado — só a trilha de auditoria).
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={backfillBusy}
+                onClick={() => runSaleBackfill(true)}
+                className="px-4 py-2 rounded-lg border border-amber-700/40 bg-white dark:bg-gray-900 text-amber-950 dark:text-amber-100 text-sm font-medium hover:bg-amber-100/50 dark:hover:bg-amber-900/40 disabled:opacity-50"
+              >
+                {backfillBusy ? '…' : 'Simular'}
+              </button>
+              <button
+                type="button"
+                disabled={backfillBusy}
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      'Registrar movimentações retroativas para vendas do Caixa desta empresa? O estoque em quantidade não será alterado.',
+                    )
+                  ) {
+                    return;
+                  }
+                  runSaleBackfill(false);
+                }}
+                className="px-4 py-2 rounded-lg bg-amber-700 text-white text-sm font-medium hover:bg-amber-800 disabled:opacity-50"
+              >
+                {backfillBusy ? 'Processando…' : 'Executar sincronização'}
+              </button>
+            </div>
+          </div>
+          {backfillLastResult && (
+            <pre className="text-xs bg-white/90 dark:bg-gray-950/60 p-3 rounded-lg border border-amber-200/80 dark:border-amber-800 overflow-x-auto text-gray-800 dark:text-gray-200">
+              {JSON.stringify(backfillLastResult, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
       
       {/* Tabs */}
       <div className="bg-white rounded-lg border border-gray-200 p-1 flex gap-1 overflow-x-auto no-scrollbar md:grid md:grid-cols-3 lg:flex lg:overflow-visible">

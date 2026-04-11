@@ -1,9 +1,14 @@
-import React from 'react';
-import { PackageX, TrendingDown, Package, AlertCircle } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { PackageX, TrendingDown, Package, AlertCircle, Filter } from 'lucide-react';
 import { ReportCard } from './ReportCard';
 import { ReportTable } from './ReportTable';
 import { formatCurrency, formatDate } from '../../utils/calculations';
 import type { StockMovement, Product } from '../../types';
+import {
+  isAnyStockOutput,
+  isExitConsumption,
+  lineCostAtMovement,
+} from '../../utils/stockMovementFilters';
 
 interface OutputsTabProps {
   movements: StockMovement[];
@@ -14,50 +19,94 @@ interface OutputsTabProps {
   onPageChange: (page: number) => void;
 }
 
-export function OutputsTab({ movements, products, loading = false, currentPage, itemsPerPage, onPageChange }: OutputsTabProps) {
-  
-  // Filter only output movements (saida, venda, desperdicio)
-  const outputMovements = movements.filter(m => 
-    m.type === 'saida' || m.type === 'venda' || m.type === 'desperdicio'
+type OutputKindFilter =
+  | 'all'
+  | 'consumo'
+  | 'saida'
+  | 'venda'
+  | 'desperdicio';
+
+const FILTER_LABELS: Record<OutputKindFilter, string> = {
+  all: 'Todos os tipos',
+  consumo: 'Consumo (saída + venda PDV)',
+  saida: 'Saída manual',
+  venda: 'Venda PDV',
+  desperdicio: 'Desperdício',
+};
+
+export function OutputsTab({
+  movements,
+  products,
+  loading = false,
+  currentPage,
+  itemsPerPage,
+  onPageChange,
+}: OutputsTabProps) {
+  const [kindFilter, setKindFilter] = useState<OutputKindFilter>('all');
+  const [listSearch, setListSearch] = useState('');
+
+  const baseOutputs = useMemo(
+    () => movements.filter(isAnyStockOutput),
+    [movements],
   );
 
-  // Calculate summary metrics
+  const outputMovements = useMemo(() => {
+    let list = baseOutputs;
+    if (kindFilter === 'consumo') {
+      list = list.filter(isExitConsumption);
+    } else if (kindFilter !== 'all') {
+      list = list.filter((m) => m.type === kindFilter);
+    }
+    const q = listSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter((m) => {
+        const product = products.find((p) => p.id === m.productId);
+        return (
+          product?.name.toLowerCase().includes(q) ||
+          (product?.barcode && product.barcode.toLowerCase().includes(q)) ||
+          m.reason?.toLowerCase().includes(q) ||
+          (m.notes && m.notes.toLowerCase().includes(q)) ||
+          m.id.toLowerCase().includes(q)
+        );
+      });
+    }
+    return [...list].sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [baseOutputs, kindFilter, listSearch, products]);
+
   const totalOutputs = outputMovements.length;
   const totalQuantity = outputMovements.reduce((sum, m) => sum + m.quantity, 0);
-  const totalValue = outputMovements.reduce((sum, m) => {
-    const product = products.find(p => p.id === m.productId);
-    const value = product ? m.quantity * product.averageCost : 0;
-    return sum + value;
-  }, 0);
+  const totalValue = outputMovements.reduce(
+    (sum, m) => sum + lineCostAtMovement(m, products),
+    0,
+  );
 
-  // Count by type
-  const byType = outputMovements.reduce((acc, m) => {
-    acc[m.type] = (acc[m.type] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const byType = outputMovements.reduce(
+    (acc, m) => {
+      acc[m.type] = (acc[m.type] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
-  // Get most moved product
   const productCounts = outputMovements.reduce((acc, m) => {
-    const product = products.find(p => p.id === m.productId);
+    const product = products.find((p) => p.id === m.productId);
     if (product) {
       acc[product.name] = (acc[product.name] || 0) + m.quantity;
     }
     return acc;
   }, {} as Record<string, number>);
-  const mostMoved = Object.entries(productCounts).sort(([,a], [,b]) => b - a)[0];
+  const mostMoved = Object.entries(productCounts).sort(([, a], [, b]) => b - a)[0];
 
-  // Paginate data
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedData = outputMovements.slice(startIndex, startIndex + itemsPerPage);
-  const totalPages = Math.ceil(outputMovements.length / itemsPerPage);
+  const totalPages = Math.ceil(outputMovements.length / itemsPerPage) || 1;
 
-  // Table columns
   const columns = [
     {
       key: 'date',
       label: 'Data',
       sortable: true,
-      render: (value: any) => formatDate(value),
+      render: (value: unknown) => formatDate(value as Date),
     },
     {
       key: 'type',
@@ -65,11 +114,11 @@ export function OutputsTab({ movements, products, loading = false, currentPage, 
       sortable: true,
       render: (value: string) => {
         const types: Record<string, { label: string; color: string }> = {
-          saida: { label: 'Saída', color: 'bg-blue-100 text-blue-700' },
-          venda: { label: 'Venda', color: 'bg-green-100 text-green-700' },
-          desperdicio: { label: 'Desperdício', color: 'bg-red-100 text-red-700' },
+          saida: { label: 'Saída', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200' },
+          venda: { label: 'Venda', color: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' },
+          desperdicio: { label: 'Desperdício', color: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200' },
         };
-        const type = types[value] || { label: value, color: 'bg-gray-100 text-gray-700' };
+        const type = types[value] || { label: value, color: 'bg-gray-100 text-gray-800' };
         return (
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${type.color}`}>
             {type.label}
@@ -82,8 +131,15 @@ export function OutputsTab({ movements, products, loading = false, currentPage, 
       label: 'Produto',
       sortable: true,
       render: (value: string) => {
-        const product = products.find(p => p.id === value);
-        return product?.name || 'Produto desconhecido';
+        const product = products.find((p) => p.id === value);
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span>{product?.name || 'Produto desconhecido'}</span>
+            {product?.barcode ? (
+              <span className="text-[11px] text-gray-500 font-mono">{product.barcode}</span>
+            ) : null}
+          </div>
+        );
       },
     },
     {
@@ -91,95 +147,176 @@ export function OutputsTab({ movements, products, loading = false, currentPage, 
       label: 'Quantidade',
       sortable: true,
       render: (value: number, row: StockMovement) => {
-        const product = products.find(p => p.id === row.productId);
+        const product = products.find((p) => p.id === row.productId);
         return `${value} ${product?.measurementUnit || 'un'}`;
       },
     },
     {
       key: 'cost',
-      label: 'Valor Estimado',
+      label: 'Valor (custo)',
       sortable: true,
-      render: (value: any, row: StockMovement) => {
-        const product = products.find(p => p.id === row.productId);
-        const estimatedValue = product ? row.quantity * product.averageCost : 0;
-        return formatCurrency(estimatedValue);
-      },
+      render: (_value: unknown, row: StockMovement) =>
+        formatCurrency(lineCostAtMovement(row, products)),
     },
     {
       key: 'reason',
-      label: 'Motivo',
-      render: (value: any) => value || '-',
+      label: 'Motivo / observação',
+      render: (_value: unknown, row: StockMovement) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+          {row.reason || row.notes || '—'}
+        </span>
+      ),
     },
     {
       key: 'userId',
       label: 'Usuário',
-      render: (value: any) => value || 'Sistema',
+      render: (value: unknown) => (value as string) || 'Sistema',
     },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
+      <div className="rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/30 p-4 md:p-5">
+        <div className="flex items-start gap-3">
+          <Scale className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+          <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+            <p className="font-semibold text-indigo-900 dark:text-indigo-100">
+              Reconciliação com o Dashboard
+            </p>
+            <p>
+              No <strong>Dashboard</strong>, os cartões <em>Saídas (unidades)</em>, <em>Custo das saídas</em> e{' '}
+              <em>Receita estimada (saídas)</em> usam apenas <strong>consumo de estoque</strong>: movimentos tipo{' '}
+              <strong>saída</strong> (sem desperdício na linha) e <strong>venda</strong> (PDV). O{' '}
+              <strong>desperdício</strong> aparece em cartão separado.
+            </p>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              Abaixo, «Consumo (igual ao Dashboard)» aplica o mesmo critério. Use o mesmo intervalo de datas que o período
+              do Dashboard (ex.: últimos 30 dias) para comparar os números.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-indigo-100 dark:border-indigo-800/60">
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase">Consumo (base Dashboard)</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {consumoUnits.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}{' '}
+                  <span className="text-sm font-normal text-gray-500">un.</span>
+                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Custo: {formatCurrency(consumoCost)} · {consumptionSubset.length} linhas
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase">Desperdício (período filtrado)</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {wasteUnits.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}{' '}
+                  <span className="text-sm font-normal text-gray-500">un.</span>
+                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Custo: {formatCurrency(wasteCost)} · {wasteSubset.length} linhas
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-3 lg:items-end bg-white dark:bg-gray-900/40 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex-1 min-w-[200px]">
+          <label className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1">
+            <Filter className="w-3.5 h-3.5" />
+            Tipo de movimento
+          </label>
+          <select
+            value={kindFilter}
+            onChange={(e) => {
+              setKindFilter(e.target.value as OutputKindFilter);
+              onPageChange(1);
+            }}
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100"
+          >
+            {(Object.keys(FILTER_LABELS) as OutputKindFilter[]).map((k) => (
+              <option key={k} value={k}>
+                {FILTER_LABELS[k]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1 min-w-[220px]">
+          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+            Refinar nesta lista
+          </label>
+          <input
+            type="search"
+            placeholder="Produto, código de barras, motivo, ID…"
+            value={listSearch}
+            onChange={(e) => {
+              setListSearch(e.target.value);
+              onPageChange(1);
+            }}
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
+          />
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <ReportCard
-          title="Total de Saídas"
+          title="Linhas na tabela"
           value={totalOutputs}
-          subtitle="Movimentações no período"
+          subtitle="Após filtros desta aba"
           icon={PackageX}
           iconColor="text-red-600"
           variant="danger"
         />
         <ReportCard
-          title="Quantidade Total"
-          value={totalQuantity.toFixed(2)}
-          subtitle="Unidades movimentadas"
+          title="Quantidade total"
+          value={totalQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+          subtitle="Unidades (lista filtrada)"
           icon={TrendingDown}
           iconColor="text-orange-600"
           variant="warning"
         />
         <ReportCard
-          title="Valor Total Estimado"
+          title="Custo total (lista)"
           value={formatCurrency(totalValue)}
-          subtitle="Custo das saídas"
+          subtitle="Soma dos custos das linhas"
           icon={Package}
           iconColor="text-purple-600"
           variant="default"
         />
         <ReportCard
-          title="Produto Mais Movido"
+          title="Produto mais movimentado"
           value={mostMoved ? mostMoved[0] : 'N/A'}
-          subtitle={mostMoved ? `${mostMoved[1].toFixed(2)} unidades` : 'Sem dados'}
+          subtitle={mostMoved ? `${mostMoved[1].toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un.` : 'Sem dados'}
           icon={AlertCircle}
           iconColor="text-blue-600"
           variant="info"
         />
       </div>
 
-      {/* Breakdown by Type */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Distribuição por Tipo</h3>
+      <div className="bg-white dark:bg-gray-900/40 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+          Distribuição por tipo (lista filtrada)
+        </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 bg-blue-50 rounded-lg">
-            <p className="text-sm text-blue-700 font-medium">Saídas</p>
-            <p className="text-2xl font-bold text-blue-900 mt-1">{byType.saida || 0}</p>
+          <div className="p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg">
+            <p className="text-sm text-blue-800 dark:text-blue-200 font-medium">Saídas</p>
+            <p className="text-2xl font-bold text-blue-900 dark:text-blue-100 mt-1">{byType.saida || 0}</p>
           </div>
-          <div className="p-4 bg-green-50 rounded-lg">
-            <p className="text-sm text-green-700 font-medium">Vendas</p>
-            <p className="text-2xl font-bold text-green-900 mt-1">{byType.venda || 0}</p>
+          <div className="p-4 bg-green-50 dark:bg-green-950/40 rounded-lg">
+            <p className="text-sm text-green-800 dark:text-green-200 font-medium">Vendas PDV</p>
+            <p className="text-2xl font-bold text-green-900 dark:text-green-100 mt-1">{byType.venda || 0}</p>
           </div>
-          <div className="p-4 bg-red-50 rounded-lg">
-            <p className="text-sm text-red-700 font-medium">Desperdícios</p>
-            <p className="text-2xl font-bold text-red-900 mt-1">{byType.desperdicio || 0}</p>
+          <div className="p-4 bg-red-50 dark:bg-red-950/40 rounded-lg">
+            <p className="text-sm text-red-800 dark:text-red-200 font-medium">Desperdícios</p>
+            <p className="text-2xl font-bold text-red-900 dark:text-red-100 mt-1">{byType.desperdicio || 0}</p>
           </div>
         </div>
       </div>
 
-      {/* Outputs Table */}
       <ReportTable
         columns={columns}
         data={paginatedData}
         loading={loading}
-        emptyMessage="Nenhuma saída encontrada no período selecionado"
+        emptyMessage="Nenhuma saída encontrada com os filtros atuais"
         currentPage={currentPage}
         totalPages={totalPages}
         onPageChange={onPageChange}

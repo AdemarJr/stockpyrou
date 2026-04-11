@@ -69,7 +69,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "supabase:sync-function": "cp src/supabase/functions/server/index.tsx supabase/functions/make-server-8a20b27d/main.tsx && cp src/supabase/functions/server/auth.tsx supabase/functions/make-server-8a20b27d/auth.tsx && cp src/supabase/functions/server/auth_types.ts supabase/functions/make-server-8a20b27d/auth_types.ts && cp src/supabase/functions/server/kv_store.tsx supabase/functions/make-server-8a20b27d/kv_store.tsx && cp src/supabase/functions/server/zig_service.tsx supabase/functions/make-server-8a20b27d/zig_service.tsx && cp src/supabase/functions/server/costs.tsx supabase/functions/make-server-8a20b27d/costs.tsx",
+    "supabase:sync-function": "cp src/supabase/functions/server/index.tsx supabase/functions/make-server-8a20b27d/main.tsx && cp src/supabase/functions/server/auth.tsx supabase/functions/make-server-8a20b27d/auth.tsx && cp src/supabase/functions/server/auth_types.ts supabase/functions/make-server-8a20b27d/auth_types.ts && cp src/supabase/functions/server/kv_store.tsx supabase/functions/make-server-8a20b27d/kv_store.tsx && cp src/supabase/functions/server/zig_service.tsx supabase/functions/make-server-8a20b27d/zig_service.tsx && cp src/supabase/functions/server/costs.tsx supabase/functions/make-server-8a20b27d/costs.tsx && cp src/supabase/functions/server/backfill_sale_movements.tsx supabase/functions/make-server-8a20b27d/backfill_sale_movements.tsx",
     "supabase:deploy-function": "npm run supabase:sync-function && supabase functions deploy make-server-8a20b27d"
   }
 }

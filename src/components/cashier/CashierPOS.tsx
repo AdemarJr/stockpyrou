@@ -23,11 +23,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { ProductService } from '../../services/ProductService';
+import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency, formatQuantity } from '../../utils/calculations';
 
 interface CashierPOSProps {
-  register: any;
+  register: { id: string; companyId?: string; [key: string]: unknown };
   onSaleComplete: (saleData: any) => void;
 }
 
@@ -367,20 +368,67 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
 
       console.log('✅ Sale registered successfully:', saleData.sale.id);
 
-      // Update stock for each item
-      console.log('📦 Starting stock update for', cart.length, 'items');
+      /**
+       * Baixa de estoque + auditoria: cada venda do Caixa gera linha em `stock_movements` (tipo `venda`).
+       * Antes só atualizava `current_stock` — relatórios de saídas e comparativos com vendas ficavam divergentes.
+       * Combos: baixa nos componentes (igual ao POS manual), não no produto pai.
+       */
+      const saleId = saleData.sale?.id ?? '';
+      console.log('📦 Stock + movimentação para', cart.length, 'itens (venda', saleId, ')');
+      const companyId = currentCompany?.id ?? (register.companyId as string | undefined);
+      if (!companyId) {
+        toast.error('Empresa não identificada — verifique o estoque manualmente.');
+      }
+
       for (const item of cart) {
+        const product = item.product;
+        const bundleItems =
+          Array.isArray(product.bundleItems) && product.bundleItems.length > 0
+            ? product.bundleItems
+            : [];
+
+        if (!companyId) continue;
+
         try {
-          const newStock = item.product.currentStock - item.quantity;
-          console.log(`📉 Updating stock for ${item.name}: ${item.product.currentStock} → ${newStock}`);
-          
-          await ProductService.updateProduct(item.id, {
-            currentStock: newStock
-          });
-          
-          console.log(`✅ Stock updated for ${item.name}`);
+          if (bundleItems.length > 0) {
+            for (const b of bundleItems) {
+              const qtyToDeduct = (Number(b.quantity) || 0) * item.quantity;
+              if (!b.productId || qtyToDeduct <= 0) continue;
+
+              await ProductService.updateStock(b.productId, -qtyToDeduct);
+              const ing = products.find((p) => p.id === b.productId);
+              const lineCost = (ing?.averageCost ?? 0) * qtyToDeduct;
+              await StockRepository.createMovement({
+                companyId,
+                productId: b.productId,
+                type: 'venda',
+                quantity: qtyToDeduct,
+                reason: 'Venda PDV (Caixa) — combo',
+                notes: `Combo ${item.quantity}x ${item.name} · Ref. venda ${saleId}`,
+                cost: lineCost > 0 ? lineCost : undefined,
+                userId: user?.id,
+              });
+            }
+          } else {
+            await ProductService.updateStock(item.id, -item.quantity);
+            const lineCost = (product.averageCost ?? 0) * item.quantity;
+            await StockRepository.createMovement({
+              companyId,
+              productId: item.id,
+              type: 'venda',
+              quantity: item.quantity,
+              reason: 'Venda PDV (Caixa)',
+              notes: `Venda ${item.quantity}x ${item.name} · Ref. venda ${saleId}`,
+              cost: lineCost > 0 ? lineCost : undefined,
+              userId: user?.id,
+            });
+          }
+          console.log(`✅ Estoque e movimento registrados: ${item.name}`);
         } catch (error) {
-          console.error('❌ Error updating stock for:', item.name, error);
+          console.error('❌ Erro ao baixar estoque / movimentação:', item.name, error);
+          toast.error(
+            `Venda registrada, mas falhou baixa de estoque em «${item.name}». Verifique o estoque e o histórico.`,
+          );
         }
       }
 

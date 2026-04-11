@@ -3,6 +3,7 @@ import { TrendingUp, TrendingDown, AlertTriangle, Package, DollarSign, ShoppingC
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import type { Product, StockMovement, Recipe } from '../types';
 import { formatCurrency, formatPercentage, getExpirationColor, getStockStatus } from '../utils/calculations';
+import { isExitConsumption, lineCostAtMovement } from '../utils/stockMovementFilters';
 
 interface DashboardProps {
   products: Product[];
@@ -38,14 +39,6 @@ function periodStartDate(period: DashboardPeriod): Date | null {
 function movementInPeriod(m: StockMovement, rangeStart: Date | null): boolean {
   if (rangeStart === null) return true;
   return new Date(m.date).getTime() >= rangeStart.getTime();
-}
-
-/** Valor em custo da linha: cost já totalizado; senão qtd × CMP atual do produto. */
-function lineCostAtMovement(m: StockMovement, products: Product[]): number {
-  const q = Number(m.quantity) || 0;
-  if (m.cost != null && Number.isFinite(m.cost) && m.cost > 0) return m.cost;
-  const p = products.find((x) => x.id === m.productId);
-  return q * (p?.averageCost ?? 0);
 }
 
 const PERIOD_LABEL: Record<DashboardPeriod, string> = {
@@ -89,9 +82,7 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
   );
   const periodWastePercentage = totalStockValue > 0 ? (periodWaste / totalStockValue) * 100 : 0;
 
-  const periodExitMovements = movementsInPeriod.filter(
-    (m) => m.type === 'saida' && !m.wasteReason,
-  );
+  const periodExitMovements = movementsInPeriod.filter(isExitConsumption);
   const periodExitUnits = periodExitMovements.reduce(
     (sum, m) => sum + (Number(m.quantity) || 0),
     0,
@@ -121,7 +112,7 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
   
   // Top 5 most sold items (by movement) no período selecionado
   const productSales = movementsInPeriod
-    .filter(m => m.type === 'saida' && !m.wasteReason)
+    .filter(isExitConsumption)
     .reduce((acc, m) => {
       acc[m.productId] = (acc[m.productId] || 0) + m.quantity;
       return acc;
@@ -299,7 +290,7 @@ export function Dashboard({ products, movements, recipes }: DashboardProps) {
             {periodExitUnits.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
-            Movimentos tipo saída (exceto desperdício) no período.
+            Saídas manuais + vendas PDV (sem desperdício, tipo próprio).
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-800 p-4 md:p-6 shadow-sm">

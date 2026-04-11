@@ -109,7 +109,7 @@ export interface StockMovement {
   id: string;
   companyId: string;
   productId: string;
-  type: 'entrada' | 'saida' | 'ajuste' | 'desperdicio';
+  type: 'entrada' | 'saida' | 'venda' | 'ajuste' | 'desperdicio';
   quantity: number;
   reason: string;
   wasteReason?: 'vencimento' | 'quebra' | 'mau_uso' | 'outro';
