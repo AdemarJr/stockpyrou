@@ -176,49 +176,6 @@ export function OutputsTab({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/30 p-4 md:p-5">
-        <div className="flex items-start gap-3">
-          <Scale className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
-          <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            <p className="font-semibold text-indigo-900 dark:text-indigo-100">
-              Reconciliação com o Dashboard
-            </p>
-            <p>
-              No <strong>Dashboard</strong>, os cartões <em>Saídas (unidades)</em>, <em>Custo das saídas</em> e{' '}
-              <em>Receita estimada (saídas)</em> usam apenas <strong>consumo de estoque</strong>: movimentos tipo{' '}
-              <strong>saída</strong> (sem desperdício na linha) e <strong>venda</strong> (PDV). O{' '}
-              <strong>desperdício</strong> aparece em cartão separado.
-            </p>
-            <p className="text-xs text-gray-600 dark:text-gray-400">
-              Abaixo, «Consumo (igual ao Dashboard)» aplica o mesmo critério. Use o mesmo intervalo de datas que o período
-              do Dashboard (ex.: últimos 30 dias) para comparar os números.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-indigo-100 dark:border-indigo-800/60">
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase">Consumo (base Dashboard)</p>
-                <p className="text-lg font-bold text-gray-900 dark:text-white">
-                  {consumoUnits.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}{' '}
-                  <span className="text-sm font-normal text-gray-500">un.</span>
-                </p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Custo: {formatCurrency(consumoCost)} · {consumptionSubset.length} linhas
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase">Desperdício (período filtrado)</p>
-                <p className="text-lg font-bold text-gray-900 dark:text-white">
-                  {wasteUnits.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}{' '}
-                  <span className="text-sm font-normal text-gray-500">un.</span>
-                </p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Custo: {formatCurrency(wasteCost)} · {wasteSubset.length} linhas
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div className="flex flex-col lg:flex-row gap-3 lg:items-end bg-white dark:bg-gray-900/40 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex-1 min-w-[200px]">
           <label className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1">
