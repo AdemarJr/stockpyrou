@@ -5,6 +5,10 @@ import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
 import { APP_NAME } from '../../config/branding';
+import { ReportExport } from '../reports/ReportExport';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 interface PendingSale {
   /** Id único da linha (transação ZIG + SKU + productId); usado na confirmação. */
@@ -62,6 +66,16 @@ interface PendingSaleGroup {
   recipeIngredients: RecipeIngredientTotal[];
   hasAddition: boolean;
 }
+
+type BaixaReportRow = {
+  sku: string;
+  zigName: string;
+  systemName: string;
+  unit: string;
+  quantity: number;
+  totalValue: number;
+  lines: number;
+};
 
 export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void }) {
   const { currentCompany } = useCompany();
@@ -194,6 +208,45 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
     return result;
   }, [salesByDate]);
+
+  const baixaReportRows = useMemo<BaixaReportRow[]>(() => {
+    const flat = Object.values(salesByDate).flat() as PendingSale[];
+    const selected = new Set(selectedSales);
+    const groups = new Map<string, BaixaReportRow>();
+
+    for (const s of flat) {
+      if (!selected.has(s.transactionId)) continue;
+      const sku = (s.productSku || '').trim();
+      if (!sku) continue;
+      const systemKey = s.systemProduct?.id ? `sys:${s.systemProduct.id}` : 'sys:none';
+      const key = `${sku}|${systemKey}`;
+
+      const prev = groups.get(key);
+      const unit = s.systemProduct?.unit || 'un';
+      const qty = Number(s.quantity) || 0;
+      const tv = Number(s.totalValue) || 0;
+      if (!prev) {
+        groups.set(key, {
+          sku,
+          zigName: s.productName || sku,
+          systemName: s.systemProduct?.name || '',
+          unit,
+          quantity: qty,
+          totalValue: tv,
+          lines: 1,
+        });
+        continue;
+      }
+
+      prev.quantity += qty;
+      prev.totalValue += tv;
+      prev.lines += 1;
+      if (!prev.zigName && s.productName) prev.zigName = s.productName;
+      if (!prev.systemName && s.systemProduct?.name) prev.systemName = s.systemProduct.name;
+    }
+
+    return Array.from(groups.values()).sort((a, b) => b.quantity - a.quantity);
+  }, [salesByDate, selectedSales]);
 
   const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 
@@ -429,6 +482,107 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     }
   };
 
+  const exportBaixaExcel = async () => {
+    try {
+      if (!currentCompany?.id) return;
+      if (!previewRange) {
+        toast.error('Busque as vendas (preview) antes de exportar.');
+        return;
+      }
+      if (baixaReportRows.length === 0) {
+        toast.error('Selecione pelo menos 1 item para o relatório.');
+        return;
+      }
+
+      const filename = `baixa_zig_${previewRange.start}_a_${previewRange.end}_${Date.now()}`;
+
+      const rows = baixaReportRows.map((r) => ({
+        SKU: r.sku,
+        'Produto (ZIG)': r.zigName,
+        'Produto (Sistema)': r.systemName || '—',
+        Unidade: r.unit,
+        Quantidade: Number(r.quantity.toFixed(4)),
+        'Valor (ZIG)': Number(r.totalValue.toFixed(2)),
+        'Linhas (selecionadas)': r.lines,
+      }));
+
+      const meta = [{
+        Empresa: currentCompany.name || currentCompany.id,
+        'Período (ZIG)': `${previewRange.start} a ${previewRange.end}`,
+        'Gerado em': new Date().toLocaleString('pt-BR'),
+        'Total de produtos (agrupado)': baixaReportRows.length,
+        'Total de linhas selecionadas': selectedSales.length,
+      }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Baixa_ZIG');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(meta), 'Info');
+      XLSX.writeFile(workbook, `${filename}.xlsx`);
+      toast.success('Relatório Excel gerado.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg || 'Falha ao exportar Excel.');
+    }
+  };
+
+  const exportBaixaPDF = async () => {
+    try {
+      if (!currentCompany?.id) return;
+      if (!previewRange) {
+        toast.error('Busque as vendas (preview) antes de exportar.');
+        return;
+      }
+      if (baixaReportRows.length === 0) {
+        toast.error('Selecione pelo menos 1 item para o relatório.');
+        return;
+      }
+
+      const doc = new jsPDF();
+      const filename = `baixa_zig_${previewRange.start}_a_${previewRange.end}_${Date.now()}.pdf`;
+
+      doc.setFontSize(16);
+      doc.text('Relatório de baixa — ZIG', 14, 18);
+      doc.setFontSize(10);
+      doc.setTextColor(90);
+      doc.text(`Empresa: ${currentCompany.name || currentCompany.id}`, 14, 26);
+      doc.text(`Período: ${previewRange.start} a ${previewRange.end}`, 14, 31);
+      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 36);
+
+      const head = [['SKU', 'Produto (ZIG)', 'Produto (Sistema)', 'Un', 'Qtd', 'Linhas', 'Valor (ZIG)']];
+      const body = baixaReportRows.map((r) => ([
+        r.sku,
+        r.zigName,
+        r.systemName || '—',
+        r.unit,
+        r.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 }),
+        String(r.lines),
+        r.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      ]));
+
+      (doc as any).autoTable({
+        startY: 42,
+        head,
+        body,
+        theme: 'striped',
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [79, 70, 229] },
+        columnStyles: {
+          0: { cellWidth: 22 },
+          3: { cellWidth: 10, halign: 'right' },
+          4: { cellWidth: 16, halign: 'right' },
+          5: { cellWidth: 14, halign: 'right' },
+          6: { cellWidth: 20, halign: 'right' },
+        },
+      });
+
+      doc.save(filename);
+      toast.success('Relatório PDF gerado.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg || 'Falha ao exportar PDF.');
+    }
+  };
+
   const toggleGroupSelection = (group: PendingSaleGroup) => {
     setSelectedSales(prev => {
       const allSelected = group.transactionIds.every(id => prev.includes(id));
@@ -658,15 +812,22 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                   {filteredGroupsCount} de {totalGroups} produtos • {selectedGroupCount} selecionados
                 </p>
               </div>
-              <button 
-                onClick={() => {
-                  setShowPreview(false);
-                  setShowOnlyNotFound(false);
-                }}
-                className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <ReportExport
+                  onExportExcel={exportBaixaExcel}
+                  onExportPDF={exportBaixaPDF}
+                  disabled={confirming || zigBaixaUiDisabled || selectedSales.length === 0}
+                />
+                <button
+                  onClick={() => {
+                    setShowPreview(false);
+                    setShowOnlyNotFound(false);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             
             <div className="p-6 overflow-y-auto flex-1">
