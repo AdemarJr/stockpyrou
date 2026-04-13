@@ -8,7 +8,7 @@ import { APP_NAME } from '../../config/branding';
 import { ReportExport } from '../reports/ReportExport';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 interface PendingSale {
   /** Id único da linha (transação ZIG + SKU + productId); usado na confirmação. */
@@ -559,7 +559,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
         r.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       ]));
 
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: 42,
         head,
         body,

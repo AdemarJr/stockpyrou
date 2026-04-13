@@ -18,6 +18,13 @@ import {
 import { ProductRepository } from './ProductRepository';
 
 export class CostRepository {
+  private static isExpenseGroupColumnsMissingError(message: string): boolean {
+    const m = String(message || '');
+    return (
+      /expense_group_id/i.test(m) &&
+      (/schema cache/i.test(m) || /column/i.test(m) || /operational_expenses/i.test(m))
+    );
+  }
   // ==================== COST CENTERS ====================
   
   static async findAllCostCenters(companyId: string): Promise<CostCenter[]> {
@@ -337,7 +344,16 @@ export class CostRepository {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      const msg = messageFromUnknownError(error);
+      if (this.isExpenseGroupColumnsMissingError(msg)) {
+        throw new Error(
+          `${msg} — Seu banco ainda não tem as colunas de parcelamento. Execute ` +
+            `\`scripts/add_expense_group_installments.sql\` no Supabase (SQL Editor) e recarregue o app.`,
+        );
+      }
+      throw error;
+    }
     return data as OperationalExpense;
   }
 
@@ -349,7 +365,16 @@ export class CostRepository {
     const rows = items.map((e) => this.expenseInsertRow(e));
     const { data, error } = await supabase.from('operational_expenses').insert(rows).select();
 
-    if (error) throw error;
+    if (error) {
+      const msg = messageFromUnknownError(error);
+      if (this.isExpenseGroupColumnsMissingError(msg)) {
+        throw new Error(
+          `${msg} — Para usar faturas parceladas (2x, 3x…), rode ` +
+            `\`scripts/add_expense_group_installments.sql\` no Supabase (SQL Editor).`,
+        );
+      }
+      throw error;
+    }
     return (data || []) as OperationalExpense[];
   }
 
@@ -521,7 +546,16 @@ export class CostRepository {
       .eq('company_id', companyId)
       .eq('expense_group_id', expenseGroupId);
 
-    if (error) throw error;
+    if (error) {
+      const msg = messageFromUnknownError(error);
+      if (this.isExpenseGroupColumnsMissingError(msg)) {
+        throw new Error(
+          `${msg} — O recurso de grupos de parcelas exige a coluna expense_group_id. ` +
+            `Rode \`scripts/add_expense_group_installments.sql\` no Supabase.`,
+        );
+      }
+      throw error;
+    }
   }
 
   // ==================== BUDGETS ====================
