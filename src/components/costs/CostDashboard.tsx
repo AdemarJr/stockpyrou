@@ -72,6 +72,16 @@ export function CostDashboard() {
   });
   const [activeTab, setActiveTab] = useState('overview');
 
+  const forcedPeriod = (() => {
+    const m = referenceMonth.trim();
+    const start = `${m}-01`;
+    const startDt = new Date(`${start}T00:00:00.000Z`);
+    const endDt = new Date(Date.UTC(startDt.getUTCFullYear(), startDt.getUTCMonth() + 1, 0));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const end = `${endDt.getUTCFullYear()}-${pad(endDt.getUTCMonth() + 1)}-${pad(endDt.getUTCDate())}`;
+    return { from: start, to: end };
+  })();
+
   useEffect(() => {
     if (currentCompany?.id) {
       loadDashboardData();
@@ -86,7 +96,7 @@ export function CostDashboard() {
       const [expenses, budgetsList, stockMetrics, fin] = await Promise.all([
         CostRepository.findAllExpenses(currentCompany.id),
         CostRepository.findAllBudgets(currentCompany.id),
-        CostRepository.getStockCostMetrics(currentCompany.id).catch((err) => {
+        CostRepository.getStockCostMetrics(currentCompany.id, referenceMonth).catch((err) => {
           console.warn('Stock cost metrics:', err);
           return { inventoryValue: 0, purchasesMonthTotal: 0 };
         }),
@@ -398,7 +408,7 @@ export function CostDashboard() {
         </TabsContent>
 
         <TabsContent value="expenses">
-          <ExpenseManagement />
+          <ExpenseManagement forcedPeriod={forcedPeriod} />
         </TabsContent>
 
         <TabsContent value="budgets">
@@ -406,7 +416,7 @@ export function CostDashboard() {
         </TabsContent>
 
         <TabsContent value="commissions">
-          <CommissionCalculator />
+          <CommissionCalculator forcedMonth={referenceMonth} />
         </TabsContent>
 
         <TabsContent value="analytics">

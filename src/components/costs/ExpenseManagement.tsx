@@ -189,7 +189,12 @@ function getStatusLabelStatic(status: string): string {
   return labels[status] || status;
 }
 
-export function ExpenseManagement() {
+export function ExpenseManagement({
+  forcedPeriod
+}: {
+  /** Período forçado (YYYY-MM-DD) vindo do filtro superior do dashboard. */
+  forcedPeriod?: { from: string; to: string };
+} = {}) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -361,6 +366,18 @@ export function ExpenseManagement() {
       loadData();
     }
   }, [currentCompany?.id, periodFrom, periodTo, costCenterFilter, expenseTypeFilter, supplierFilter]);
+
+  // Sync com o filtro superior do dashboard (mês definido).
+  useEffect(() => {
+    const fp = forcedPeriod?.from?.trim();
+    const tp = forcedPeriod?.to?.trim();
+    if (!fp || !tp) return;
+    if (fp === periodFrom && tp === periodTo && fp === periodDraftFrom && tp === periodDraftTo) return;
+    setPeriodDraftFrom(fp);
+    setPeriodDraftTo(tp);
+    setPeriodFrom(fp);
+    setPeriodTo(tp);
+  }, [forcedPeriod?.from, forcedPeriod?.to]);
 
   useEffect(() => {
     if (!dialogOpen || !currentCompany?.id) return;

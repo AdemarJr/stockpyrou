@@ -275,14 +275,26 @@ export class CostRepository {
   /**
    * Valor estimado do inventário (estoque × custo médio) e total de compras (entradas) no mês corrente.
    */
-  static async getStockCostMetrics(companyId: string): Promise<{
+  /** Métricas de estoque/custos para o mês (YYYY-MM). Se omitido, usa mês atual. */
+  static async getStockCostMetrics(
+    companyId: string,
+    referenceMonth?: string
+  ): Promise<{
     inventoryValue: number;
     purchasesMonthTotal: number;
   }> {
     const inventoryValue = await ProductRepository.sumInventoryValue(companyId);
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startIso = start.toISOString();
+    const month = referenceMonth?.trim();
+    const startIso = (() => {
+      if (month && /^\d{4}-\d{2}$/.test(month)) {
+        const startYmd = `${month}-01`;
+        const start = new Date(`${startYmd}T00:00:00.000Z`);
+        return start.toISOString();
+      }
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return start.toISOString();
+    })();
     const { data, error } = await supabase
       .from('stock_entries')
       .select('total_cost')

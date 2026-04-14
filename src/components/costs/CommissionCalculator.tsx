@@ -65,7 +65,7 @@ function monthNow(): string {
   return `${y}-${m}`;
 }
 
-export function CommissionCalculator() {
+export function CommissionCalculator({ forcedMonth }: { forcedMonth?: string } = {}) {
   const { currentCompany } = useCompany();
   const [referenceMonth, setReferenceMonth] = useState(monthNow);
   const [totalSales, setTotalSales] = useState<string>('');
@@ -117,6 +117,13 @@ export function CommissionCalculator() {
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  useEffect(() => {
+    const m = forcedMonth?.trim();
+    if (!m) return;
+    if (!/^\d{4}-\d{2}$/.test(m)) return;
+    setReferenceMonth(m);
+  }, [forcedMonth]);
 
   useEffect(() => {
     if (!currentCompany?.id) return;
