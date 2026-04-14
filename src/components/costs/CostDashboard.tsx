@@ -29,10 +29,18 @@ import { CommissionCalculator } from './CommissionCalculator';
 import { toast } from 'sonner@2.0.3';
 
 interface DashboardMetrics {
-  totalExpenses: number;
-  monthlyExpenses: number;
-  pendingPayments: number;
-  overduePayments: number;
+  /** Receita do mês (PDV) */
+  monthlyRevenue: number;
+  /** Custo das vendas do mês (COGS, via stock_movements type=venda) */
+  monthlyCogs: number;
+  /** Lucro estimado do mês = receita - COGS - despesas do mês (por vencimento) */
+  monthlyProfit: number;
+  /** Despesas com vencimento no mês */
+  monthlyExpensesDue: number;
+  /** A pagar (em aberto) com vencimento no mês */
+  monthlyToPay: number;
+  /** Devedor (atrasado) com vencimento no mês */
+  monthlyOverdue: number;
   budgetUtilization: number;
   activeBudgets: number;
   /** Estoque atual × custo médio (estimativa) */
@@ -44,11 +52,19 @@ interface DashboardMetrics {
 export function CostDashboard() {
   const { currentCompany } = useCompany();
   const [loading, setLoading] = useState(true);
+  const [referenceMonth, setReferenceMonth] = useState<string>(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  });
   const [metrics, setMetrics] = useState<DashboardMetrics>({
-    totalExpenses: 0,
-    monthlyExpenses: 0,
-    pendingPayments: 0,
-    overduePayments: 0,
+    monthlyRevenue: 0,
+    monthlyCogs: 0,
+    monthlyProfit: 0,
+    monthlyExpensesDue: 0,
+    monthlyToPay: 0,
+    monthlyOverdue: 0,
     budgetUtilization: 0,
     activeBudgets: 0,
     inventoryValue: 0,
@@ -60,52 +76,71 @@ export function CostDashboard() {
     if (currentCompany?.id) {
       loadDashboardData();
     }
-  }, [currentCompany?.id]);
+  }, [currentCompany?.id, referenceMonth]);
 
   const loadDashboardData = async () => {
     if (!currentCompany?.id) return;
 
     setLoading(true);
     try {
-      const [expenses, budgetsList, stockMetrics] = await Promise.all([
+      const [expenses, budgetsList, stockMetrics, fin] = await Promise.all([
         CostRepository.findAllExpenses(currentCompany.id),
         CostRepository.findAllBudgets(currentCompany.id),
         CostRepository.getStockCostMetrics(currentCompany.id).catch((err) => {
           console.warn('Stock cost metrics:', err);
           return { inventoryValue: 0, purchasesMonthTotal: 0 };
-        })
+        }),
+        CostRepository.getMonthlyFinancialSnapshot(currentCompany.id, referenceMonth).catch((err) => {
+          console.warn('Monthly financial snapshot:', err);
+          return { month: referenceMonth, revenue: 0, cogs: 0 };
+        }),
       ]);
 
       const budgets = budgetsList as any[];
 
       // Calculate metrics
-      const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthlyExpenses = expenses
-        .filter((e: any) => new Date(e.due_date) >= firstDayOfMonth)
-        .reduce((sum: number, e: any) => sum + parseFloat(e.amount), 0);
+      const monthYmdPrefix = `${referenceMonth}-`;
+      const todayYmd = new Date().toISOString().split('T')[0];
 
-      const pendingPayments = expenses
-        .filter((e: any) => e.payment_status === 'pending')
+      const monthExpenses = (expenses as any[]).filter((e: any) => {
+        const due = String(e.due_date || '').split('T')[0];
+        return due.startsWith(monthYmdPrefix);
+      });
+
+      const monthlyExpensesDue = monthExpenses.reduce(
+        (sum: number, e: any) => sum + (parseFloat(String(e.amount ?? 0)) || 0),
+        0
+      );
+
+      const monthlyToPay = monthExpenses
+        .filter((e: any) => String(e.payment_status || '') === 'pending')
         .reduce((sum: number, e: any) => sum + remainingFromExpenseRow(e), 0);
 
-      const overduePayments = expenses
-        .filter((e: any) => e.payment_status === 'overdue')
+      const monthlyOverdue = monthExpenses
+        .filter((e: any) => {
+          const st = String(e.payment_status || '');
+          const due = String(e.due_date || '').split('T')[0];
+          return st === 'overdue' || (st === 'pending' && due && due < todayYmd);
+        })
         .reduce((sum: number, e: any) => sum + remainingFromExpenseRow(e), 0);
-
-      const totalExpenses = expenses.reduce((sum: number, e: any) => sum + parseFloat(e.amount), 0);
 
       const activeBudgets = budgets.filter((b: any) => b.status === 'active').length;
 
       // Budget utilization (simplified - could be more sophisticated)
       const budgetUtilization = activeBudgets > 0 ? 
-        (monthlyExpenses / (budgets.reduce((sum: number, b: any) => sum + parseFloat(b.total_budget), 0) / activeBudgets)) * 100 : 0;
+        (monthlyExpensesDue / (budgets.reduce((sum: number, b: any) => sum + parseFloat(b.total_budget), 0) / activeBudgets)) * 100 : 0;
+
+      const monthlyRevenue = fin.revenue || 0;
+      const monthlyCogs = fin.cogs || 0;
+      const monthlyProfit = monthlyRevenue - monthlyCogs - monthlyExpensesDue;
 
       setMetrics({
-        totalExpenses,
-        monthlyExpenses,
-        pendingPayments,
-        overduePayments,
+        monthlyRevenue,
+        monthlyCogs,
+        monthlyProfit,
+        monthlyExpensesDue,
+        monthlyToPay,
+        monthlyOverdue,
         budgetUtilization: Math.min(budgetUtilization, 100),
         activeBudgets,
         inventoryValue: stockMetrics.inventoryValue,
@@ -161,10 +196,21 @@ export function CostDashboard() {
             inventário.
           </p>
         </div>
-        <Button onClick={initializeCostCenters} variant="outline">
-          <Settings className="w-4 h-4 mr-2" />
-          Inicializar Centros de Custo
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-3 py-2">
+            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">Mês</span>
+            <input
+              type="month"
+              value={referenceMonth}
+              onChange={(e) => setReferenceMonth(e.target.value)}
+              className="bg-transparent text-sm text-gray-900 dark:text-gray-100 outline-none"
+            />
+          </div>
+          <Button onClick={initializeCostCenters} variant="outline">
+            <Settings className="w-4 h-4 mr-2" />
+            Inicializar Centros de Custo
+          </Button>
+        </div>
       </div>
 
       {/* Metrics Cards */}
@@ -173,13 +219,13 @@ export function CostDashboard() {
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Despesas do Mês</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Lucro (mês)</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                  {formatCurrency(metrics.monthlyExpenses)}
+                  {formatCurrency(metrics.monthlyProfit)}
                 </p>
               </div>
               <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <DollarSign className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                <TrendingUp className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
             </div>
           </Card>
@@ -187,9 +233,23 @@ export function CostDashboard() {
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Pagamentos Pendentes</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Gastos (vencimento no mês)</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(metrics.monthlyExpensesDue)}
+                </p>
+              </div>
+              <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                <DollarSign className="w-6 h-6 text-slate-700 dark:text-slate-300" />
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">A pagar (mês)</p>
                 <p className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-1">
-                  {formatCurrency(metrics.pendingPayments)}
+                  {formatCurrency(metrics.monthlyToPay)}
                 </p>
               </div>
               <div className="p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
@@ -201,9 +261,9 @@ export function CostDashboard() {
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Pagamentos Atrasados</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Devedor / Atrasado (mês)</p>
                 <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">
-                  {formatCurrency(metrics.overduePayments)}
+                  {formatCurrency(metrics.monthlyOverdue)}
                 </p>
               </div>
               <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
@@ -211,7 +271,43 @@ export function CostDashboard() {
               </div>
             </div>
           </Card>
+        </div>
+      )}
 
+      {activeTab === 'overview' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Receita (mês)</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(metrics.monthlyRevenue)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Base: vendas do Caixa/PDV (tabela <code>sales</code>).
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
+                <TrendingUp className="w-6 h-6 text-emerald-700 dark:text-emerald-400" />
+              </div>
+            </div>
+          </Card>
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">COGS (mês)</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(metrics.monthlyCogs)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Base: baixas por venda (estoque), quando disponíveis.
+                </p>
+              </div>
+              <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                <TrendingDown className="w-6 h-6 text-slate-700 dark:text-slate-300" />
+              </div>
+            </div>
+          </Card>
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>

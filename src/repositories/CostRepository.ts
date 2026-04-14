@@ -296,6 +296,70 @@ export class CostRepository {
     return { inventoryValue, purchasesMonthTotal };
   }
 
+  /** YYYY-MM (ex.: 2026-04) */
+  static async getMonthlyFinancialSnapshot(
+    companyId: string,
+    month: string
+  ): Promise<{
+    month: string;
+    revenue: number;
+    cogs: number;
+  }> {
+    const m = month.trim();
+    if (!/^\d{4}-\d{2}$/.test(m)) {
+      throw new Error('Mês inválido. Use o formato YYYY-MM.');
+    }
+
+    const startYmd = `${m}-01`;
+    const start = new Date(`${startYmd}T00:00:00.000Z`);
+    const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+    const startIso = start.toISOString();
+    const endIso = end.toISOString();
+
+    // Receita: tabela sales
+    const { data: salesRows, error: salesErr } = await supabase
+      .from('sales')
+      .select('total')
+      .eq('company_id', companyId)
+      .gte('timestamp', startIso)
+      .lt('timestamp', endIso);
+
+    if (salesErr) throw salesErr;
+    const revenue = (salesRows || []).reduce(
+      (sum, r: any) => sum + (parseFloat(String(r.total ?? 0)) || 0),
+      0
+    );
+
+    // COGS: baixa de estoque gerada por vendas (stock_movements com type='venda')
+    const { data: movRows, error: movErr } = await supabase
+      .from('stock_movements')
+      .select('total_value, unit_cost, quantity, type, movement_date')
+      .eq('company_id', companyId)
+      .eq('type', 'venda')
+      .gte('movement_date', startIso)
+      .lt('movement_date', endIso);
+
+    if (movErr) {
+      // Se o schema/colunas estiverem diferentes, não quebra o dashboard inteiro.
+      console.warn('[CostRepository] getMonthlyFinancialSnapshot cogs:', movErr.message);
+    }
+
+    const cogs = (movRows || []).reduce((sum: number, r: any) => {
+      const tv = r.total_value;
+      const totalValue = tv != null && tv !== '' ? Number(tv) : NaN;
+      if (Number.isFinite(totalValue)) return sum + totalValue;
+      const qty = Number(r.quantity) || 0;
+      const uc = Number(r.unit_cost) || 0;
+      return sum + qty * uc;
+    }, 0);
+
+    return {
+      month: m,
+      revenue,
+      cogs
+    };
+  }
+
   /**
    * Monta linha para insert. Colunas de grupo de parcelas só entram quando há grupo —
    * assim o insert funciona mesmo sem migration `add_expense_group_installments.sql`.
