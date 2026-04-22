@@ -856,6 +856,10 @@ export type ZigConfirmLineItem = {
   productSku: string;
   productName: string;
   quantity: number;
+  /** Valor unitário da linha no ZIG (BRL). Opcional para compatibilidade com deploys antigos. */
+  unitValue?: number;
+  /** Valor total da linha no ZIG (BRL). Opcional para compatibilidade com deploys antigos. */
+  totalValue?: number;
 };
 
 // Fetch Pending Sales (Preview - Sem processar)
@@ -1363,6 +1367,132 @@ async function executeZigStockDeductionFromGroups(
   };
 }
 
+async function getOrCreateZigVirtualRegisterId(companyId: string): Promise<string> {
+  const kvKey = `zig_sales_register:${companyId}`;
+  const cached = (await kv.get(kvKey)) as { registerId?: string } | string | null;
+  const registerIdFromKv =
+    typeof cached === "string" ? cached : (cached && typeof cached === "object" ? cached.registerId : undefined);
+  if (registerIdFromKv && registerIdFromKv.trim()) {
+    // Validate exists
+    const { data } = await supabase
+      .from("cash_registers")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("id", registerIdFromKv.trim())
+      .maybeSingle();
+    if (data?.id) return data.id;
+  }
+
+  const { data: reg, error } = await supabase
+    .from("cash_registers")
+    .insert({
+      company_id: companyId,
+      cashier_id: "zig",
+      cashier_name: "Integração ZIG",
+      initial_balance: 0,
+      current_balance: 0,
+      status: "closed",
+      closed_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error || !reg?.id) {
+    throw new Error(error?.message || "Falha ao criar caixa virtual para ZIG.");
+  }
+
+  await kv.set(kvKey, { registerId: reg.id });
+  return reg.id;
+}
+
+async function recordRevenueSaleFromZigSnapshot(
+  companyId: string,
+  selectedTransactionIds: Set<string>,
+  snapshotLines: ZigConfirmLineItem[],
+): Promise<{ recorded: boolean; saleId?: string; total?: number }> {
+  const selected = snapshotLines.filter((l) => selectedTransactionIds.has(l.transactionId));
+  if (selected.length === 0) return { recorded: false };
+
+  // Evita duplicar receita: se todas as linhas já foram registradas, não cria `sales` novamente.
+  const revenueKeyPrefix = `zig_revenue_recorded:${companyId}:`;
+  const already = new Set<string>();
+  for (const l of selected) {
+    const k = `${revenueKeyPrefix}${l.transactionId}`;
+    const v = await kv.get(k);
+    if (v) already.add(l.transactionId);
+  }
+
+  const pending = selected.filter((l) => !already.has(l.transactionId));
+  if (pending.length === 0) return { recorded: false };
+
+  const registerId = await getOrCreateZigVirtualRegisterId(companyId);
+
+  // Mapear SKU->product_id (quando existir)
+  const skus = [...new Set(pending.map((p) => (p.productSku || "").trim()).filter(Boolean))];
+  const productIdBySku = new Map<string, string>();
+  if (skus.length > 0) {
+    const { data: rows } = await supabase
+      .from("products")
+      .select("id, barcode")
+      .eq("company_id", companyId)
+      .in("barcode", skus);
+    for (const r of rows || []) {
+      const rr = r as { id: string; barcode: string | null };
+      if (rr.barcode) productIdBySku.set(String(rr.barcode).trim(), rr.id);
+    }
+  }
+
+  const items = pending.map((l) => {
+    const sku = (l.productSku || "").trim();
+    const unit = Number(l.unitValue);
+    const tv = Number(l.totalValue);
+    const qty = Number(l.quantity) || 0;
+    const unitValue = Number.isFinite(unit) ? unit : (qty > 0 && Number.isFinite(tv) ? tv / qty : 0);
+    const totalValue = Number.isFinite(tv) ? tv : unitValue * qty;
+    return {
+      productId: sku ? productIdBySku.get(sku) : undefined,
+      name: l.productName || sku || "Item ZIG",
+      price: Math.round(unitValue * 100) / 100,
+      quantity: qty,
+      total: Math.round(totalValue * 100) / 100,
+      sku,
+      transactionId: l.transactionId,
+      source: "zig",
+    };
+  });
+
+  const total = items.reduce((s, it) => s + (Number(it.total) || 0), 0);
+
+  const { data: sale, error } = await supabase
+    .from("sales")
+    .insert({
+      company_id: companyId,
+      register_id: registerId,
+      cashier_id: "zig",
+      cashier_name: "Integração ZIG",
+      total,
+      payment_method: "credit",
+      payment_details: { source: "zig", lines: items.length },
+      items,
+      timestamp: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error || !sale?.id) {
+    throw new Error(error?.message || "Falha ao registrar receita (sales) para ZIG.");
+  }
+
+  for (const l of pending) {
+    await kv.set(`${revenueKeyPrefix}${l.transactionId}`, { saleId: sale.id, at: Date.now() });
+  }
+
+  return { recorded: true, saleId: sale.id, total };
+}
+
 /**
  * Rota dedicada ao PDV: **nunca** chama GET na API ZIG — só snapshot (lineItems ou KV).
  * Use quando `/zig/confirm` ainda acionar código antigo em produção.
@@ -1413,10 +1543,20 @@ export async function confirmStockFromZigPreviewSnapshot(
     `ZIG: confirm snapshot — baixa no Stockpyrou apenas (${transactionIds.length} id(s)), sem API ZIG`,
   );
 
-  return await executeZigStockDeductionFromGroups(companyId, groups, {
+  const stockRes = await executeZigStockDeductionFromGroups(companyId, groups, {
     registeredOnly,
     previewSessionIdToClear: sid,
   });
+
+  // Receita (sales) baseada no snapshot (sem chamar API ZIG)
+  try {
+    await recordRevenueSaleFromZigSnapshot(companyId, selectedSet, snapshotLines);
+  } catch (e: unknown) {
+    // Não bloqueia a baixa por falha de receita; mas loga para diagnóstico.
+    console.error("ZIG: Falha ao registrar receita (sales) no confirm snapshot:", e);
+  }
+
+  return stockRes;
 }
 
 export type ConfirmSalesOptions = {
@@ -1747,13 +1887,13 @@ async function deductStock(productId: string, qty: number, reason: string) {
   const { error: movementError } = await supabase.from('stock_movements').insert({
     company_id: p.company_id,
     product_id: productId,
-    movement_type: 'saida',
+    movement_type: 'venda',
     quantity: qty,
     unit_cost: p.cost_price || 0,
     total_value: (p.cost_price || 0) * qty,
     notes: `${reason} - Integração automática ZIG`,
     movement_date: new Date().toISOString(),
-    type: 'saida',
+    type: 'venda',
   });
 
   if (movementError) {

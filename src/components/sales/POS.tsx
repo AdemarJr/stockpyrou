@@ -12,6 +12,7 @@ import { SaleReceipt } from './SaleReceipt';
 import { ZigSalesBaixa } from './ZigSalesBaixa';
 import { useIsMobile } from '../ui/use-mobile';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
+import { projectId, publicAnonKey } from '../../utils/supabase/env';
 
 interface POSProps {
   products: Product[];
@@ -337,6 +338,79 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     const toastId = toast.loading('Processando venda e baixando estoque...');
 
     try {
+      /**
+       * Regra de consistência financeira (custos/receita):
+       * - Receita (dashboard) vem de `sales`
+       * - CMV vem de `stock_movements` com `type='venda'`
+       *
+       * O POS manual historicamente só baixava estoque (movimento `saida`) e não gravava `sales`,
+       * então o mês ficava com CMV/receita divergentes. Aqui garantimos que existe um caixa aberto
+       * (saldo inicial 0 se necessário) e gravamos a venda em `sales`.
+       */
+      let saleId: string | null = null;
+      try {
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${publicAnonKey}`,
+          'X-Custom-Token': user?.accessToken || '',
+          'Content-Type': 'application/json',
+          'X-Company-Id': currentCompany.id,
+        };
+
+        // 1) Get current register (or open one with 0 initial balance)
+        const curRes = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/current`,
+          { headers },
+        );
+        const curData = await curRes.json().catch(() => ({}));
+        let registerId: string | null = curData?.register?.id ?? null;
+
+        if (!registerId) {
+          const openRes = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/open`,
+            {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                initialBalance: 0,
+                cashierId: user?.id,
+                cashierName: user?.fullName,
+              }),
+            },
+          );
+          const openData = await openRes.json().catch(() => ({}));
+          registerId = openData?.register?.id ?? null;
+        }
+
+        if (registerId) {
+          const salePayload = {
+            registerId,
+            items: cart.map((item) => ({
+              productId: item.type === 'product' ? item.id : undefined,
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+            })),
+            total: totalAmount,
+            paymentMethod: 'money',
+            paymentDetails: {},
+          };
+
+          const saleRes = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/sale`,
+            {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(salePayload),
+            },
+          );
+          const saleData = await saleRes.json().catch(() => ({}));
+          saleId = saleData?.sale?.id ?? null;
+        }
+      } catch (e) {
+        // Se falhar, seguimos com a baixa de estoque; mas receita do mês pode ficar subcontabilizada.
+        console.warn('[POS] Falha ao registrar venda em sales (continuando com baixa):', e);
+      }
+
       // Processa cada item do carrinho sequencialmente
       for (const item of cart) {
         if (item.type === 'product') {
@@ -350,26 +424,31 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               if (!b.productId || qtyToDeduct <= 0) continue;
 
               await ProductService.updateStock(b.productId, -qtyToDeduct);
+              const p2 = products.find((p) => p.id === b.productId);
+              const lineCost = (p2?.averageCost ?? 0) * qtyToDeduct;
               await StockRepository.createMovement({
                 companyId: currentCompany.id,
                 productId: b.productId,
-                type: 'saida',
+                type: 'venda',
                 quantity: qtyToDeduct,
-                reason: 'Venda PDV (Combo)',
-                notes: `Venda Combo: ${item.quantity}x ${item.name}`,
+                reason: 'Venda PDV (Manual) — combo',
+                notes: `Venda Combo: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`,
+                cost: lineCost > 0 ? lineCost : undefined,
                 userId: user?.id
               });
             }
           } else {
             // Venda direta de produto
             await ProductService.updateStock(item.id, -item.quantity);
+            const lineCost = (product?.averageCost ?? 0) * item.quantity;
             await StockRepository.createMovement({
               companyId: currentCompany.id,
               productId: item.id,
-              type: 'saida',
+              type: 'venda',
               quantity: item.quantity,
-              reason: 'Venda PDV',
-              notes: `Venda Manual: ${item.quantity}x ${item.name}`,
+              reason: 'Venda PDV (Manual)',
+              notes: `Venda Manual: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`,
+              cost: lineCost > 0 ? lineCost : undefined,
               userId: user?.id
             });
           }
@@ -381,13 +460,16 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               const qtyToDeduct = ingredient.quantity * item.quantity;
               
               await ProductService.updateStock(ingredient.productId, -qtyToDeduct);
+              const p2 = products.find((p) => p.id === ingredient.productId);
+              const lineCost = (p2?.averageCost ?? 0) * qtyToDeduct;
               await StockRepository.createMovement({
                 companyId: currentCompany.id,
                 productId: ingredient.productId,
-                type: 'saida',
+                type: 'venda',
                 quantity: qtyToDeduct,
                 reason: 'Venda Receita',
-                notes: `Venda Receita: ${item.quantity}x ${recipe.name}`,
+                notes: `Venda Receita: ${item.quantity}x ${recipe.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`,
+                cost: lineCost > 0 ? lineCost : undefined,
                 userId: user?.id
               });
             }

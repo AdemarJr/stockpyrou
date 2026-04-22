@@ -418,6 +418,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
           productSku: s.productSku,
           productName: s.productName,
           quantity: s.quantity,
+          unitValue: s.unitValue,
+          totalValue: s.totalValue,
         }));
 
       if (lineItems.length === 0) {
