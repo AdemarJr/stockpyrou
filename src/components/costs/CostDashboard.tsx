@@ -26,6 +26,7 @@ import { BudgetManagement } from './BudgetManagement';
 import { CostAnalytics } from './CostAnalytics';
 import { CostTargets } from './CostTargets';
 import { CommissionCalculator } from './CommissionCalculator';
+import { FinancialDashboard } from './FinancialDashboard';
 import { toast } from 'sonner@2.0.3';
 
 interface DashboardMetrics {
@@ -376,10 +377,14 @@ export function CostDashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 h-auto">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-1 h-auto">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <PieChart className="w-4 h-4" />
             <span className="hidden md:inline">Visão Geral</span>
+          </TabsTrigger>
+          <TabsTrigger value="finance" className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4" />
+            <span className="hidden md:inline">Financeiro</span>
           </TabsTrigger>
           <TabsTrigger value="expenses" className="flex items-center gap-2">
             <FileText className="w-4 h-4" />
@@ -405,6 +410,10 @@ export function CostDashboard() {
 
         <TabsContent value="overview">
           <CostCenterManagement />
+        </TabsContent>
+
+        <TabsContent value="finance">
+          <FinancialDashboard />
         </TabsContent>
 
         <TabsContent value="expenses">

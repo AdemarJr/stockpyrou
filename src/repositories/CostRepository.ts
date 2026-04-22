@@ -373,6 +373,118 @@ export class CostRepository {
   }
 
   /**
+   * Saldo realizado até uma data (inclusive), baseado no ledger financeiro.
+   * Usa `cash_date` quando status=realizado.
+   */
+  static async getRealizedBalanceUntil(
+    companyId: string,
+    ymdInclusive: string
+  ): Promise<number> {
+    const ymd = ymdInclusive.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      throw new Error('Data inválida. Use o formato YYYY-MM-DD.');
+    }
+
+    const { data, error } = await supabase
+      .from('financial_movements')
+      .select('direction, amount, cash_date, status')
+      .eq('company_id', companyId)
+      .eq('status', 'realizado')
+      .lte('cash_date', ymd);
+
+    if (error) {
+      console.warn('[CostRepository] getRealizedBalanceUntil:', error.message);
+      return 0;
+    }
+
+    return (data || []).reduce((sum: number, r: any) => {
+      const amt = Number(r.amount) || 0;
+      return sum + (r.direction === 'in' ? amt : -amt);
+    }, 0);
+  }
+
+  /**
+   * Projeção simples de fluxo de caixa: soma entradas/saídas por dia (realizado usa cash_date; previsto usa due_date).
+   */
+  static async getCashFlowProjection(
+    companyId: string,
+    startYmd: string,
+    endYmd: string
+  ): Promise<
+    Array<{
+      date: string;
+      inRealized: number;
+      outRealized: number;
+      outExpected: number;
+      net: number;
+      projectedBalance: number;
+    }>
+  > {
+    const start = startYmd.trim();
+    const end = endYmd.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) {
+      throw new Error('Intervalo inválido. Use YYYY-MM-DD (início <= fim).');
+    }
+
+    const openingBalance = await this.getRealizedBalanceUntil(companyId, start);
+
+    const { data, error } = await supabase
+      .from('financial_movements')
+      .select('direction, status, amount, due_date, cash_date')
+      .eq('company_id', companyId)
+      .or(`cash_date.gte.${start},due_date.gte.${start}`)
+      .or(`cash_date.lte.${end},due_date.lte.${end}`);
+
+    if (error) {
+      console.warn('[CostRepository] getCashFlowProjection:', error.message);
+      return [];
+    }
+
+    const days: string[] = [];
+    {
+      const s = new Date(`${start}T00:00:00.000Z`);
+      const e = new Date(`${end}T00:00:00.000Z`);
+      for (let d = new Date(s); d <= e; d = new Date(d.getTime() + 86400000)) {
+        days.push(d.toISOString().slice(0, 10));
+      }
+    }
+
+    const byDay = new Map(
+      days.map((d) => [
+        d,
+        { date: d, inRealized: 0, outRealized: 0, outExpected: 0, net: 0, projectedBalance: 0 },
+      ])
+    );
+
+    for (const r of data || []) {
+      const amt = Number(r.amount) || 0;
+      const st = String(r.status || '');
+      const dir = String(r.direction || '');
+      const cash = r.cash_date ? String(r.cash_date).split('T')[0] : '';
+      const due = r.due_date ? String(r.due_date).split('T')[0] : '';
+
+      if (st === 'realizado' && cash && byDay.has(cash)) {
+        const row = byDay.get(cash)!;
+        if (dir === 'in') row.inRealized += amt;
+        if (dir === 'out') row.outRealized += amt;
+      } else if (st === 'previsto' && due && byDay.has(due)) {
+        const row = byDay.get(due)!;
+        if (dir === 'out') row.outExpected += amt;
+      }
+    }
+
+    let running = openingBalance;
+    for (const d of days) {
+      const row = byDay.get(d)!;
+      row.net = row.inRealized - row.outRealized - row.outExpected;
+      running += row.net;
+      row.projectedBalance = running;
+    }
+
+    return days.map((d) => byDay.get(d)!);
+  }
+
+  /**
    * Monta linha para insert. Colunas de grupo de parcelas só entram quando há grupo —
    * assim o insert funciona mesmo sem migration `add_expense_group_installments.sql`.
    */
