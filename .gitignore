@@ -13,3 +13,4 @@ supabase/functions/make-server-8a20b27d/kv_store.tsx
 supabase/functions/make-server-8a20b27d/zig_service.tsx
 supabase/functions/make-server-8a20b27d/costs.tsx
 docs/MANUAL_COLABORADOR_CELULAR.md
+scripts/finance_backfill_2026_01_01_to_2026_04_22.sql

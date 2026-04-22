@@ -50,6 +50,7 @@ export function FinancialDashboard() {
 
   const next7Out = rows.slice(0, 7).reduce((s, r) => s + (r.outExpected || 0), 0);
   const next7In = rows.slice(0, 7).reduce((s, r) => s + (r.inRealized || 0), 0);
+  const totalOut30 = rows.reduce((s, r) => s + (r.outExpected || 0) + (r.outRealized || 0), 0);
 
   const chartData = rows.map((r) => ({
     date: r.date.slice(5),
@@ -91,6 +92,16 @@ export function FinancialDashboard() {
               <p className="text-xs text-gray-500 mt-2">Somente lançamentos com status “realizado”.</p>
             </Card>
           </div>
+
+          <Card className="p-6">
+            <p className="text-sm text-gray-500">Total de despesas (D+30)</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">
+              {formatCurrency(totalOut30)}
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              Soma de saídas previstas + realizadas no período.
+            </p>
+          </Card>
 
           <Card className="p-6">
             <div className="flex items-baseline justify-between gap-3 mb-4">

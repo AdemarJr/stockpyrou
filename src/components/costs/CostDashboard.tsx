@@ -22,10 +22,8 @@ import { remainingFromExpenseRow } from '../../utils/expensePaidAmount';
 import { CostRepository } from '../../repositories/CostRepository';
 import { CostCenterManagement } from './CostCenterManagement';
 import { ExpenseManagement } from './ExpenseManagement';
-import { BudgetManagement } from './BudgetManagement';
 import { CostAnalytics } from './CostAnalytics';
 import { CostTargets } from './CostTargets';
-import { CommissionCalculator } from './CommissionCalculator';
 import { FinancialDashboard } from './FinancialDashboard';
 import { toast } from 'sonner@2.0.3';
 
@@ -42,8 +40,6 @@ interface DashboardMetrics {
   monthlyToPay: number;
   /** Devedor (atrasado) com vencimento no mês */
   monthlyOverdue: number;
-  budgetUtilization: number;
-  activeBudgets: number;
   /** Estoque atual × custo médio (estimativa) */
   inventoryValue: number;
   /** Soma das entradas de estoque no mês */
@@ -66,8 +62,6 @@ export function CostDashboard() {
     monthlyExpensesDue: 0,
     monthlyToPay: 0,
     monthlyOverdue: 0,
-    budgetUtilization: 0,
-    activeBudgets: 0,
     inventoryValue: 0,
     purchasesMonthTotal: 0
   });
@@ -94,9 +88,8 @@ export function CostDashboard() {
 
     setLoading(true);
     try {
-      const [expenses, budgetsList, stockMetrics, fin] = await Promise.all([
+      const [expenses, stockMetrics, fin] = await Promise.all([
         CostRepository.findAllExpenses(currentCompany.id),
-        CostRepository.findAllBudgets(currentCompany.id),
         CostRepository.getStockCostMetrics(currentCompany.id, referenceMonth).catch((err) => {
           console.warn('Stock cost metrics:', err);
           return { inventoryValue: 0, purchasesMonthTotal: 0 };
@@ -106,8 +99,6 @@ export function CostDashboard() {
           return { month: referenceMonth, revenue: 0, cogs: 0 };
         }),
       ]);
-
-      const budgets = budgetsList as any[];
 
       // Calculate metrics
       const monthYmdPrefix = `${referenceMonth}-`;
@@ -135,12 +126,6 @@ export function CostDashboard() {
         })
         .reduce((sum: number, e: any) => sum + remainingFromExpenseRow(e), 0);
 
-      const activeBudgets = budgets.filter((b: any) => b.status === 'active').length;
-
-      // Budget utilization (simplified - could be more sophisticated)
-      const budgetUtilization = activeBudgets > 0 ? 
-        (monthlyExpensesDue / (budgets.reduce((sum: number, b: any) => sum + parseFloat(b.total_budget), 0) / activeBudgets)) * 100 : 0;
-
       const monthlyRevenue = fin.revenue || 0;
       const monthlyCogs = fin.cogs || 0;
       const monthlyProfit = monthlyRevenue - monthlyCogs - monthlyExpensesDue;
@@ -152,8 +137,6 @@ export function CostDashboard() {
         monthlyExpensesDue,
         monthlyToPay,
         monthlyOverdue,
-        budgetUtilization: Math.min(budgetUtilization, 100),
-        activeBudgets,
         inventoryValue: stockMetrics.inventoryValue,
         purchasesMonthTotal: stockMetrics.purchasesMonthTotal
       });
@@ -322,16 +305,16 @@ export function CostDashboard() {
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Utilização do Orçamento</p>
-                <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
-                  {metrics.budgetUtilization.toFixed(1)}%
+                <p className="text-sm text-gray-500 dark:text-gray-400">Total de despesas (mês)</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(metrics.monthlyExpensesDue)}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {metrics.activeBudgets} orçamento(s) ativo(s)
+                  Soma por vencimento no mês (operational_expenses).
                 </p>
               </div>
               <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                <Target className="w-6 h-6 text-green-600 dark:text-green-400" />
+                <DollarSign className="w-6 h-6 text-green-600 dark:text-green-400" />
               </div>
             </div>
           </Card>
@@ -377,7 +360,7 @@ export function CostDashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-1 h-auto">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1 h-auto">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <PieChart className="w-4 h-4" />
             <span className="hidden md:inline">Visão Geral</span>
@@ -390,21 +373,9 @@ export function CostDashboard() {
             <FileText className="w-4 h-4" />
             <span className="hidden md:inline">Despesas</span>
           </TabsTrigger>
-          <TabsTrigger value="budgets" className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4" />
-            <span className="hidden md:inline">Orçamentos</span>
-          </TabsTrigger>
-          <TabsTrigger value="commissions" className="flex items-center gap-2">
-            <BadgePercent className="w-4 h-4" />
-            <span className="hidden md:inline">Comissões</span>
-          </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
             <span className="hidden md:inline">Análises</span>
-          </TabsTrigger>
-          <TabsTrigger value="targets" className="flex items-center gap-2">
-            <Target className="w-4 h-4" />
-            <span className="hidden md:inline">Metas</span>
           </TabsTrigger>
         </TabsList>
 
@@ -420,20 +391,8 @@ export function CostDashboard() {
           <ExpenseManagement forcedPeriod={forcedPeriod} />
         </TabsContent>
 
-        <TabsContent value="budgets">
-          <BudgetManagement />
-        </TabsContent>
-
-        <TabsContent value="commissions">
-          <CommissionCalculator forcedMonth={referenceMonth} />
-        </TabsContent>
-
         <TabsContent value="analytics">
           <CostAnalytics />
-        </TabsContent>
-
-        <TabsContent value="targets">
-          <CostTargets />
         </TabsContent>
       </Tabs>
     </div>
