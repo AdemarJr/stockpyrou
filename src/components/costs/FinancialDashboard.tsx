@@ -13,12 +13,15 @@ export function FinancialDashboard() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ProjectionRow[]>([]);
 
-  const range = useMemo(() => {
+  const defaultRange = useMemo(() => {
     const start = new Date();
     const end = new Date(start.getTime() + 30 * 86400000);
     const ymd = (d: Date) => d.toISOString().slice(0, 10);
     return { start: ymd(start), end: ymd(end) };
   }, []);
+
+  const [startYmd, setStartYmd] = useState(defaultRange.start);
+  const [endYmd, setEndYmd] = useState(defaultRange.end);
 
   useEffect(() => {
     if (!currentCompany?.id) return;
@@ -32,8 +35,8 @@ export function FinancialDashboard() {
     try {
       const data = await CostRepository.getCashFlowProjection(
         currentCompany.id,
-        range.start,
-        range.end
+        startYmd,
+        endYmd
       );
       setRows(Array.isArray(data) ? data : []);
     } catch (e: any) {
@@ -67,6 +70,38 @@ export function FinancialDashboard() {
         </Card>
       ) : (
         <>
+          <Card className="p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex gap-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Início</p>
+                  <input
+                    type="date"
+                    value={startYmd}
+                    onChange={(e) => setStartYmd(e.target.value)}
+                    className="rounded-md border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Fim</p>
+                  <input
+                    type="date"
+                    value={endYmd}
+                    onChange={(e) => setEndYmd(e.target.value)}
+                    className="rounded-md border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Atualizar
+              </button>
+            </div>
+          </Card>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="p-6">
               <p className="text-sm text-gray-500">Saldo projetado (D+30)</p>
@@ -108,7 +143,7 @@ export function FinancialDashboard() {
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Saldo projetado</h3>
                 <p className="text-xs text-gray-500">
-                  De {range.start} até {range.end}
+                  De {startYmd} até {endYmd}
                 </p>
               </div>
               <div className="text-right">

@@ -3,9 +3,6 @@ import type {
   CostCenter,
   ExpenseType,
   OperationalExpense,
-  Budget,
-  BudgetItem,
-  CostTarget,
   PaymentMethod,
   PaymentStatus
 } from '../types/costs';
@@ -508,6 +505,83 @@ export class CostRepository {
     return days.map((d) => byDay.get(d)!);
   }
 
+  static async getDreByMonth(
+    companyId: string,
+    startMonth: string,
+    endMonth: string,
+  ): Promise<Array<{ month: string; revenue: number; cogs: number; expenses: number; grossProfit: number; net: number }>> {
+    const sm = startMonth.trim();
+    const em = endMonth.trim();
+    if (!/^\d{4}-\d{2}$/.test(sm) || !/^\d{4}-\d{2}$/.test(em) || sm > em) {
+      throw new Error('Intervalo inválido. Use YYYY-MM (início <= fim).');
+    }
+
+    const fromYmd = `${sm}-01`;
+    const endStart = new Date(`${em}-01T00:00:00.000Z`);
+    const endNext = new Date(Date.UTC(endStart.getUTCFullYear(), endStart.getUTCMonth() + 1, 1));
+    const toYmd = endNext.toISOString().slice(0, 10);
+
+    const { data: dreRows, error: dreErr } = await supabase
+      .from('v_gross_profit_month')
+      .select('month, revenue, cogs, gross_profit')
+      .eq('company_id', companyId)
+      .gte('month', sm)
+      .lte('month', em)
+      .order('month', { ascending: true });
+
+    if (dreErr) {
+      console.warn('[CostRepository] getDreByMonth v_gross_profit_month:', dreErr.message);
+    }
+
+    const { data: expRows, error: expErr } = await supabase
+      .from('financial_movements')
+      .select('competency_date, amount, direction, status')
+      .eq('company_id', companyId)
+      .eq('direction', 'out')
+      .eq('status', 'realizado')
+      .gte('competency_date', fromYmd)
+      .lt('competency_date', toYmd);
+
+    if (expErr) {
+      console.warn('[CostRepository] getDreByMonth expenses:', expErr.message);
+    }
+
+    const expensesByMonth = new Map<string, number>();
+    for (const r of expRows || []) {
+      const ymd = String((r as any).competency_date || '').split('T')[0];
+      const m = ymd.slice(0, 7);
+      expensesByMonth.set(m, (expensesByMonth.get(m) ?? 0) + (Number((r as any).amount) || 0));
+    }
+
+    const base = (dreRows || []).map((r: any) => {
+      const month = String(r.month);
+      const revenue = Number(r.revenue) || 0;
+      const cogs = Number(r.cogs) || 0;
+      const grossProfit = Number(r.gross_profit) || (revenue - cogs);
+      const expenses = expensesByMonth.get(month) ?? 0;
+      const net = grossProfit - expenses;
+      return { month, revenue, cogs, expenses, grossProfit, net };
+    });
+
+    // Se não houver linha na view (ex.: mês sem receita), ainda pode ter despesas. Preenche meses vazios.
+    const months: string[] = [];
+    {
+      const s = new Date(`${sm}-01T00:00:00.000Z`);
+      const e = new Date(`${em}-01T00:00:00.000Z`);
+      for (let d = new Date(s); d <= e; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) {
+        months.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+      }
+    }
+
+    const map = new Map(base.map((r) => [r.month, r]));
+    return months.map((m) => {
+      const r = map.get(m);
+      if (r) return r;
+      const expenses = expensesByMonth.get(m) ?? 0;
+      return { month: m, revenue: 0, cogs: 0, expenses, grossProfit: 0, net: -expenses };
+    });
+  }
+
   /**
    * Monta linha para insert. Colunas de grupo de parcelas só entram quando há grupo —
    * assim o insert funciona mesmo sem migration `add_expense_group_installments.sql`.
@@ -770,211 +844,6 @@ export class CostRepository {
     }
   }
 
-  // ==================== BUDGETS ====================
-
-  static async findAllBudgets(companyId: string): Promise<Budget[]> {
-    const { data, error } = await supabase
-      .from('budgets')
-      .select('*')
-      .eq('company_id', companyId)
-      .order('start_date', { ascending: false });
-
-    if (error) throw error;
-    return data as Budget[];
-  }
-
-  static async findBudgetById(id: string): Promise<Budget | null> {
-    const { data, error } = await supabase
-      .from('budgets')
-      .select(`
-        *,
-        budget_items(
-          *,
-          cost_centers(name, code),
-          expense_types(name, category)
-        )
-      `)
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
-    return data as Budget;
-  }
-
-  static async createBudget(budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>): Promise<Budget> {
-    const { data, error } = await supabase
-      .from('budgets')
-      .insert({
-        company_id: budget.companyId,
-        name: budget.name,
-        period_type: budget.periodType,
-        start_date: budget.startDate,
-        end_date: budget.endDate,
-        total_budget: budget.totalBudget,
-        status: budget.status,
-        notes: budget.notes,
-        created_by: budget.createdBy
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as Budget;
-  }
-
-  static async updateBudget(id: string, updates: Partial<Budget>): Promise<Budget> {
-    const { data, error } = await supabase
-      .from('budgets')
-      .update({
-        name: updates.name,
-        period_type: updates.periodType,
-        start_date: updates.startDate,
-        end_date: updates.endDate,
-        total_budget: updates.totalBudget,
-        status: updates.status,
-        notes: updates.notes,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as Budget;
-  }
-
-  // ==================== BUDGET ITEMS ====================
-
-  static async findBudgetItems(budgetId: string): Promise<BudgetItem[]> {
-    const { data, error } = await supabase
-      .from('budget_items')
-      .select(`
-        *,
-        cost_centers(name, code),
-        expense_types(name, category)
-      `)
-      .eq('budget_id', budgetId)
-      .order('cost_center_id', { ascending: true });
-
-    if (error) throw error;
-    return data as BudgetItem[];
-  }
-
-  static async createBudgetItem(item: Omit<BudgetItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<BudgetItem> {
-    const { data, error } = await supabase
-      .from('budget_items')
-      .insert({
-        budget_id: item.budgetId,
-        cost_center_id: item.costCenterId,
-        expense_type_id: item.expenseTypeId,
-        allocated_amount: item.allocatedAmount,
-        spent_amount: item.spentAmount || 0,
-        notes: item.notes
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as BudgetItem;
-  }
-
-  static async updateBudgetItem(id: string, updates: Partial<BudgetItem>): Promise<BudgetItem> {
-    const { data, error } = await supabase
-      .from('budget_items')
-      .update({
-        cost_center_id: updates.costCenterId,
-        expense_type_id: updates.expenseTypeId,
-        allocated_amount: updates.allocatedAmount,
-        spent_amount: updates.spentAmount,
-        notes: updates.notes,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as BudgetItem;
-  }
-
-  static async deleteBudgetItem(id: string): Promise<void> {
-    const { error } = await supabase
-      .from('budget_items')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
-  }
-
-  // ==================== COST TARGETS ====================
-
-  static async findAllCostTargets(companyId: string, isActive?: boolean): Promise<CostTarget[]> {
-    const build = (select: string) => {
-      let q = supabase.from('cost_targets').select(select).eq('company_id', companyId);
-      if (isActive !== undefined) {
-        q = q.eq('is_active', isActive);
-      }
-      return q.order('created_at', { ascending: false });
-    };
-
-    const withCenters = await build(`
-      *,
-      cost_centers(name, code)
-    `);
-
-    if (!withCenters.error) {
-      return withCenters.data as CostTarget[];
-    }
-
-    console.warn('[CostRepository] findAllCostTargets (com centro):', withCenters.error.message);
-
-    const plain = await build('*');
-    if (plain.error) throw plain.error;
-    return plain.data as CostTarget[];
-  }
-
-  static async createCostTarget(target: Omit<CostTarget, 'id' | 'createdAt' | 'updatedAt'>): Promise<CostTarget> {
-    const { data, error } = await supabase
-      .from('cost_targets')
-      .insert({
-        company_id: target.companyId,
-        target_type: target.targetType,
-        cost_center_id: target.costCenterId,
-        product_id: target.productId,
-        target_value: target.targetValue,
-        current_value: target.currentValue || 0,
-        period_type: target.periodType,
-        start_date: target.startDate,
-        end_date: target.endDate,
-        alert_threshold: target.alertThreshold,
-        is_active: target.isActive ?? true
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as CostTarget;
-  }
-
-  static async updateCostTarget(id: string, updates: Partial<CostTarget>): Promise<CostTarget> {
-    const { data, error } = await supabase
-      .from('cost_targets')
-      .update({
-        target_value: updates.targetValue,
-        current_value: updates.currentValue,
-        end_date: updates.endDate,
-        alert_threshold: updates.alertThreshold,
-        is_active: updates.isActive,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as CostTarget;
-  }
-
   // ==================== ANALYTICS ====================
 
   static async getCostCenterSummary(companyId: string): Promise<any[]> {
@@ -985,19 +854,6 @@ export class CostRepository {
 
     if (error) throw error;
     return data;
-  }
-
-  static async getBudgetAnalysis(companyId: string): Promise<any[]> {
-    const { data, error } = await supabase
-      .from('v_budget_analysis')
-      .select('*')
-      .eq('company_id', companyId);
-
-    if (error) {
-      console.warn('[CostRepository] getBudgetAnalysis (view opcional):', error.message);
-      return [];
-    }
-    return data ?? [];
   }
 
   static async getProductCostAnalysis(companyId: string): Promise<any[]> {

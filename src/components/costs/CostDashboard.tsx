@@ -9,11 +9,8 @@ import {
   TrendingDown, 
   AlertTriangle,
   PieChart,
-  BarChart3,
   FileText,
-  Target,
   Settings,
-  BadgePercent,
   Package,
   Warehouse
 } from 'lucide-react';
@@ -23,8 +20,8 @@ import { CostRepository } from '../../repositories/CostRepository';
 import { CostCenterManagement } from './CostCenterManagement';
 import { ExpenseManagement } from './ExpenseManagement';
 import { CostAnalytics } from './CostAnalytics';
-import { CostTargets } from './CostTargets';
 import { FinancialDashboard } from './FinancialDashboard';
+import { DreDashboard } from './DreDashboard';
 import { toast } from 'sonner@2.0.3';
 
 interface DashboardMetrics {
@@ -360,7 +357,7 @@ export function CostDashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1 h-auto">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1 h-auto">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <PieChart className="w-4 h-4" />
             <span className="hidden md:inline">Visão Geral</span>
@@ -369,9 +366,13 @@ export function CostDashboard() {
             <DollarSign className="w-4 h-4" />
             <span className="hidden md:inline">Financeiro</span>
           </TabsTrigger>
+          <TabsTrigger value="dre" className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" />
+            <span className="hidden md:inline">DRE</span>
+          </TabsTrigger>
           <TabsTrigger value="expenses" className="flex items-center gap-2">
             <FileText className="w-4 h-4" />
-            <span className="hidden md:inline">Despesas</span>
+            <span className="hidden md:inline">Despesas / Contas a pagar</span>
           </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
@@ -385,6 +386,10 @@ export function CostDashboard() {
 
         <TabsContent value="finance">
           <FinancialDashboard />
+        </TabsContent>
+
+        <TabsContent value="dre">
+          <DreDashboard />
         </TabsContent>
 
         <TabsContent value="expenses">
