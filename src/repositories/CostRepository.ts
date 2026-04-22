@@ -426,18 +426,41 @@ export class CostRepository {
       throw new Error('Intervalo inválido. Use YYYY-MM-DD (início <= fim).');
     }
 
-    const openingBalance = await this.getRealizedBalanceUntil(companyId, start);
+    const ymdPrev = (ymd: string) => {
+      const d = new Date(`${ymd}T00:00:00.000Z`);
+      const p = new Date(d.getTime() - 86400000);
+      return p.toISOString().slice(0, 10);
+    };
 
-    const { data, error } = await supabase
-      .from('financial_movements')
-      .select('direction, status, amount, due_date, cash_date')
-      .eq('company_id', companyId)
-      .or(`cash_date.gte.${start},due_date.gte.${start}`)
-      .or(`cash_date.lte.${end},due_date.lte.${end}`);
+    // Saldo de abertura = realizado até o dia anterior ao início do range
+    const openingBalance = await this.getRealizedBalanceUntil(companyId, ymdPrev(start));
 
-    if (error) {
-      console.warn('[CostRepository] getCashFlowProjection:', error.message);
-      return [];
+    // PostgREST OR com múltiplas colunas costuma ser fonte de "range vazio".
+    // Fazemos queries separadas: realizado por cash_date e previsto por due_date.
+    const [{ data: realizedRows, error: realizedErr }, { data: expectedRows, error: expectedErr }] =
+      await Promise.all([
+        supabase
+          .from('financial_movements')
+          .select('direction, amount, cash_date')
+          .eq('company_id', companyId)
+          .eq('status', 'realizado')
+          .gte('cash_date', start)
+          .lte('cash_date', end),
+        supabase
+          .from('financial_movements')
+          .select('direction, amount, due_date')
+          .eq('company_id', companyId)
+          .eq('status', 'previsto')
+          .eq('direction', 'out')
+          .gte('due_date', start)
+          .lte('due_date', end),
+      ]);
+
+    if (realizedErr) {
+      console.warn('[CostRepository] getCashFlowProjection realized:', realizedErr.message);
+    }
+    if (expectedErr) {
+      console.warn('[CostRepository] getCashFlowProjection expected:', expectedErr.message);
     }
 
     const days: string[] = [];
@@ -456,21 +479,22 @@ export class CostRepository {
       ])
     );
 
-    for (const r of data || []) {
-      const amt = Number(r.amount) || 0;
-      const st = String(r.status || '');
-      const dir = String(r.direction || '');
-      const cash = r.cash_date ? String(r.cash_date).split('T')[0] : '';
-      const due = r.due_date ? String(r.due_date).split('T')[0] : '';
+    for (const r of realizedRows || []) {
+      const amt = Number((r as any).amount) || 0;
+      const dir = String((r as any).direction || '');
+      const cash = (r as any).cash_date ? String((r as any).cash_date).split('T')[0] : '';
+      if (!cash || !byDay.has(cash)) continue;
+      const row = byDay.get(cash)!;
+      if (dir === 'in') row.inRealized += amt;
+      if (dir === 'out') row.outRealized += amt;
+    }
 
-      if (st === 'realizado' && cash && byDay.has(cash)) {
-        const row = byDay.get(cash)!;
-        if (dir === 'in') row.inRealized += amt;
-        if (dir === 'out') row.outRealized += amt;
-      } else if (st === 'previsto' && due && byDay.has(due)) {
-        const row = byDay.get(due)!;
-        if (dir === 'out') row.outExpected += amt;
-      }
+    for (const r of expectedRows || []) {
+      const amt = Number((r as any).amount) || 0;
+      const due = (r as any).due_date ? String((r as any).due_date).split('T')[0] : '';
+      if (!due || !byDay.has(due)) continue;
+      const row = byDay.get(due)!;
+      row.outExpected += amt;
     }
 
     let running = openingBalance;
