@@ -75,6 +75,7 @@ const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
   { value: 'money', label: 'Dinheiro' },
   { value: 'debit', label: 'Cartão de débito' },
   { value: 'credit', label: 'Cartão de crédito' },
+  { value: 'fiado', label: 'Fiado (a receber)' },
   { value: 'bank_transfer', label: 'Transferência bancária' },
   { value: 'boleto', label: 'Boleto' }
 ];
@@ -141,6 +142,20 @@ function csvEscape(cell: string): string {
   const s = String(cell ?? '');
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
+}
+
+function parseMoneyPtBr(input: string): number {
+  const s0 = String(input ?? '').trim();
+  if (!s0) return NaN;
+  // Remove tudo que não seja dígito, separador decimal/milhar ou sinal
+  const s = s0.replace(/[^\d,.-]/g, '');
+  // Se tem vírgula, tratamos como decimal pt-BR e removemos pontos de milhar
+  if (s.includes(',')) {
+    const normalized = s.replace(/\./g, '').replace(',', '.');
+    return parseFloat(normalized);
+  }
+  // Sem vírgula: aceitar "5000.00" e também "5,000.00" (remove vírgulas)
+  return parseFloat(s.replace(/,/g, ''));
 }
 
 function buildExpenseReportCsvRows(expenses: any[]): string {
@@ -695,8 +710,7 @@ export function ExpenseManagement({
 
   const submitPartialPayment = async () => {
     if (!paymentDialogExpense) return;
-    const raw = paymentPartialAmount.replace(/\s/g, '').replace(',', '.');
-    const val = parseFloat(raw);
+    const val = parseMoneyPtBr(paymentPartialAmount);
     if (!Number.isFinite(val) || val <= 0) {
       toast.error('Informe um valor válido maior que zero.');
       return;

@@ -53,6 +53,7 @@ export function FinancialDashboard() {
 
   const next7Out = rows.slice(0, 7).reduce((s, r) => s + (r.outExpected || 0), 0);
   const next7In = rows.slice(0, 7).reduce((s, r) => s + (r.inRealized || 0), 0);
+  const next7InExpected = rows.slice(0, 7).reduce((s, r) => s + ((r as any).inExpected || 0), 0);
   const totalOut30 = rows.reduce((s, r) => s + (r.outExpected || 0) + (r.outRealized || 0), 0);
 
   const chartData = rows.map((r) => ({
@@ -126,6 +127,13 @@ export function FinancialDashboard() {
               </p>
               <p className="text-xs text-gray-500 mt-2">Somente lançamentos com status “realizado”.</p>
             </Card>
+            <Card className="p-6">
+              <p className="text-sm text-gray-500">A receber (fiado, 7 dias)</p>
+              <p className="text-2xl font-bold text-slate-700 mt-1">
+                {formatCurrency(next7InExpected)}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">Previsto por vencimento (vendas no fiado).</p>
+            </Card>
           </div>
 
           <Card className="p-6">
@@ -165,7 +173,7 @@ export function FinancialDashboard() {
               </ResponsiveContainer>
             ) : (
               <p className="text-center text-gray-500 py-10">
-                Sem dados. Confirme se o script `scripts/finance_ledger.sql` já foi executado no Supabase.
+                Sem dados. Se o ledger financeiro ainda não estiver configurado, o dashboard usa fallback por vendas e despesas pagas.
               </p>
             )}
           </Card>

@@ -28,7 +28,7 @@ export interface ExpenseType {
 }
 
 export type PaymentStatus = 'pending' | 'paid' | 'overdue' | 'cancelled';
-export type PaymentMethod = 'money' | 'pix' | 'credit' | 'debit' | 'bank_transfer' | 'boleto';
+export type PaymentMethod = 'money' | 'pix' | 'credit' | 'debit' | 'bank_transfer' | 'boleto' | 'fiado';
 
 /** Condição comercial: à vista, prazo (faturado) ou parcelado. */
 export type PaymentTermsType = 'avista' | 'faturado' | 'parcelado';

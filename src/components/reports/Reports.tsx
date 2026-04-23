@@ -346,7 +346,18 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
             'Cliente': s.customerName || 'N/A',
             'Total': s.total.toFixed(2),
             'Desconto': s.discount.toFixed(2),
-            'Pagamento': s.paymentMethod === 'money' ? 'Dinheiro' : s.paymentMethod === 'pix' ? 'PIX' : s.paymentMethod === 'credit' ? 'Crédito' : 'Débito',
+            'Pagamento':
+              s.paymentMethod === 'money'
+                ? 'Dinheiro'
+                : s.paymentMethod === 'pix'
+                  ? 'PIX'
+                  : s.paymentMethod === 'credit'
+                    ? 'Crédito'
+                    : s.paymentMethod === 'debit'
+                      ? 'Débito'
+                      : s.paymentMethod === 'fiado'
+                        ? 'Fiado'
+                        : String(s.paymentMethod || ''),
             'Operador': s.cashierName,
             'Itens': s.items?.length || 0
           }));
@@ -1872,11 +1883,15 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
                               sale.paymentMethod === 'money' ? 'bg-green-100 text-green-800' :
                               sale.paymentMethod === 'pix' ? 'bg-blue-100 text-blue-800' :
                               sale.paymentMethod === 'credit' ? 'bg-purple-100 text-purple-800' :
+                              sale.paymentMethod === 'debit' ? 'bg-orange-100 text-orange-800' :
+                              sale.paymentMethod === 'fiado' ? 'bg-slate-100 text-slate-800' :
                               'bg-gray-100 text-gray-800'
                             }`}>
                               {sale.paymentMethod === 'money' ? 'Dinheiro' :
                                sale.paymentMethod === 'pix' ? 'PIX' :
-                               sale.paymentMethod === 'credit' ? 'Crédito' : 'Débito'}
+                               sale.paymentMethod === 'credit' ? 'Crédito' :
+                               sale.paymentMethod === 'debit' ? 'Débito' :
+                               sale.paymentMethod === 'fiado' ? 'Fiado' : sale.paymentMethod}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm">

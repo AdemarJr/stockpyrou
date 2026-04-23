@@ -54,8 +54,14 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
   // Payment state
-  const [paymentMethod, setPaymentMethod] = useState<'money' | 'pix' | 'credit' | 'debit'>('money');
+  const [paymentMethod, setPaymentMethod] = useState<'money' | 'pix' | 'credit' | 'debit' | 'fiado'>('money');
   const [cashReceived, setCashReceived] = useState('');
+  const [fiadoDueDate, setFiadoDueDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [fiadoCustomerName, setFiadoCustomerName] = useState('');
 
   useEffect(() => {
     loadProducts();
@@ -311,6 +317,10 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         return;
       }
     }
+    if (paymentMethod === 'fiado' && fiadoDueDate.trim() === '') {
+      toast.error('Informe a data de vencimento do fiado');
+      return;
+    }
 
     setIsProcessing(true);
 
@@ -340,10 +350,18 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         })),
         total: calculateTotal(),
         paymentMethod,
-        paymentDetails: paymentMethod === 'money' ? {
-          cashReceived: parseFloat(cashReceived),
-          change: calculateChange(),
-        } : {},
+        paymentDetails:
+          paymentMethod === 'money'
+            ? {
+                cashReceived: parseFloat(cashReceived),
+                change: calculateChange(),
+              }
+            : paymentMethod === 'fiado'
+              ? {
+                  dueDate: fiadoDueDate.trim(),
+                  customerName: fiadoCustomerName.trim() || undefined,
+                }
+              : {},
       };
       
       console.log('📤 Sending sale to server:', salePayload);
@@ -457,6 +475,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       setShowPayment(false);
       setCashReceived('');
       setPaymentMethod('money');
+      setFiadoCustomerName('');
       
       // Reload products
       console.log('🔄 Reloading products...');
@@ -580,6 +599,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                     { value: 'pix', label: 'PIX', icon: Smartphone, color: 'blue' },
                     { value: 'credit', label: 'Crédito', icon: CreditCard, color: 'purple' },
                     { value: 'debit', label: 'Débito', icon: CreditCard, color: 'orange' },
+                    { value: 'fiado', label: 'Fiado', icon: Receipt, color: 'slate' },
                   ].map((method) => {
                     const Icon = method.icon;
                     const isSelected = paymentMethod === method.value;
@@ -658,6 +678,38 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 </div>
               )}
 
+              {paymentMethod === 'fiado' && (
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
+                    Fiado (a receber)
+                  </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-gray-500 uppercase">Cliente (opcional)</label>
+                      <input
+                        type="text"
+                        value={fiadoCustomerName}
+                        onChange={(e) => setFiadoCustomerName(e.target.value)}
+                        placeholder="Nome do cliente"
+                        className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-gray-500 uppercase">Vencimento</label>
+                      <input
+                        type="date"
+                        value={fiadoDueDate}
+                        onChange={(e) => setFiadoDueDate(e.target.value)}
+                        className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Venda será registrada como <strong>a receber</strong> (não entra no caixa agora).
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-3 pt-4">
                 <button
@@ -669,7 +721,11 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 </button>
                 <button
                   onClick={handleCompleteSale}
-                  disabled={isProcessing || (paymentMethod === 'money' && getChange() < 0)}
+                  disabled={
+                    isProcessing ||
+                    (paymentMethod === 'money' && getChange() < 0) ||
+                    (paymentMethod === 'fiado' && !fiadoDueDate.trim())
+                  }
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {isProcessing ? (

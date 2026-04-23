@@ -27,6 +27,8 @@ import { toast } from 'sonner@2.0.3';
 interface DashboardMetrics {
   /** Receita do mês (PDV) */
   monthlyRevenue: number;
+  /** Fiado do mês (a receber) */
+  monthlyFiadoReceivable: number;
   /** Custo das vendas do mês (COGS, via stock_movements type=venda) */
   monthlyCogs: number;
   /** Lucro estimado do mês = receita - COGS - despesas do mês (por vencimento) */
@@ -54,6 +56,7 @@ export function CostDashboard() {
   });
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     monthlyRevenue: 0,
+    monthlyFiadoReceivable: 0,
     monthlyCogs: 0,
     monthlyProfit: 0,
     monthlyExpensesDue: 0,
@@ -124,11 +127,13 @@ export function CostDashboard() {
         .reduce((sum: number, e: any) => sum + remainingFromExpenseRow(e), 0);
 
       const monthlyRevenue = fin.revenue || 0;
+      const monthlyFiadoReceivable = (fin as any).fiadoReceivable || 0;
       const monthlyCogs = fin.cogs || 0;
       const monthlyProfit = monthlyRevenue - monthlyCogs - monthlyExpensesDue;
 
       setMetrics({
         monthlyRevenue,
+        monthlyFiadoReceivable,
         monthlyCogs,
         monthlyProfit,
         monthlyExpensesDue,
@@ -206,7 +211,7 @@ export function CostDashboard() {
 
       {/* Metrics Cards */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <Card className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -259,6 +264,20 @@ export function CostDashboard() {
               </div>
               <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
                 <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400" />
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Fiado (a receber, mês)</p>
+                <p className="text-2xl font-bold text-slate-700 dark:text-slate-200 mt-1">
+                  {formatCurrency(metrics.monthlyFiadoReceivable)}
+                </p>
+              </div>
+              <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                <FileText className="w-6 h-6 text-slate-700 dark:text-slate-300" />
               </div>
             </div>
           </Card>

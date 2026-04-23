@@ -313,6 +313,7 @@ export class CostRepository {
     month: string;
     revenue: number;
     cogs: number;
+    fiadoReceivable: number;
   }> {
     const m = month.trim();
     if (!/^\d{4}-\d{2}$/.test(m)) {
@@ -328,16 +329,23 @@ export class CostRepository {
     // Receita: tabela sales
     const { data: salesRows, error: salesErr } = await supabase
       .from('sales')
-      .select('total')
+      .select('total, payment_method')
       .eq('company_id', companyId)
       .gte('timestamp', startIso)
       .lt('timestamp', endIso);
 
     if (salesErr) throw salesErr;
-    const revenue = (salesRows || []).reduce(
-      (sum, r: any) => sum + (parseFloat(String(r.total ?? 0)) || 0),
-      0
-    );
+    const revenue = (salesRows || []).reduce((sum, r: any) => {
+      const method = String(r.payment_method || '');
+      if (method === 'fiado') return sum;
+      return sum + (parseFloat(String(r.total ?? 0)) || 0);
+    }, 0);
+
+    const fiadoReceivable = (salesRows || []).reduce((sum, r: any) => {
+      const method = String(r.payment_method || '');
+      if (method !== 'fiado') return sum;
+      return sum + (parseFloat(String(r.total ?? 0)) || 0);
+    }, 0);
 
     // COGS: baixa de estoque gerada por vendas (stock_movements com type='venda')
     const { data: movRows, error: movErr } = await supabase
@@ -365,7 +373,8 @@ export class CostRepository {
     return {
       month: m,
       revenue,
-      cogs
+      cogs,
+      fiadoReceivable
     };
   }
 
@@ -382,22 +391,60 @@ export class CostRepository {
       throw new Error('Data inválida. Use o formato YYYY-MM-DD.');
     }
 
-    const { data, error } = await supabase
-      .from('financial_movements')
-      .select('direction, amount, cash_date, status')
-      .eq('company_id', companyId)
-      .eq('status', 'realizado')
-      .lte('cash_date', ymd);
+    // 1) Tenta ledger (`financial_movements`) se estiver disponível no projeto.
+    try {
+      const { data, error } = await supabase
+        .from('financial_movements')
+        .select('direction, amount, cash_date, status')
+        .eq('company_id', companyId)
+        .eq('status', 'realizado')
+        .lte('cash_date', ymd);
 
-    if (error) {
-      console.warn('[CostRepository] getRealizedBalanceUntil:', error.message);
-      return 0;
+      if (!error) {
+        return (data || []).reduce((sum: number, r: any) => {
+          const amt = Number(r.amount) || 0;
+          return sum + (r.direction === 'in' ? amt : -amt);
+        }, 0);
+      }
+      console.warn('[CostRepository] getRealizedBalanceUntil (ledger unavailable):', error.message);
+    } catch (e: any) {
+      console.warn('[CostRepository] getRealizedBalanceUntil (ledger exception):', e?.message || e);
     }
 
-    return (data || []).reduce((sum: number, r: any) => {
-      const amt = Number(r.amount) || 0;
-      return sum + (r.direction === 'in' ? amt : -amt);
+    // 2) Fallback: calcula por `sales` (entradas) e `operational_expenses` (saídas pagas).
+    const startIso = '1970-01-01T00:00:00.000Z';
+    const endIso = new Date(`${ymd}T23:59:59.999Z`).toISOString();
+
+    const [{ data: salesRows }, { data: expRows }] = await Promise.all([
+      supabase
+        .from('sales')
+        .select('total, payment_method, timestamp')
+        .eq('company_id', companyId)
+        .gte('timestamp', startIso)
+        .lte('timestamp', endIso),
+      supabase
+        .from('operational_expenses')
+        .select('amount, paid_amount, payment_status, payment_date')
+        .eq('company_id', companyId)
+        .eq('payment_status', 'paid')
+        .lte('payment_date', ymd),
+    ]);
+
+    const totalIn = (salesRows || []).reduce((s: number, r: any) => {
+      const method = String(r.payment_method || '');
+      if (method === 'fiado') return s;
+      const amt = Number(r.total) || 0;
+      return s + amt;
     }, 0);
+
+    const totalOut = (expRows || []).reduce((s: number, r: any) => {
+      const paid = Number(r.paid_amount);
+      const amt = Number(r.amount);
+      const use = Number.isFinite(paid) && paid > 0 ? paid : Number.isFinite(amt) ? amt : 0;
+      return s + use;
+    }, 0);
+
+    return totalIn - totalOut;
   }
 
   /**
@@ -411,6 +458,7 @@ export class CostRepository {
     Array<{
       date: string;
       inRealized: number;
+      inExpected: number;
       outRealized: number;
       outExpected: number;
       net: number;
@@ -432,10 +480,13 @@ export class CostRepository {
     // Saldo de abertura = realizado até o dia anterior ao início do range
     const openingBalance = await this.getRealizedBalanceUntil(companyId, ymdPrev(start));
 
-    // PostgREST OR com múltiplas colunas costuma ser fonte de "range vazio".
-    // Fazemos queries separadas: realizado por cash_date e previsto por due_date.
-    const [{ data: realizedRows, error: realizedErr }, { data: expectedRows, error: expectedErr }] =
-      await Promise.all([
+    // Primeiro tentamos usar o ledger, mas caímos para dados nativos (`sales` e `operational_expenses`)
+    // quando o schema ainda não tem `financial_movements` ou quando há RLS/erros de view.
+    let realizedRows: any[] = [];
+    let expectedOutRows: any[] = [];
+    let usedLedger = false;
+    try {
+      const [{ data: r, error: re }, { data: e, error: ee }] = await Promise.all([
         supabase
           .from('financial_movements')
           .select('direction, amount, cash_date')
@@ -452,12 +503,51 @@ export class CostRepository {
           .gte('due_date', start)
           .lte('due_date', end),
       ]);
-
-    if (realizedErr) {
-      console.warn('[CostRepository] getCashFlowProjection realized:', realizedErr.message);
+      if (!re && !ee) {
+        realizedRows = r || [];
+        expectedOutRows = e || [];
+        usedLedger = true;
+      } else {
+        if (re) console.warn('[CostRepository] getCashFlowProjection realized (ledger):', re.message);
+        if (ee) console.warn('[CostRepository] getCashFlowProjection expected (ledger):', ee.message);
+      }
+    } catch (e: any) {
+      console.warn('[CostRepository] getCashFlowProjection (ledger exception):', e?.message || e);
     }
-    if (expectedErr) {
-      console.warn('[CostRepository] getCashFlowProjection expected:', expectedErr.message);
+
+    let realizedInSales: any[] = [];
+    let realizedOutExpenses: any[] = [];
+    let expectedOutExpenses: any[] = [];
+    if (!usedLedger) {
+      const startIso = new Date(`${start}T00:00:00.000Z`).toISOString();
+      const endIso = new Date(`${end}T23:59:59.999Z`).toISOString();
+
+      const [{ data: sales }, { data: paidExp }, { data: openExp }] = await Promise.all([
+        supabase
+          .from('sales')
+          .select('total, payment_method, timestamp')
+          .eq('company_id', companyId)
+          .gte('timestamp', startIso)
+          .lte('timestamp', endIso),
+        supabase
+          .from('operational_expenses')
+          .select('amount, paid_amount, payment_date, payment_status')
+          .eq('company_id', companyId)
+          .gte('payment_date', start)
+          .lte('payment_date', end)
+          .neq('payment_status', 'cancelled'),
+        supabase
+          .from('operational_expenses')
+          .select('amount, paid_amount, due_date, payment_status')
+          .eq('company_id', companyId)
+          .gte('due_date', start)
+          .lte('due_date', end)
+          .in('payment_status', ['pending', 'overdue']),
+      ]);
+
+      realizedInSales = sales || [];
+      realizedOutExpenses = paidExp || [];
+      expectedOutExpenses = openExp || [];
     }
 
     const days: string[] = [];
@@ -472,32 +562,87 @@ export class CostRepository {
     const byDay = new Map(
       days.map((d) => [
         d,
-        { date: d, inRealized: 0, outRealized: 0, outExpected: 0, net: 0, projectedBalance: 0 },
+        {
+          date: d,
+          inRealized: 0,
+          inExpected: 0,
+          outRealized: 0,
+          outExpected: 0,
+          net: 0,
+          projectedBalance: 0
+        },
       ])
     );
 
-    for (const r of realizedRows || []) {
-      const amt = Number((r as any).amount) || 0;
-      const dir = String((r as any).direction || '');
-      const cash = (r as any).cash_date ? String((r as any).cash_date).split('T')[0] : '';
-      if (!cash || !byDay.has(cash)) continue;
-      const row = byDay.get(cash)!;
-      if (dir === 'in') row.inRealized += amt;
-      if (dir === 'out') row.outRealized += amt;
-    }
+    if (usedLedger) {
+      for (const r of realizedRows || []) {
+        const amt = Number((r as any).amount) || 0;
+        const dir = String((r as any).direction || '');
+        const cash = (r as any).cash_date ? String((r as any).cash_date).split('T')[0] : '';
+        if (!cash || !byDay.has(cash)) continue;
+        const row = byDay.get(cash)!;
+        if (dir === 'in') row.inRealized += amt;
+        if (dir === 'out') row.outRealized += amt;
+      }
 
-    for (const r of expectedRows || []) {
-      const amt = Number((r as any).amount) || 0;
-      const due = (r as any).due_date ? String((r as any).due_date).split('T')[0] : '';
-      if (!due || !byDay.has(due)) continue;
-      const row = byDay.get(due)!;
-      row.outExpected += amt;
+      for (const r of expectedOutRows || []) {
+        const amt = Number((r as any).amount) || 0;
+        const due = (r as any).due_date ? String((r as any).due_date).split('T')[0] : '';
+        if (!due || !byDay.has(due)) continue;
+        const row = byDay.get(due)!;
+        row.outExpected += amt;
+      }
+    } else {
+      for (const s of realizedInSales || []) {
+        const method = String((s as any).payment_method || '');
+        if (method === 'fiado') continue;
+        const ts = (s as any).timestamp ? String((s as any).timestamp).split('T')[0] : '';
+        if (!ts || !byDay.has(ts)) continue;
+        byDay.get(ts)!.inRealized += Number((s as any).total) || 0;
+      }
+
+      // Fiado (a receber): entra como "previsto" no vencimento.
+      for (const s of realizedInSales || []) {
+        const method = String((s as any).payment_method || '');
+        if (method !== 'fiado') continue;
+        const tsRaw = (s as any).timestamp ? String((s as any).timestamp).split('T')[0] : '';
+        if (!tsRaw) continue;
+        const details = (s as any).payment_details as any;
+        const due = (details?.dueDate && typeof details.dueDate === 'string' ? details.dueDate : '') || '';
+        const ymdDue = /^\d{4}-\d{2}-\d{2}$/.test(due)
+          ? due
+          : (() => {
+              const d = new Date(`${tsRaw}T00:00:00.000Z`);
+              d.setUTCDate(d.getUTCDate() + 30);
+              return d.toISOString().slice(0, 10);
+            })();
+        if (!byDay.has(ymdDue)) continue;
+        byDay.get(ymdDue)!.inExpected += Number((s as any).total) || 0;
+      }
+
+      for (const e of realizedOutExpenses || []) {
+        const ymdPay = (e as any).payment_date ? String((e as any).payment_date).split('T')[0] : '';
+        if (!ymdPay || !byDay.has(ymdPay)) continue;
+        const paid = Number((e as any).paid_amount);
+        const amt = Number((e as any).amount);
+        const use = Number.isFinite(paid) && paid > 0 ? paid : Number.isFinite(amt) ? amt : 0;
+        byDay.get(ymdPay)!.outRealized += use;
+      }
+
+      for (const e of expectedOutExpenses || []) {
+        const due = (e as any).due_date ? String((e as any).due_date).split('T')[0] : '';
+        if (!due || !byDay.has(due)) continue;
+        const amt = Number((e as any).amount) || 0;
+        const paid = Number((e as any).paid_amount) || 0;
+        const remaining = Math.max(0, Math.round((amt - paid) * 100) / 100);
+        byDay.get(due)!.outExpected += remaining;
+      }
     }
 
     let running = openingBalance;
     for (const d of days) {
       const row = byDay.get(d)!;
-      row.net = row.inRealized - row.outRealized - row.outExpected;
+      row.net = row.inRealized + row.inExpected - row.outRealized - row.outExpected;
       running += row.net;
       row.projectedBalance = running;
     }
@@ -533,24 +678,54 @@ export class CostRepository {
       console.warn('[CostRepository] getDreByMonth v_gross_profit_month:', dreErr.message);
     }
 
-    const { data: expRows, error: expErr } = await supabase
-      .from('financial_movements')
-      .select('competency_date, amount, direction, status')
-      .eq('company_id', companyId)
-      .eq('direction', 'out')
-      .eq('status', 'realizado')
-      .gte('competency_date', fromYmd)
-      .lt('competency_date', toYmd);
+    // Despesas: preferir `financial_movements` (quando houver), mas cair para `operational_expenses` (pago).
+    const expensesByMonth = new Map<string, number>();
+    let gotFromLedger = false;
+    try {
+      const { data: expRows, error: expErr } = await supabase
+        .from('financial_movements')
+        .select('competency_date, amount, direction, status')
+        .eq('company_id', companyId)
+        .eq('direction', 'out')
+        .eq('status', 'realizado')
+        .gte('competency_date', fromYmd)
+        .lt('competency_date', toYmd);
 
-    if (expErr) {
-      console.warn('[CostRepository] getDreByMonth expenses:', expErr.message);
+      if (!expErr) {
+        gotFromLedger = true;
+        for (const r of expRows || []) {
+          const ymd = String((r as any).competency_date || '').split('T')[0];
+          const m = ymd.slice(0, 7);
+          expensesByMonth.set(m, (expensesByMonth.get(m) ?? 0) + (Number((r as any).amount) || 0));
+        }
+      } else {
+        console.warn('[CostRepository] getDreByMonth expenses (ledger):', expErr.message);
+      }
+    } catch (e: any) {
+      console.warn('[CostRepository] getDreByMonth expenses (ledger exception):', e?.message || e);
     }
 
-    const expensesByMonth = new Map<string, number>();
-    for (const r of expRows || []) {
-      const ymd = String((r as any).competency_date || '').split('T')[0];
-      const m = ymd.slice(0, 7);
-      expensesByMonth.set(m, (expensesByMonth.get(m) ?? 0) + (Number((r as any).amount) || 0));
+    if (!gotFromLedger) {
+      const { data: expRows, error } = await supabase
+        .from('operational_expenses')
+        .select('amount, paid_amount, payment_status, payment_date')
+        .eq('company_id', companyId)
+        .eq('payment_status', 'paid')
+        .gte('payment_date', fromYmd)
+        .lt('payment_date', toYmd);
+
+      if (error) {
+        console.warn('[CostRepository] getDreByMonth expenses (operational_expenses):', error.message);
+      }
+
+      for (const r of expRows || []) {
+        const ymd = String((r as any).payment_date || '').split('T')[0];
+        const m = ymd.slice(0, 7);
+        const paid = Number((r as any).paid_amount);
+        const amt = Number((r as any).amount);
+        const use = Number.isFinite(paid) && paid > 0 ? paid : Number.isFinite(amt) ? amt : 0;
+        expensesByMonth.set(m, (expensesByMonth.get(m) ?? 0) + use);
+      }
     }
 
     const base = (dreRows || []).map((r: any) => {
