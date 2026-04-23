@@ -51,6 +51,32 @@ export function OutputsTab({
   const [kindFilter, setKindFilter] = useState<OutputKindFilter>('all');
   const [listSearch, setListSearch] = useState('');
 
+  function movementSourceLabel(m: StockMovement): string {
+    const text = `${m.reason || ''} ${m.notes || ''}`.toLowerCase();
+
+    // Integração ZIG
+    if (text.includes('integração automática zig') || text.includes('integracao automatica zig') || text.includes('venda zig')) {
+      return 'Integração (ZIG)';
+    }
+
+    // PDV/Caixa
+    if (text.includes('venda pdv (caixa)') || text.includes('pdv (caixa)')) {
+      return 'PDV (Caixa)';
+    }
+
+    // Venda manual (PDV manual / checkout manual)
+    if (text.includes('venda manual') || text.includes('venda pdv (manual)')) {
+      return 'PDV (Manual)';
+    }
+
+    // Baixa manual / ajustes de estoque
+    if (m.type === 'saida' || m.type === 'desperdicio' || m.type === 'ajuste') {
+      return 'Baixa manual';
+    }
+
+    return 'Sistema';
+  }
+
   const baseOutputs = useMemo(
     () => movements.filter(isAnyStockOutput),
     [movements],
@@ -131,6 +157,15 @@ export function OutputsTab({
           </span>
         );
       },
+    },
+    {
+      key: 'source',
+      label: 'Origem',
+      render: (_value: unknown, row: StockMovement) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {movementSourceLabel(row)}
+        </span>
+      ),
     },
     {
       key: 'productId',

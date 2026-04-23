@@ -14,3 +14,10 @@ supabase/functions/make-server-8a20b27d/zig_service.tsx
 supabase/functions/make-server-8a20b27d/costs.tsx
 docs/MANUAL_COLABORADOR_CELULAR.md
 scripts/finance_backfill_2026_01_01_to_2026_04_22.sql
+scripts/add_operational_expense_payments.sql
+src/components/costs/ExpenseManagement.tsx
+src/components/inventory/StockAdjustmentModal.tsx
+src/components/reports/OutputsTab.tsx
+src/components/sales/ZigSalesBaixa.tsx
+src/repositories/CostRepository.ts
+src/supabase/functions/server/zig_service.tsx

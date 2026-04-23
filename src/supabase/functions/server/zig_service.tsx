@@ -600,6 +600,22 @@ async function fetchZigSaidaProdutosRange(
 
 const MAX_ZIG_SAIDA_REPORT_DAYS = 93;
 
+/**
+ * Normaliza valores monetários vindos do ZIG.
+ *
+ * Alguns ambientes da ZIG retornam preços em "centavos" (ex.: 1400.00 = R$ 14,00).
+ * Heurística segura para o varejo/restaurante:
+ * - se o valor é inteiro e >= 1000, tratamos como centavos e dividimos por 100
+ * - caso contrário, assumimos que já está em BRL.
+ */
+function zigMoneyToBrl(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  const isInt = Math.abs(n - Math.round(n)) < 1e-9;
+  if (isInt && n >= 1000) return n / 100;
+  return n;
+}
+
 function movementYmdSaoPauloFromIso(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -629,7 +645,7 @@ function accumulateZigSaleForReport(
   };
 
   const mainQty = zigEffectiveCount(sale);
-  const mainVal = (Number(sale.unitValue) || 0) * mainQty;
+  const mainVal = zigMoneyToBrl(sale.unitValue) * mainQty;
   bump(1, mainQty, mainVal);
 
   if (sale.additions?.length) {
@@ -998,6 +1014,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
 
       if (product) {
         const recipe = recipesData.find(r => r.product_id === product.id);
+        const unitValue = zigMoneyToBrl(sale.unitValue);
         
         const saleData = {
           zigTransactionId: sale.transactionId,
@@ -1007,8 +1024,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           productSku: displaySku,
           productName: sale.productName,
           quantity: qtyEff,
-          unitValue: sale.unitValue,
-          totalValue: sale.unitValue * qtyEff,
+          unitValue,
+          totalValue: unitValue * qtyEff,
           systemProduct: {
             id: product.id,
             name: product.name,
@@ -1038,6 +1055,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
         salesByDate[saleDate].push(saleData);
         
       } else {
+        const unitValue = zigMoneyToBrl(sale.unitValue);
         const saleData = {
           zigTransactionId: sale.transactionId,
           transactionId: lineId,
@@ -1046,8 +1064,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           productSku: displaySku,
           productName: sale.productName,
           quantity: qtyEff,
-          unitValue: sale.unitValue,
-          totalValue: sale.unitValue * qtyEff,
+          unitValue,
+          totalValue: unitValue * qtyEff,
           systemProduct: null,
           hasRecipe: false,
           recipe: null,
@@ -1446,8 +1464,8 @@ async function recordRevenueSaleFromZigSnapshot(
 
   const items = pending.map((l) => {
     const sku = (l.productSku || "").trim();
-    const unit = Number(l.unitValue);
-    const tv = Number(l.totalValue);
+    const unit = zigMoneyToBrl(l.unitValue);
+    const tv = zigMoneyToBrl(l.totalValue);
     const qty = Number(l.quantity) || 0;
     const unitValue = Number.isFinite(unit) ? unit : (qty > 0 && Number.isFinite(tv) ? tv / qty : 0);
     const totalValue = Number.isFinite(tv) ? tv : unitValue * qty;

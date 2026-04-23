@@ -241,6 +241,9 @@ export function ExpenseManagement({
   const [paymentDialogExpense, setPaymentDialogExpense] = useState<any | null>(null);
   const [paymentPartialAmount, setPaymentPartialAmount] = useState('');
   const [paymentPartialMethod, setPaymentPartialMethod] = useState<PaymentMethod>('pix');
+  const [paymentHistory, setPaymentHistory] = useState<
+    Array<{ id: string; amount: number; payment_date: string; payment_method: string | null }>
+  >([]);
   const [stockEntriesList, setStockEntriesList] = useState<StockEntry[]>([]);
   const [productNameById, setProductNameById] = useState<Record<string, string>>({});
   /** Busca textual na lista (descrição, ref., nomes, valor) — não altera o recorte do servidor. */
@@ -706,6 +709,20 @@ export function ExpenseManagement({
     setPaymentPartialMethod(
       PAYMENT_METHOD_OPTIONS.some((o) => o.value === raw) ? (raw as PaymentMethod) : 'pix'
     );
+    setPaymentHistory([]);
+    if (currentCompany?.id && expense?.id) {
+      void (async () => {
+        const list = await CostRepository.findExpensePayments(currentCompany.id, expense.id);
+        setPaymentHistory(
+          (list || []).map((r) => ({
+            id: r.id,
+            amount: Number((r as any).amount) || 0,
+            payment_date: String((r as any).payment_date || ''),
+            payment_method: (r as any).payment_method ?? null
+          }))
+        );
+      })();
+    }
   };
 
   const submitPartialPayment = async () => {
@@ -1532,6 +1549,38 @@ export function ExpenseManagement({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Histórico de pagamentos</Label>
+                {paymentHistory.length === 0 ? (
+                  <div className="text-xs text-muted-foreground rounded-md border border-border bg-muted/30 px-3 py-2">
+                    Nenhum pagamento registrado ainda (histórico). Se você acabou de ativar este recurso, rode o script
+                    <code className="mx-1">scripts/add_operational_expense_payments.sql</code>
+                    no Supabase.
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-border overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50 border-b">
+                        <tr>
+                          <th className="text-left p-2">Data</th>
+                          <th className="text-left p-2">Forma</th>
+                          <th className="text-right p-2">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paymentHistory.map((p) => (
+                          <tr key={p.id} className="border-b last:border-0">
+                            <td className="p-2">{p.payment_date || '—'}</td>
+                            <td className="p-2">{paymentMethodLabel(p.payment_method)}</td>
+                            <td className="p-2 text-right tabular-nums">{formatCurrency(p.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}

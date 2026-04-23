@@ -943,6 +943,7 @@ export class CostRepository {
       nextStatus = 'pending';
     }
 
+    // 1) Atualiza a despesa (saldo acumulado)
     const { data, error } = await supabase
       .from('operational_expenses')
       .update({
@@ -987,7 +988,49 @@ export class CostRepository {
       }
       throw new Error(m);
     }
+
+    // 2) Registra histórico de pagamento parcial/total (se a tabela existir).
+    // Se o banco ainda não tiver a migration, não quebra o fluxo do caixa.
+    try {
+      await supabase.from('operational_expense_payments').insert({
+        company_id: row.company_id,
+        expense_id: id,
+        amount: applied,
+        payment_date: today,
+        payment_method: paymentMethod,
+        created_by: row.user_id ?? null,
+      });
+    } catch (e: any) {
+      console.warn('[CostRepository] registerExpensePayment history insert:', e?.message || e);
+    }
+
     return data as OperationalExpense;
+  }
+
+  static async findExpensePayments(companyId: string, expenseId: string): Promise<
+    Array<{
+      id: string;
+      expense_id: string;
+      amount: number;
+      payment_date: string;
+      payment_method: string | null;
+      notes: string | null;
+      created_at: string;
+    }>
+  > {
+    const { data, error } = await supabase
+      .from('operational_expense_payments')
+      .select('id, expense_id, amount, payment_date, payment_method, notes, created_at')
+      .eq('company_id', companyId)
+      .eq('expense_id', expenseId)
+      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('[CostRepository] findExpensePayments:', error.message);
+      return [];
+    }
+    return (data || []) as any[];
   }
 
   static async deleteExpense(id: string): Promise<void> {

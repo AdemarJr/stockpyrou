@@ -34,21 +34,44 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
     setFieldErrors(err);
     if (Object.keys(err).length > 0) return;
 
-    if (qtd > product.currentStock) {
+    const bundleItems =
+      Array.isArray((product as any).bundleItems) && (product as any).bundleItems.length > 0
+        ? ((product as any).bundleItems as Array<{ productId: string; quantity: number }>)
+        : [];
+    const isBundle = bundleItems.length > 0;
+
+    // Para produtos em promoção/combo, a baixa ocorre nos itens do combo (pode ficar negativo).
+    // Mantemos a validação "estoque insuficiente" apenas para produtos simples.
+    if (!isBundle && qtd > product.currentStock) {
       toast.error('Estoque insuficiente para esta baixa');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await StockService.processStockOutput(
-        currentCompany.id,
-        product.id,
-        qtd,
-        reasonDescription,
-        reasonType,
-        user.id
-      );
+      if (isBundle) {
+        for (const b of bundleItems) {
+          const q = (Number(b.quantity) || 0) * qtd;
+          if (!b.productId || !Number.isFinite(q) || q <= 0) continue;
+          await StockService.processStockOutput(
+            currentCompany.id,
+            b.productId,
+            q,
+            `${reasonDescription} (Promo/Combo: ${product.name})`,
+            reasonType,
+            user.id
+          );
+        }
+      } else {
+        await StockService.processStockOutput(
+          currentCompany.id,
+          product.id,
+          qtd,
+          reasonDescription,
+          reasonType,
+          user.id
+        );
+      }
 
       toast.success('Baixa de estoque realizada com sucesso!');
       onSuccess();

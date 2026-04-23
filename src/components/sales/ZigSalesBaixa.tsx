@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Store, AlertCircle, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { RefreshCw, Store, AlertCircle, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
@@ -834,13 +834,17 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
             
             <div className="p-6 overflow-y-auto flex-1">
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-                <input
-                  type="text"
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="Filtrar por produto, SKU ou nome no sistema..."
-                  className="w-full flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-indigo-500 focus:ring-indigo-500"
-                />
+                <div className="w-full flex-1 relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="search"
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Buscar produto / SKU / nome no sistema…"
+                    className="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm text-gray-700 focus:border-indigo-500 focus:ring-indigo-500"
+                    autoFocus
+                  />
+                </div>
                 <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none text-sm text-gray-700 whitespace-nowrap">
                   <input
                     type="checkbox"
