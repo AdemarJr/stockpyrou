@@ -909,15 +909,43 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
   );
 
   try {
-    const sales: ZigSale[] = await fetchZigSaidaProdutosRange(
+    const salesRaw: ZigSale[] = await fetchZigSaidaProdutosRange(
       token,
       config.storeId,
       startStr,
       endStr,
     );
 
-    if (!Array.isArray(sales)) {
+    if (!Array.isArray(salesRaw)) {
       return { sales: [], salesByDate: {}, totalSales: 0, totalValue: 0 };
+    }
+
+    /**
+     * A API `/erp/saida-produtos` pode trazer itens "montáveis"/adicionais dentro de `additions`.
+     * O relatório da ZIG costuma listar esses itens separadamente (aba "Montáveis").
+     * Se não expandirmos, a UI de baixa mostra menos produtos do que a ZIG reporta.
+     */
+    const sales: ZigSale[] = [];
+    for (const s of salesRaw) {
+      // Evita dupla contagem: adicionamos as linhas principais sem `additions` e expandimos os adicionais como linhas próprias.
+      sales.push({ ...s, additions: [] });
+      if (Array.isArray(s.additions) && s.additions.length > 0) {
+        for (const add of s.additions) {
+          const sku = String(add?.productSku || "").trim();
+          if (!sku) continue;
+          sales.push({
+            transactionId: s.transactionId,
+            transactionDate: s.transactionDate,
+            productId: `add:${sku}`,
+            productSku: sku,
+            unitValue: 0,
+            count: Number(add.count) || 0,
+            fractionalAmount: add.fractionalAmount ?? null,
+            productName: sku,
+            type: "addition",
+          } as ZigSale);
+        }
+      }
     }
 
     const newSales = [];
@@ -1032,6 +1060,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
             currentStock: product.current_stock,
             unit: product.unit
           },
+          isAddition: sale.type === 'addition',
           hasRecipe: !!recipe,
           matchType: productMappings[matchKey] ? 'manual' : 
                      (product.barcode === matchKey || product.sku === matchKey) ? 'sku' : 'name',
@@ -1067,6 +1096,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           unitValue,
           totalValue: unitValue * qtyEff,
           systemProduct: null,
+          isAddition: sale.type === 'addition',
           hasRecipe: false,
           recipe: null,
           notFound: true,
