@@ -1264,6 +1264,17 @@ type ExecuteDeductionOpts = {
   previewSessionIdToClear?: string;
 };
 
+function fnv1a32(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    // 32-bit FNV-1a
+    h = Math.imul(h, 0x01000193);
+  }
+  // unsigned + hex
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
 /** Baixa de estoque + KV processado; não chama a API ZIG. */
 async function executeZigStockDeductionFromGroups(
   companyId: string,
@@ -1375,6 +1386,8 @@ async function executeZigStockDeductionFromGroups(
   for (const group of groups.values()) {
     const ref = group.transactionIds.slice(0, 5).join(", ");
     const reason = `Venda ZIG (Lote) - Ref: ${ref}${group.transactionIds.length > 5 ? "..." : ""}`;
+    const stableIds = Array.from(new Set(group.transactionIds)).sort().join("|");
+    const sourceBase = `zig:${companyId}:${group.productSku}:${fnv1a32(stableIds)}`;
 
     let product: any;
     if (opts.registeredOnly) {
@@ -1389,7 +1402,7 @@ async function executeZigStockDeductionFromGroups(
       product = await ensureProduct(group.productSku, group.productName);
     }
 
-    await processStockDeduction(companyId, product, group.totalQty, recipesData, reason);
+    await processStockDeduction(companyId, product, group.totalQty, recipesData, reason, sourceBase);
 
     for (const id of Array.from(new Set(group.transactionIds))) {
       await kv.set(`${processedKeyPrefix}${id}`, true);
@@ -1513,9 +1526,7 @@ async function recordRevenueSaleFromZigSnapshot(
 
   const total = items.reduce((s, it) => s + (Number(it.total) || 0), 0);
 
-  const { data: sale, error } = await supabase
-    .from("sales")
-    .insert({
+  const insertPayload = {
       company_id: companyId,
       register_id: registerId,
       cashier_id: "zig",
@@ -1526,7 +1537,11 @@ async function recordRevenueSaleFromZigSnapshot(
       items,
       timestamp: new Date().toISOString(),
       created_at: new Date().toISOString(),
-    })
+    };
+
+  const { data: sale, error } = await supabase
+    .from("sales")
+    .insert(insertPayload)
     .select("id")
     .single();
 
@@ -1858,7 +1873,8 @@ async function processStockDeduction(
   product: any, 
   qty: number, 
   recipes: any[], 
-  refId: string
+  refId: string,
+  sourceBase: string
 ) {
   const bundleItems = parseBundleItemsFromProduct(product);
   if (bundleItems.length > 0) {
@@ -1869,6 +1885,8 @@ async function processStockDeduction(
         b.productId,
         neededQty,
         `Venda ZIG (Combo: ${product.name}) - Ref: ${refId}`,
+        `${sourceBase}:${b.productId}:combo`,
+        companyId,
       );
     }
     return;
@@ -1879,10 +1897,23 @@ async function processStockDeduction(
   if (recipe && recipe.recipe_ingredients && recipe.recipe_ingredients.length > 0) {
     for (const ing of recipe.recipe_ingredients) {
       const neededQty = (ing.quantity || ing.amount) * qty;
-      await deductStock(ing.product_id || ing.ingredient_id, neededQty, `Venda ZIG (Receita: ${product.name}) - Ref: ${refId}`);
+      const pid = ing.product_id || ing.ingredient_id;
+      await deductStock(
+        pid,
+        neededQty,
+        `Venda ZIG (Receita: ${product.name}) - Ref: ${refId}`,
+        `${sourceBase}:${pid}:recipe`,
+        companyId,
+      );
     }
   } else {
-    await deductStock(product.id, qty, `Venda ZIG - Ref: ${refId}`);
+    await deductStock(
+      product.id,
+      qty,
+      `Venda ZIG - Ref: ${refId}`,
+      `${sourceBase}:${product.id}:direct`,
+      companyId,
+    );
   }
 }
 
@@ -1905,49 +1936,25 @@ function parseBundleItemsFromProduct(product: any): Array<{ productId: string; q
   }
 }
 
-async function deductStock(productId: string, qty: number, reason: string) {
-  const { data: p, error: pError } = await supabase
-    .from('products')
-    .select('current_stock, cost_price, company_id')
-    .eq('id', productId)
-    .single();
-
-  if (pError || !p) {
-    throw new Error(
-      pError?.message || `Produto ${productId} não encontrado para baixa de estoque.`,
-    );
-  }
-
-  const newStock = (p.current_stock || 0) - qty;
-
-  const { error: updError } = await supabase
-    .from('products')
-    .update({
-      current_stock: newStock,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', productId);
-
-  if (updError) {
-    throw new Error(updError.message || 'Erro ao atualizar estoque do produto.');
-  }
-
-  const { error: movementError } = await supabase.from('stock_movements').insert({
-    company_id: p.company_id,
-    product_id: productId,
-    movement_type: 'venda',
-    quantity: qty,
-    unit_cost: p.cost_price || 0,
-    total_value: (p.cost_price || 0) * qty,
-    notes: `${reason} - Integração automática ZIG`,
-    movement_date: new Date().toISOString(),
-    type: 'venda',
+async function deductStock(
+  productId: string,
+  qty: number,
+  reason: string,
+  source: string,
+  companyId: string,
+) {
+  const { error } = await supabase.rpc("deduct_stock_once", {
+    p_company_id: companyId,
+    p_product_id: productId,
+    p_qty: qty,
+    p_source: source,
+    p_notes: `${reason} - Integração automática ZIG`,
+    p_movement_type: "venda",
+    p_movement_date: new Date().toISOString(),
   });
 
-  if (movementError) {
-    console.error('ZIG: Erro ao registrar stock movement:', movementError);
-    throw new Error(
-      movementError.message || 'Erro ao registrar movimentação de estoque (ZIG).',
-    );
+  if (error) {
+    console.error("ZIG: Erro em deduct_stock_once:", error);
+    throw new Error(error.message || "Erro ao baixar estoque (ZIG).");
   }
 }

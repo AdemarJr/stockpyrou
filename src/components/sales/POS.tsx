@@ -5,8 +5,6 @@ import type { Product } from '../../types';
 import { supabase } from '../../utils/supabase/client';
 import { useCompany } from '../../contexts/CompanyContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { ProductService } from '../../services/ProductService';
-import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
 import { SaleReceipt } from './SaleReceipt';
 import { ZigSalesBaixa } from './ZigSalesBaixa';
@@ -338,6 +336,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     const toastId = toast.loading('Processando venda e baixando estoque...');
 
     try {
+      const checkoutId = crypto.randomUUID();
       /**
        * Regra de consistência financeira (custos/receita):
        * - Receita (dashboard) vem de `sales`
@@ -384,6 +383,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         if (registerId) {
           const salePayload = {
             registerId,
+            clientRequestId: checkoutId,
             items: cart.map((item) => ({
               productId: item.type === 'product' ? item.id : undefined,
               name: item.name,
@@ -423,34 +423,38 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               const qtyToDeduct = (Number(b.quantity) || 0) * item.quantity;
               if (!b.productId || qtyToDeduct <= 0) continue;
 
-              await ProductService.updateStock(b.productId, -qtyToDeduct);
               const p2 = products.find((p) => p.id === b.productId);
-              const lineCost = (p2?.averageCost ?? 0) * qtyToDeduct;
-              await StockRepository.createMovement({
-                companyId: currentCompany.id,
-                productId: b.productId,
-                type: 'venda',
-                quantity: qtyToDeduct,
-                reason: 'Venda PDV (Manual) — combo',
-                notes: `Venda Combo: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`,
-                cost: lineCost > 0 ? lineCost : undefined,
-                userId: user?.id
+
+              const source = `sale:${saleId ?? checkoutId}:${b.productId}:combo`;
+              const notes = `Venda Combo: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
+              const { data: applied, error: dedErr } = await supabase.rpc('deduct_stock_once', {
+                p_company_id: currentCompany.id,
+                p_product_id: b.productId,
+                p_qty: qtyToDeduct,
+                p_source: source,
+                p_notes: notes,
+                p_movement_type: 'venda',
+                p_movement_date: new Date().toISOString(),
               });
+              if (dedErr) throw dedErr;
+              // `applied` pode ser false se já foi baixado (idempotente)
+              void applied;
             }
           } else {
             // Venda direta de produto
-            await ProductService.updateStock(item.id, -item.quantity);
-            const lineCost = (product?.averageCost ?? 0) * item.quantity;
-            await StockRepository.createMovement({
-              companyId: currentCompany.id,
-              productId: item.id,
-              type: 'venda',
-              quantity: item.quantity,
-              reason: 'Venda PDV (Manual)',
-              notes: `Venda Manual: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`,
-              cost: lineCost > 0 ? lineCost : undefined,
-              userId: user?.id
+            const source = `sale:${saleId ?? checkoutId}:${item.id}:direct`;
+            const notes = `Venda Manual: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
+            const { data: applied, error: dedErr } = await supabase.rpc('deduct_stock_once', {
+              p_company_id: currentCompany.id,
+              p_product_id: item.id,
+              p_qty: item.quantity,
+              p_source: source,
+              p_notes: notes,
+              p_movement_type: 'venda',
+              p_movement_date: new Date().toISOString(),
             });
+            if (dedErr) throw dedErr;
+            void applied;
           }
         } else if (item.type === 'recipe') {
           // Venda de receita (baixa ingredientes)
@@ -459,19 +463,21 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             for (const ingredient of recipe.ingredients) {
               const qtyToDeduct = ingredient.quantity * item.quantity;
               
-              await ProductService.updateStock(ingredient.productId, -qtyToDeduct);
               const p2 = products.find((p) => p.id === ingredient.productId);
-              const lineCost = (p2?.averageCost ?? 0) * qtyToDeduct;
-              await StockRepository.createMovement({
-                companyId: currentCompany.id,
-                productId: ingredient.productId,
-                type: 'venda',
-                quantity: qtyToDeduct,
-                reason: 'Venda Receita',
-                notes: `Venda Receita: ${item.quantity}x ${recipe.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`,
-                cost: lineCost > 0 ? lineCost : undefined,
-                userId: user?.id
+
+              const source = `sale:${saleId ?? checkoutId}:${ingredient.productId}:recipe`;
+              const notes = `Venda Receita: ${item.quantity}x ${recipe.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
+              const { data: applied, error: dedErr } = await supabase.rpc('deduct_stock_once', {
+                p_company_id: currentCompany.id,
+                p_product_id: ingredient.productId,
+                p_qty: qtyToDeduct,
+                p_source: source,
+                p_notes: notes,
+                p_movement_type: 'venda',
+                p_movement_date: new Date().toISOString(),
               });
+              if (dedErr) throw dedErr;
+              void applied;
             }
           }
         }

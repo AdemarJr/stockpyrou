@@ -2432,7 +2432,7 @@ app.post("/make-server-8a20b27d/cashier/sale", async (c) => {
     }
 
     const body = await c.req.json();
-    const { registerId, items, total, paymentMethod, paymentDetails } = body;
+    const { registerId, items, total, paymentMethod, paymentDetails, clientRequestId } = body;
 
     console.log('📦 Sale data:', {
       registerId,
@@ -2472,19 +2472,48 @@ app.post("/make-server-8a20b27d/cashier/sale", async (c) => {
       payment_method: paymentMethod,
       payment_details: paymentDetails || {},
       items: items,
+      client_request_id:
+        typeof clientRequestId === "string" && clientRequestId.trim().length > 0
+          ? clientRequestId.trim()
+          : null,
     };
     
     console.log('💾 Inserting sale into database:', salePayload);
 
-    const { data: newSale, error: saleError } = await supabase
+    // Idempotência: se vier client_request_id, evita duplicar venda em retry.
+    let newSale: any = null;
+    const { data: insertedSale, error: saleError } = await supabase
       .from('sales')
       .insert(salePayload)
       .select()
       .single();
 
     if (saleError) {
-      console.error('❌ Error inserting sale:', saleError);
-      return c.json({ error: 'Erro ao registrar venda: ' + saleError.message }, 500);
+      // Se for duplicidade por idempotency key, retorna a venda existente.
+      const msg = String((saleError as any)?.message || "");
+      const isDup =
+        salePayload.client_request_id &&
+        /duplicate key|unique constraint|idx_sales_company_client_request_unique|client_request_id/i.test(
+          msg,
+        );
+      if (isDup) {
+        const { data: existing, error: exErr } = await supabase
+          .from("sales")
+          .select("*")
+          .eq("company_id", companyId)
+          .eq("client_request_id", salePayload.client_request_id)
+          .maybeSingle();
+        if (exErr || !existing) {
+          console.error("❌ Error fetching existing sale after duplicate:", exErr);
+          return c.json({ error: "Erro ao registrar venda: " + msg }, 500);
+        }
+        newSale = existing;
+      } else {
+        console.error('❌ Error inserting sale:', saleError);
+        return c.json({ error: 'Erro ao registrar venda: ' + saleError.message }, 500);
+      }
+    } else {
+      newSale = insertedSale;
     }
 
     console.log('✅ Sale inserted successfully:', newSale.id);

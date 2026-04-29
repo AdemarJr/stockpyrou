@@ -61,6 +61,27 @@ create index if not exists idx_financial_movements_company_center
   on public.financial_movements(company_id, cost_center_id)
   where cost_center_id is not null;
 
+-- Idempotência forte (evita duplicidade por concorrência / reprocessamento):
+-- 1 origem ("source") por empresa no ledger.
+-- Se você já tiver duplicados, rode a limpeza abaixo antes do índice.
+-- (Mantém o registro mais recente por company_id+source)
+with d as (
+  select
+    id,
+    row_number() over (
+      partition by company_id, source
+      order by updated_at desc, created_at desc, id desc
+    ) as rn
+  from public.financial_movements
+)
+delete from public.financial_movements fm
+using d
+where fm.id = d.id
+  and d.rn > 1;
+
+create unique index if not exists idx_financial_movements_company_source_unique
+  on public.financial_movements(company_id, source);
+
 comment on table public.financial_movements is
   'Ledger financeiro: entradas/saídas realizadas e previstas, com datas de competência/caixa/vencimento e centro de custo.';
 
@@ -160,12 +181,18 @@ select
   s.payment_method as payment_method
 from public.sales s
 where s.payment_method in ('money','pix')
-  and not exists (
-    select 1
-    from public.financial_movements fm
-    where fm.company_id = s.company_id
-      and fm.source = ('sale:' || s.id)
-  );
+on conflict (company_id, source) do update
+set
+  direction = excluded.direction,
+  status = 'realizado',
+  competency_date = excluded.competency_date,
+  cash_date = excluded.cash_date,
+  due_date = null,
+  amount = excluded.amount,
+  category = excluded.category,
+  description = excluded.description,
+  payment_method = excluded.payment_method,
+  updated_at = now();
 
 -- 3.2) A receber (fiado): previsto no vencimento (payment_details->>dueDate) ou D+30
 insert into public.financial_movements (
@@ -187,12 +214,19 @@ select
   'fiado' as payment_method
 from public.sales s
 where s.payment_method = 'fiado'
-  and not exists (
-    select 1
-    from public.financial_movements fm
-    where fm.company_id = s.company_id
-      and fm.source = ('sale:' || s.id)
-  );
+on conflict (company_id, source) do update
+set
+  direction = excluded.direction,
+  -- Não deixa um movimento já realizado "voltar" para previsto por reprocessamento.
+  status = case when public.financial_movements.status = 'realizado' then 'realizado' else 'previsto' end,
+  competency_date = excluded.competency_date,
+  due_date = case when public.financial_movements.status = 'realizado' then public.financial_movements.due_date else excluded.due_date end,
+  cash_date = case when public.financial_movements.status = 'realizado' then public.financial_movements.cash_date else null end,
+  amount = excluded.amount,
+  category = excluded.category,
+  description = excluded.description,
+  payment_method = excluded.payment_method,
+  updated_at = now();
 
 -- 3.3) Saídas realizadas: despesas pagas (caixa = payment_date; competência = payment_date)
 insert into public.financial_movements (
@@ -213,12 +247,19 @@ select
 from public.operational_expenses oe
 where oe.payment_status = 'paid'
   and oe.payment_date is not null
-  and not exists (
-    select 1
-    from public.financial_movements fm
-    where fm.company_id = oe.company_id
-      and fm.source = ('expense:' || oe.id)
-  );
+on conflict (company_id, source) do update
+set
+  direction = excluded.direction,
+  status = 'realizado',
+  competency_date = excluded.competency_date,
+  cash_date = excluded.cash_date,
+  due_date = null,
+  amount = excluded.amount,
+  cost_center_id = excluded.cost_center_id,
+  category = excluded.category,
+  description = excluded.description,
+  payment_method = excluded.payment_method,
+  updated_at = now();
 
 -- 3.4) Saídas previstas: despesas em aberto (competência = due_date; vencimento = due_date)
 insert into public.financial_movements (
@@ -240,12 +281,20 @@ from public.operational_expenses oe
 where oe.payment_status in ('pending','overdue')
   and oe.due_date is not null
   and greatest(0, (oe.amount::numeric - coalesce(oe.paid_amount, 0)::numeric)) > 0
-  and not exists (
-    select 1
-    from public.financial_movements fm
-    where fm.company_id = oe.company_id
-      and fm.source = ('expense:' || oe.id)
-  );
+on conflict (company_id, source) do update
+set
+  direction = excluded.direction,
+  -- Não deixa um movimento já realizado "voltar" para previsto por reprocessamento.
+  status = case when public.financial_movements.status = 'realizado' then 'realizado' else 'previsto' end,
+  competency_date = case when public.financial_movements.status = 'realizado' then public.financial_movements.competency_date else excluded.competency_date end,
+  due_date = case when public.financial_movements.status = 'realizado' then public.financial_movements.due_date else excluded.due_date end,
+  cash_date = case when public.financial_movements.status = 'realizado' then public.financial_movements.cash_date else null end,
+  amount = case when public.financial_movements.status = 'realizado' then public.financial_movements.amount else excluded.amount end,
+  cost_center_id = excluded.cost_center_id,
+  category = excluded.category,
+  description = excluded.description,
+  payment_method = excluded.payment_method,
+  updated_at = now();
 
 -- =============================================================================
 -- Fim.
