@@ -410,6 +410,7 @@ async function fetchSaidaProdutosAllPagesForWindow(
 ): Promise<SaidaFetchResult> {
   const merged = new Map<string, ZigSale>();
   let lastFp: string | null = null;
+  let noGrowthStreak = 0;
   const maxPages = 80;
 
   for (let page = 1; page <= maxPages; page++) {
@@ -446,19 +447,21 @@ async function fetchSaidaProdutosAllPagesForWindow(
     if (m?.hasNext === false) break;
     if (m?.total != null && merged.size >= m.total) break;
 
-    const needMoreByMeta =
-      m?.hasNext === true ||
-      (m?.total != null && merged.size < m.total);
-    const needMoreHeuristic =
-      m == null &&
-      chunk.length >= 400;
-
-    if (needMoreByMeta || needMoreHeuristic || (page > 1 && grew)) {
+    // Quando a ZIG não envia meta de paginação, a única forma segura de “trazer tudo”
+    // é continuar pedindo páginas enquanto aparecerem linhas novas (crescimento do merged).
+    // Isso também é seguro quando a API ignora `page`: a fingerprint repete e o loop para.
+    if (grew) {
+      noGrowthStreak = 0;
       await new Promise((x) => setTimeout(x, ZIG_INTER_CALL_DELAY_MS));
       continue;
     }
 
-    break;
+    // Sem crescimento: pode ser fim, ou pode ser “página repetida” com ordem diferente.
+    // Damos mais 1 tentativa para confirmar o fim.
+    noGrowthStreak += 1;
+    if (noGrowthStreak >= 2) break;
+    await new Promise((x) => setTimeout(x, ZIG_INTER_CALL_DELAY_MS));
+    continue;
   }
 
   return { ok: true, data: Array.from(merged.values()) };
