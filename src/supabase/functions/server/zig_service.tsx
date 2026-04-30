@@ -901,6 +901,8 @@ export type ZigConfirmLineItem = {
   transactionId: string;
   productSku: string;
   productName: string;
+  /** Data civil (YYYY-MM-DD) em America/Sao_Paulo no momento do preview. */
+  saleDate?: string;
   quantity: number;
   /** Valor unitário da linha no ZIG (BRL). Opcional para compatibilidade com deploys antigos. */
   unitValue?: number;
@@ -909,7 +911,12 @@ export type ZigConfirmLineItem = {
 };
 
 // Fetch Pending Sales (Preview - Sem processar)
-export const fetchPendingSales = async (companyId: string, startDate?: string, endDate?: string) => {
+export const fetchPendingSales = async (
+  companyId: string,
+  startDate?: string,
+  endDate?: string,
+  options?: { includeProcessed?: boolean },
+) => {
   const token = await getZigTokenForCompany(companyId);
 
   const config = await kv.get(`zig_config:${companyId}`);
@@ -979,13 +986,14 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
       }
     }
 
+    const includeProcessed = !!options?.includeProcessed;
     const newSales = [];
     const processedKeyPrefix = `zig_processed:${companyId}:`;
     
     for (const sale of sales) {
       const lineId = zigLineItemId(sale);
       const isProcessed = await kv.get(`${processedKeyPrefix}${lineId}`);
-      if (isProcessed) continue;
+      if (isProcessed && !includeProcessed) continue;
       newSales.push(sale);
     }
 
@@ -1190,7 +1198,10 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
       transactionId: s.transactionId,
       productSku: s.productSku,
       productName: s.productName,
+      saleDate: s.saleDate,
       quantity: s.quantity,
+      unitValue: s.unitValue,
+      totalValue: s.totalValue,
     }));
     await kv.set(`zig_preview_session:${companyId}:${previewSessionId}`, {
       lineItems: previewLines,
@@ -1212,6 +1223,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
 };
 
 type DeductionGroup = {
+  saleDate: string;
   productSku: string;
   productName: string;
   totalQty: number;
@@ -1220,15 +1232,19 @@ type DeductionGroup = {
 
 function addToDeductionGroup(
   groups: Map<string, DeductionGroup>,
+  saleDate: string,
   productSku: string,
   productName: string,
   qty: number,
   transactionId: string,
 ) {
   if (!productSku) return;
-  const prev = groups.get(productSku);
+  const ymd = (saleDate || "").trim();
+  const groupKey = `${ymd}|${productSku}`;
+  const prev = groups.get(groupKey);
   if (!prev) {
-    groups.set(productSku, {
+    groups.set(groupKey, {
+      saleDate: ymd,
       productSku,
       productName,
       totalQty: qty || 0,
@@ -1248,9 +1264,14 @@ function buildDeductionGroupsFromZigSales(
   const groups = new Map<string, DeductionGroup>();
   for (const sale of sales) {
     const lineId = zigLineItemId(sale);
+    const saleDate =
+      transactionYmdSaoPaulo(sale.transactionDate) ||
+      (sale.transactionDate || "").split("T")[0] ||
+      "";
     if (sale.productSku && selectedSet.has(lineId)) {
       addToDeductionGroup(
         groups,
+        saleDate,
         sale.productSku,
         sale.productName,
         zigEffectiveCount(sale),
@@ -1264,6 +1285,7 @@ function buildDeductionGroupsFromZigSales(
         if (!selectedSet.has(additionId)) continue;
         addToDeductionGroup(
           groups,
+          saleDate,
           addition.productSku,
           `${sale.productName} (Adicional)`,
           zigEffectiveAdditionCount(addition),
@@ -1285,6 +1307,7 @@ function buildDeductionGroupsFromLineItems(
     if (!selectedSet.has(line.transactionId)) continue;
     addToDeductionGroup(
       groups,
+      String(line.saleDate || ""),
       line.productSku.trim(),
       line.productName || line.productSku,
       line.quantity,
@@ -1422,7 +1445,9 @@ async function executeZigStockDeductionFromGroups(
     const ref = group.transactionIds.slice(0, 5).join(", ");
     const reason = `Venda ZIG (Lote) - Ref: ${ref}${group.transactionIds.length > 5 ? "..." : ""}`;
     const stableIds = Array.from(new Set(group.transactionIds)).sort().join("|");
-    const sourceBase = `zig:${companyId}:${group.productSku}:${fnv1a32(stableIds)}`;
+    const ymd = (group.saleDate || "").trim();
+    const sourceBase = `zig:${companyId}:${ymd || "sem-data"}:${group.productSku}:${fnv1a32(stableIds)}`;
+    const movementDateIso = ymd ? `${ymd}T12:00:00.000-03:00` : new Date().toISOString();
 
     let product: any;
     if (opts.registeredOnly) {
@@ -1437,7 +1462,15 @@ async function executeZigStockDeductionFromGroups(
       product = await ensureProduct(group.productSku, group.productName);
     }
 
-    await processStockDeduction(companyId, product, group.totalQty, recipesData, reason, sourceBase);
+    await processStockDeduction(
+      companyId,
+      product,
+      group.totalQty,
+      recipesData,
+      reason,
+      sourceBase,
+      movementDateIso,
+    );
 
     for (const id of Array.from(new Set(group.transactionIds))) {
       await kv.set(`${processedKeyPrefix}${id}`, true);
@@ -1909,7 +1942,8 @@ async function processStockDeduction(
   qty: number, 
   recipes: any[], 
   refId: string,
-  sourceBase: string
+  sourceBase: string,
+  movementDateIso: string,
 ) {
   const bundleItems = parseBundleItemsFromProduct(product);
   if (bundleItems.length > 0) {
@@ -1922,6 +1956,7 @@ async function processStockDeduction(
         `Venda ZIG (Combo: ${product.name}) - Ref: ${refId}`,
         `${sourceBase}:${b.productId}:combo`,
         companyId,
+        movementDateIso,
       );
     }
     return;
@@ -1939,6 +1974,7 @@ async function processStockDeduction(
         `Venda ZIG (Receita: ${product.name}) - Ref: ${refId}`,
         `${sourceBase}:${pid}:recipe`,
         companyId,
+        movementDateIso,
       );
     }
   } else {
@@ -1948,6 +1984,7 @@ async function processStockDeduction(
       `Venda ZIG - Ref: ${refId}`,
       `${sourceBase}:${product.id}:direct`,
       companyId,
+      movementDateIso,
     );
   }
 }
@@ -1977,6 +2014,7 @@ async function deductStock(
   reason: string,
   source: string,
   companyId: string,
+  movementDateIso: string,
 ) {
   const { error } = await supabase.rpc("deduct_stock_once", {
     p_company_id: companyId,
@@ -1985,7 +2023,7 @@ async function deductStock(
     p_source: source,
     p_notes: `${reason} - Integração automática ZIG`,
     p_movement_type: "venda",
-    p_movement_date: new Date().toISOString(),
+    p_movement_date: movementDateIso || new Date().toISOString(),
   });
 
   if (error) {

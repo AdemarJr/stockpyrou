@@ -95,6 +95,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [selectedSales, setSelectedSales] = useState<string[]>([]);
+  /** Quando true, mostra o total vendido no período (inclui itens já baixados). */
+  const [includeProcessed, setIncludeProcessed] = useState(false);
   const [expandedDates, setExpandedDates] = useState<string[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [showOnlyNotFound, setShowOnlyNotFound] = useState(false);
@@ -351,7 +353,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
         body: JSON.stringify({
           companyId: currentCompany.id,
           startDate: start,
-          endDate: end
+          endDate: end,
+          includeProcessed,
         })
       });
 
@@ -373,15 +376,24 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
             : null,
         );
 
-        // Selecionar todas as linhas pendentes (inclui não cadastradas: o servidor cria produto e dá baixa)
-        const allLineIds = data.sales.map((s: PendingSale) => s.transactionId);
-        setSelectedSales(allLineIds);
+        // Por padrão, só seleciona tudo quando estiver em modo "pendentes".
+        // Em modo "total (inclui baixadas)", é só consulta (evita risco de baixar duplicado).
+        if (!includeProcessed) {
+          const allLineIds = data.sales.map((s: PendingSale) => s.transactionId);
+          setSelectedSales(allLineIds);
+        } else {
+          setSelectedSales([]);
+        }
         
         // Expandir todas as datas por padrão
         setExpandedDates(Object.keys(data.salesByDate));
         
         setShowPreview(true);
-        toast.success(`${data.totalSales} vendas encontradas em ${Object.keys(data.salesByDate).length} dias!`);
+        toast.success(
+          includeProcessed
+            ? `${data.totalSales} linhas (total ZIG) em ${Object.keys(data.salesByDate).length} dias!`
+            : `${data.totalSales} vendas pendentes em ${Object.keys(data.salesByDate).length} dias!`,
+        );
       } else {
         setPreviewSessionId(null);
         toast.info('Nenhuma venda nova encontrada neste período.');
@@ -395,14 +407,20 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     }
   };
 
-  const handleConfirmSales = async () => {
+  const handleConfirmSales = async (transactionIdsOverride?: string[]) => {
     if (!currentCompany?.id) return;
     if (zigBaixaUiDisabled) {
       toast.error('Baixa ZIG desligada neste navegador.');
       return;
     }
 
-    if (selectedSales.length === 0) {
+    if (includeProcessed) {
+      toast.error('Modo “Total (inclui baixadas)” é apenas para conferência. Desligue para processar a baixa.');
+      return;
+    }
+
+    const txIds = Array.isArray(transactionIdsOverride) ? transactionIdsOverride : selectedSales;
+    if (txIds.length === 0) {
       toast.error('Selecione pelo menos uma venda para processar.');
       return;
     }
@@ -412,9 +430,10 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
       const flatSales = Object.values(salesByDate).flat() as PendingSale[];
       const lineItems = flatSales
-        .filter((s) => selectedSales.includes(s.transactionId))
+        .filter((s) => txIds.includes(s.transactionId))
         .map((s) => ({
           transactionId: s.transactionId,
+          saleDate: s.saleDate,
           productSku: s.productSku,
           productName: s.productName,
           quantity: s.quantity,
@@ -430,7 +449,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
       const confirmBody = JSON.stringify({
         companyId: currentCompany.id,
-        transactionIds: selectedSales,
+        transactionIds: txIds,
         startDate: previewRange?.start,
         endDate: previewRange?.end,
         lineItems,
@@ -482,6 +501,16 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     } finally {
       setConfirming(false);
     }
+  };
+
+  const handleConfirmSalesForDate = async (date: string) => {
+    const dateGroups = groupedSalesByDate[date] || [];
+    const dateTransactionIds = dateGroups.flatMap(g => g.transactionIds);
+    if (dateTransactionIds.length === 0) {
+      toast.error('Não há itens selecionáveis neste dia.');
+      return;
+    }
+    await handleConfirmSales(dateTransactionIds);
   };
 
   const exportBaixaExcel = async () => {
@@ -728,6 +757,21 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
             Período das vendas (ZIG)
           </div>
 
+          <label className="flex items-center gap-2 text-sm text-indigo-900 select-none">
+            <input
+              type="checkbox"
+              checked={includeProcessed}
+              onChange={(e) => setIncludeProcessed(e.target.checked)}
+              className="w-4 h-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span>
+              Mostrar <strong className="font-semibold">total vendido</strong> (inclui itens já baixados)
+              <span className="text-xs text-indigo-900/70 block">
+                Use para conferir quantidades da ZIG (ex.: Corona 53). Para dar baixa, desligue.
+              </span>
+            </span>
+          </label>
+
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             <button
               onClick={() => setDateFilter('yesterday')}
@@ -861,6 +905,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                   const validCount = dateGroups.filter(g => !g.notFound).length;
                   const notFoundCount = dateGroups.filter(g => g.notFound).length;
                   const totalValue = dateGroups.reduce((sum, g) => sum + (g.totalValue || 0), 0);
+                  const totalQty = dateGroups.reduce((sum, g) => sum + (g.quantity || 0), 0);
                   const isExpanded = expandedDates.includes(date);
                   const dateTransactionIds = dateGroups.flatMap(g => g.transactionIds);
                   const allSelected = dateTransactionIds.length > 0 && dateTransactionIds.every(id => selectedSales.includes(id));
@@ -891,6 +936,9 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                               <span className="text-xs text-gray-600">
                                 {validCount} produtos válidos
                               </span>
+                              <span className="text-xs text-gray-600">
+                                Qtd {totalQty.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                              </span>
                               {notFoundCount > 0 && (
                                 <span className="text-xs text-amber-600">
                                   {notFoundCount} não encontradas
@@ -904,11 +952,25 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                             </div>
                           </div>
                           
-                          {isExpanded ? (
-                            <ChevronUp className="w-5 h-5 text-gray-400" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-gray-400" />
-                          )}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleConfirmSalesForDate(date);
+                              }}
+                              disabled={confirming || zigBaixaUiDisabled || !hasAny}
+                              className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Processa a baixa deste dia (em lote)"
+                            >
+                              Processar dia
+                            </button>
+                            {isExpanded ? (
+                              <ChevronUp className="w-5 h-5 text-gray-400" />
+                            ) : (
+                              <ChevronDown className="w-5 h-5 text-gray-400" />
+                            )}
+                          </div>
                         </div>
                       </div>
                       

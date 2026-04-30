@@ -265,10 +265,12 @@ app.get("/make-server-8a20b27d/zig/config/:companyId", async (c) => {
 // Zig Preview Pending Sales (Busca vendas sem processar)
 app.post("/make-server-8a20b27d/zig/preview", async (c) => {
   try {
-    const { companyId, startDate, endDate } = await c.req.json();
+    const { companyId, startDate, endDate, includeProcessed } = await c.req.json();
     if (!companyId) return c.json({ error: "Missing companyId" }, 400);
     
-    const result = await zig.fetchPendingSales(companyId, startDate, endDate);
+    const result = await zig.fetchPendingSales(companyId, startDate, endDate, {
+      includeProcessed: !!includeProcessed,
+    });
     return c.json(result);
   } catch (error: any) {
     console.error("Zig Preview Error:", error);
@@ -278,10 +280,12 @@ app.post("/make-server-8a20b27d/zig/preview", async (c) => {
 
 app.post("/zig/preview", async (c) => {
   try {
-    const { companyId, startDate, endDate } = await c.req.json();
+    const { companyId, startDate, endDate, includeProcessed } = await c.req.json();
     if (!companyId) return c.json({ error: "Missing companyId" }, 400);
 
-    const result = await zig.fetchPendingSales(companyId, startDate, endDate);
+    const result = await zig.fetchPendingSales(companyId, startDate, endDate, {
+      includeProcessed: !!includeProcessed,
+    });
     return c.json(result);
   } catch (error: any) {
     console.error("Zig Preview Error:", error);
