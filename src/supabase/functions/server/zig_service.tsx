@@ -73,6 +73,8 @@ interface ZigSale {
   productId: string;
   productSku: string;
   unitValue: number;
+  /** Desconto da linha (em centavos ou BRL dependendo do ambiente). */
+  discountValue?: number | null;
   /** Quantidade em unidades inteiras (API ZIG). */
   count: number;
   /** Quantidade fracionada (peso/volume), quando aplicável — documentação ZIG. */
@@ -83,6 +85,8 @@ interface ZigSale {
     productSku: string;
     count: number;
     fractionalAmount?: number | null;
+    unitValue?: number | null;
+    discountValue?: number | null;
   }[];
 }
 
@@ -105,6 +109,28 @@ function zigEffectiveAdditionCount(add: {
     count: Number(add.count) || 0,
     fractionalAmount: add.fractionalAmount,
   });
+}
+
+function zigLineTotalValueBrl(sale: Pick<ZigSale, "unitValue" | "discountValue" | "count" | "fractionalAmount">): number {
+  const qty = zigEffectiveCount(sale);
+  const gross = zigMoneyToBrl(sale.unitValue) * qty;
+  const discRaw = sale.discountValue;
+  const disc = discRaw == null ? 0 : zigMoneyToBrl(discRaw);
+  const net = gross - disc;
+  return net > 0 ? net : 0;
+}
+
+function zigAdditionTotalValueBrl(add: {
+  unitValue?: number | null;
+  discountValue?: number | null;
+  count?: number;
+  fractionalAmount?: number | null;
+}): number {
+  const qty = zigEffectiveAdditionCount(add);
+  const gross = zigMoneyToBrl(add.unitValue ?? 0) * qty;
+  const disc = zigMoneyToBrl(add.discountValue ?? 0);
+  const net = gross - disc;
+  return net > 0 ? net : 0;
 }
 
 /** Data civil (YYYY-MM-DD) da transação no fuso America/Sao_Paulo — evita perder linhas por comparação UTC na string. */
@@ -648,14 +674,15 @@ function accumulateZigSaleForReport(
   };
 
   const mainQty = zigEffectiveCount(sale);
-  const mainVal = zigMoneyToBrl(sale.unitValue) * mainQty;
+  const mainVal = zigLineTotalValueBrl(sale);
   bump(1, mainQty, mainVal);
 
   if (sale.additions?.length) {
     for (const add of sale.additions) {
       if (!add?.productSku?.trim()) continue;
       const aq = zigEffectiveAdditionCount(add);
-      bump(1, aq, 0);
+      const av = zigAdditionTotalValueBrl(add);
+      bump(1, aq, av);
     }
   }
 }
@@ -941,7 +968,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
             transactionDate: s.transactionDate,
             productId: `add:${sku}`,
             productSku: sku,
-            unitValue: 0,
+            unitValue: Number((add as any)?.unitValue ?? 0) || 0,
+            discountValue: Number((add as any)?.discountValue ?? 0) || 0,
             count: Number(add.count) || 0,
             fractionalAmount: add.fractionalAmount ?? null,
             productName: sku,
@@ -1046,6 +1074,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
       if (product) {
         const recipe = recipesData.find(r => r.product_id === product.id);
         const unitValue = zigMoneyToBrl(sale.unitValue);
+        const discountValue = zigMoneyToBrl((sale as any).discountValue ?? 0);
         
         const saleData = {
           zigTransactionId: sale.transactionId,
@@ -1056,7 +1085,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           productName: sale.productName,
           quantity: qtyEff,
           unitValue,
-          totalValue: unitValue * qtyEff,
+          discountValue,
+          totalValue: zigLineTotalValueBrl(sale),
           systemProduct: {
             id: product.id,
             name: product.name,
@@ -1088,6 +1118,7 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
         
       } else {
         const unitValue = zigMoneyToBrl(sale.unitValue);
+        const discountValue = zigMoneyToBrl((sale as any).discountValue ?? 0);
         const saleData = {
           zigTransactionId: sale.transactionId,
           transactionId: lineId,
@@ -1097,7 +1128,8 @@ export const fetchPendingSales = async (companyId: string, startDate?: string, e
           productName: sale.productName,
           quantity: qtyEff,
           unitValue,
-          totalValue: unitValue * qtyEff,
+          discountValue,
+          totalValue: zigLineTotalValueBrl(sale),
           systemProduct: null,
           isAddition: sale.type === 'addition',
           hasRecipe: false,
