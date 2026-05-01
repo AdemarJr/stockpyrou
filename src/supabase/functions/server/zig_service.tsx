@@ -1562,14 +1562,20 @@ async function recordRevenueSaleFromZigSnapshot(
   const skus = [...new Set(pending.map((p) => (p.productSku || "").trim()).filter(Boolean))];
   const productIdBySku = new Map<string, string>();
   if (skus.length > 0) {
-    const { data: rows } = await supabase
+    const { data: byBarcode } = await supabase
       .from("products")
-      .select("id, barcode")
+      .select("id, barcode, sku")
       .eq("company_id", companyId)
       .in("barcode", skus);
-    for (const r of rows || []) {
-      const rr = r as { id: string; barcode: string | null };
-      if (rr.barcode) productIdBySku.set(String(rr.barcode).trim(), rr.id);
+    const { data: bySkuCol } = await supabase
+      .from("products")
+      .select("id, barcode, sku")
+      .eq("company_id", companyId)
+      .in("sku", skus);
+    for (const r of [...(byBarcode || []), ...(bySkuCol || [])]) {
+      const rr = r as { id: string; barcode: string | null; sku: string | null };
+      if (rr.barcode?.trim()) productIdBySku.set(rr.barcode.trim(), rr.id);
+      if (rr.sku?.trim()) productIdBySku.set(rr.sku.trim(), rr.id);
     }
   }
 
@@ -1879,30 +1885,19 @@ export async function runAutoBaixaZigOntem(companyId: string) {
   }
 
   const processedKeyPrefix = `zig_processed:${companyId}:`;
-  const newSales: ZigSale[] = [];
+  /** Só inclui IDs ainda não marcados — evita re-baixar linha principal se só o adicional estiver pendente (e vice-versa). */
+  const idSet = new Set<string>();
   for (const sale of sales) {
     const lineId = zigLineItemId(sale);
-    const done = await kv.get(`${processedKeyPrefix}${lineId}`);
-    if (!done) newSales.push(sale);
-  }
-
-  if (newSales.length === 0) {
-    return {
-      skipped: false,
-      message: "Nenhuma venda nova de ontem pendente de processamento.",
-      processed: 0,
-      date: yesterdayStr,
-    };
-  }
-
-  const idSet = new Set<string>();
-  for (const s of newSales) {
-    const lineId = zigLineItemId(s);
-    idSet.add(lineId);
-    if (s.additions?.length) {
-      for (const a of s.additions) {
-        if (a.productSku) {
-          idSet.add(`${lineId}-add-${a.productSku}`);
+    if (!(await kv.get(`${processedKeyPrefix}${lineId}`))) {
+      idSet.add(lineId);
+    }
+    if (sale.additions?.length) {
+      for (const a of sale.additions) {
+        if (!a.productSku) continue;
+        const aid = `${lineId}-add-${a.productSku}`;
+        if (!(await kv.get(`${processedKeyPrefix}${aid}`))) {
+          idSet.add(aid);
         }
       }
     }
@@ -1912,7 +1907,7 @@ export async function runAutoBaixaZigOntem(companyId: string) {
   if (transactionIds.length === 0) {
     return {
       skipped: false,
-      message: "Nenhuma linha de venda pendente para baixa automática.",
+      message: "Nenhuma venda nova de ontem pendente de processamento.",
       processed: 0,
       date: yesterdayStr,
     };
