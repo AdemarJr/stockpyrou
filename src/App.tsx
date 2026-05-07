@@ -68,9 +68,38 @@ import { APP_NAME, APP_ORIGIN, APP_SITE_URL } from './config/branding';
 
 type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'integrations' | 'users' | 'admin' | 'costs';
 
+const PAGE_IDS = new Set<Page>([
+  'dashboard',
+  'products',
+  'stock-entry',
+  'stock-balance',
+  'pos',
+  'cashier',
+  'reports',
+  'suppliers',
+  'integrations',
+  'users',
+  'admin',
+  'costs',
+]);
+
+function parsePageParam(raw: string | null | undefined): Page | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const t = raw.trim();
+  return PAGE_IDS.has(t as Page) ? (t as Page) : null;
+}
+
+function resolveInitialPage(): Page {
+  const urlParams = new URLSearchParams(window.location.search);
+  const fromUrl = parsePageParam(urlParams.get('page'));
+  const fromStorage = parsePageParam(safeStorage.getItem('pyroustock_current_page'));
+  // URL tem prioridade; depois última página salva; senão dashboard
+  return fromUrl ?? fromStorage ?? 'dashboard';
+}
+
 function MainApp() {
   const { user, logout } = useAuth();
-  const { currentCompany, selectCompany } = useCompany();
+  const { currentCompany, selectCompany, isLoading: companyContextLoading } = useCompany();
   const { theme, toggleTheme } = useTheme();
   const isMobile = useIsMobile();
 
@@ -187,15 +216,7 @@ function MainApp() {
     });
   }, []);
 
-  const [currentPage, setCurrentPage] = useState<Page>(() => {
-    // Inicializa a partir da URL ou safeStorage
-    const urlParams = new URLSearchParams(window.location.search);
-    const pageFromUrl = urlParams.get('page') as Page;
-    const pageFromStorage = safeStorage.getItem('pyroustock_current_page') as Page;
-    
-    // Prioridade: URL > safeStorage > default
-    return pageFromUrl || pageFromStorage || 'dashboard';
-  });
+  const [currentPage, setCurrentPage] = useState<Page>(resolveInitialPage);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showProductForm, setShowProductForm] = useState(false);
   const [showQuickProductForm, setShowQuickProductForm] = useState(false);
@@ -211,6 +232,16 @@ function MainApp() {
     // Save to safeStorage
     safeStorage.setItem('pyroustock_current_page', currentPage);
   }, [currentPage]);
+
+  // Voltar/avançar no navegador: manter `currentPage` alinhado à URL (?page=)
+  useEffect(() => {
+    const onPopState = () => {
+      const next = parsePageParam(new URLSearchParams(window.location.search).get('page'));
+      if (next) setCurrentPage(next);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
   
   // Close sidebar on mobile
   useEffect(() => {
@@ -407,6 +438,15 @@ function MainApp() {
       }
     };
   }, [companyId, refreshData]);
+
+  // Enquanto restaura empresa após F5, não mostrar seleção (evita “perder” a rota visualmente)
+  if (companyContextLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" aria-hidden />
+      </div>
+    );
+  }
 
   // If no company selected, show selection screen
   if (!currentCompany) {
