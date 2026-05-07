@@ -7,21 +7,20 @@
 --   - Insere stock_movements duplicado
 --
 -- Solução:
--- - Adiciona coluna `source` em public.stock_movements (chave idempotente por origem)
--- - Índice único (company_id, source) quando source não é null
+-- - Coluna `source` em public.stock_movements (chave idempotente por origem)
+-- - Índice único (company_id, source) recomendado (integridade extra)
 -- - Função `public.deduct_stock_once(...)`:
---   - Insere stock_movement com ON CONFLICT DO NOTHING
---   - Só desconta do estoque se a linha foi inserida (idempotente e transacional)
+--   - pg_advisory_xact_lock por empresa+source + verificação antes do insert
+--   - Não usa ON CONFLICT (evita erro se UNIQUE não casar com o índice no banco)
 -- =============================================================================
 
 -- 1) Coluna source (idempotency key)
 alter table public.stock_movements
   add column if not exists source text;
 
--- 2) Índice único por origem (somente quando source está preenchido)
+-- 2) Índice único por origem (recomendado)
 create unique index if not exists idx_stock_movements_company_source_unique
-  on public.stock_movements(company_id, source)
-  where source is not null and source <> '';
+  on public.stock_movements(company_id, source);
 
 -- 3) Função atômica: baixa de estoque uma única vez por source
 create or replace function public.deduct_stock_once(
@@ -40,6 +39,7 @@ returns table (
 )
 language plpgsql
 security definer
+set search_path = public
 as $$
 declare
   v_cost numeric;
@@ -54,20 +54,37 @@ begin
     raise exception 'p_source is required (idempotency key)';
   end if;
 
-  -- Lock do produto para consistência de saldo
-  select current_stock::numeric, coalesce(cost_price::numeric, 0)
+  perform pg_advisory_xact_lock(
+    hashtext('stockpyrou:deduct_stock_once:v2:' || p_company_id::text || ':' || p_source)
+  );
+
+  select sm.id into v_mid
+  from public.stock_movements sm
+  where sm.company_id = p_company_id
+    and sm.source = p_source
+  limit 1;
+
+  select p.current_stock::numeric, coalesce(p.cost_price::numeric, 0)
     into v_prev, v_cost
-  from public.products
-  where id = p_product_id and company_id = p_company_id
+  from public.products p
+  where p.id = p_product_id and p.company_id = p_company_id
   for update;
 
   if not found then
     raise exception 'Product not found for company';
   end if;
 
+  if v_mid is not null then
+    return query
+      select
+        false as applied,
+        v_mid as movement_id,
+        v_prev as new_stock;
+    return;
+  end if;
+
   v_new := v_prev - p_qty;
 
-  -- Tentativa idempotente: se já existe (company_id, source), não insere e não baixa de novo.
   insert into public.stock_movements (
     company_id,
     product_id,
@@ -94,23 +111,12 @@ begin
     p_source,
     now()
   )
-  on conflict (company_id, source) do nothing
   returning id into v_mid;
-
-  if v_mid is null then
-    -- Já aplicado antes
-    return query
-      select
-        false as applied,
-        null::uuid as movement_id,
-        v_prev as new_stock;
-    return;
-  end if;
 
   update public.products
     set current_stock = v_new,
         updated_at = now()
-  where id = p_product_id and company_id = p_company_id;
+    where id = p_product_id and company_id = p_company_id;
 
   return query
     select
@@ -120,7 +126,5 @@ begin
 end;
 $$;
 
--- Permissão: RLS pode bloquear RPC para usuários; normalmente se chama via service role (Edge Function).
--- Se você quiser permitir via client (anon/auth), conceda execute explicitamente:
--- grant execute on function public.deduct_stock_once(uuid,uuid,numeric,text,text,text,timestamptz) to authenticated;
-
+grant execute on function public.deduct_stock_once(uuid, uuid, numeric, text, text, text, timestamptz) to authenticated;
+grant execute on function public.deduct_stock_once(uuid, uuid, numeric, text, text, text, timestamptz) to service_role;

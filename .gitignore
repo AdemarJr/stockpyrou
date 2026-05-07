@@ -21,3 +21,6 @@ src/components/reports/OutputsTab.tsx
 src/components/sales/ZigSalesBaixa.tsx
 src/repositories/CostRepository.ts
 src/supabase/functions/server/zig_service.tsx
+scripts/stock_movements_idempotency.sql
+supabase/migrations/20260501120000_deduct_stock_once.sql
+scripts/stock_movements_idempotency.sql

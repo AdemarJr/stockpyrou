@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster } from 'sonner@2.0.3';
 import { supabase } from './utils/supabase/client';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -260,6 +260,8 @@ function MainApp() {
   ];
   
   const companyId = currentCompany?.id;
+  const realtimeTimerRef = useRef<number | null>(null);
+  const visibilityRefreshTimerRef = useRef<number | null>(null);
 
   // silent: não cobre a tela com loading (evita desmontar formulários ao sincronizar dados após venda, etc.)
   const refreshData = useCallback(async (options?: { silent?: boolean }) => {
@@ -295,13 +297,19 @@ function MainApp() {
 
       const failed = results.filter((r) => r.status === 'rejected');
       if (failed.length > 0) {
-        toast.error(
-          'Alguns dados não carregaram. Verifique a conexão e tente atualizar a página.'
-        );
+        if (silent) {
+          console.warn('[refreshData] Falhas parciais (refresh silencioso, sem toast):', failed.length);
+        } else {
+          toast.error(
+            'Alguns dados não carregaram. Verifique a conexão e tente atualizar a página.'
+          );
+        }
       }
     } catch (error: any) {
       console.error('Error loading data:', error);
-      toast.error(`Erro ao carregar dados: ${error.message}`);
+      if (!silent) {
+        toast.error(`Erro ao carregar dados: ${error.message}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -312,6 +320,93 @@ function MainApp() {
     if (!currentCompany?.id) return;
     void refreshData();
   }, [currentCompany?.id, refreshData]);
+
+  // Realtime sync: se outro usuário/aba alterar dados da mesma empresa,
+  // atualiza o índice (silencioso) para manter tudo consistente em todos os navegadores.
+  useEffect(() => {
+    if (!companyId) return;
+
+    const scheduleRefresh = () => {
+      if (realtimeTimerRef.current) {
+        window.clearTimeout(realtimeTimerRef.current);
+      }
+      // debounce curto para agrupar múltiplos eventos (ex: venda cria movimento + update produto)
+      realtimeTimerRef.current = window.setTimeout(() => {
+        void refreshData({ silent: true });
+      }, 400);
+    };
+
+    const channel = supabase
+      .channel(`company-sync:${companyId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products', filter: `company_id=eq.${companyId}` },
+        scheduleRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'stock_entries', filter: `company_id=eq.${companyId}` },
+        scheduleRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'stock_movements', filter: `company_id=eq.${companyId}` },
+        scheduleRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'price_history', filter: `company_id=eq.${companyId}` },
+        scheduleRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'suppliers', filter: `company_id=eq.${companyId}` },
+        scheduleRefresh
+      )
+      .subscribe((status) => {
+        console.log('[realtime] company sync status:', status);
+      });
+
+    return () => {
+      try {
+        if (realtimeTimerRef.current) {
+          window.clearTimeout(realtimeTimerRef.current);
+          realtimeTimerRef.current = null;
+        }
+      } catch {
+        // ignore
+      }
+      supabase.removeChannel(channel);
+    };
+  }, [companyId, refreshData]);
+
+  // Fallback leve: ao voltar para a aba, um refresh silencioso (sem polling em background).
+  // Cobre quando Realtime não está habilitado no projeto ou rede oscila.
+  useEffect(() => {
+    if (!companyId) return;
+
+    const DEBOUNCE_MS = 2000;
+
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (visibilityRefreshTimerRef.current) {
+        window.clearTimeout(visibilityRefreshTimerRef.current);
+      }
+      visibilityRefreshTimerRef.current = window.setTimeout(() => {
+        visibilityRefreshTimerRef.current = null;
+        void refreshData({ silent: true });
+      }, DEBOUNCE_MS);
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (visibilityRefreshTimerRef.current) {
+        window.clearTimeout(visibilityRefreshTimerRef.current);
+        visibilityRefreshTimerRef.current = null;
+      }
+    };
+  }, [companyId, refreshData]);
 
   // If no company selected, show selection screen
   if (!currentCompany) {

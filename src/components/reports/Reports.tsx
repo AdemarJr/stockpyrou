@@ -665,6 +665,29 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
     };
   }).filter(s => s.purchaseCount > 0 || !searchQuery)
     .sort((a, b) => b.totalSavings - a.totalSavings);
+
+  /**
+   * Ranking geral: fornecedores mais baratos no período (média ponderada por quantidade).
+   * Usa o mesmo `filteredPriceHistory` dos relatórios (respeita período e filtros atuais).
+   */
+  const supplierCheapestOverall = suppliers
+    .map((supplier) => {
+      const rows = filteredPriceHistory.filter((ph) => ph.supplierId === supplier.id);
+      const productIds = new Set(rows.map((r) => r.productId).filter(Boolean));
+      const totalQty = rows.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+      const totalSpent = rows.reduce((s, r) => s + (Number(r.price) || 0) * (Number(r.quantity) || 0), 0);
+      const avgUnitPrice = totalQty > 0 ? totalSpent / totalQty : Infinity;
+      return {
+        supplier,
+        productCount: productIds.size,
+        totalQty,
+        totalSpent,
+        avgUnitPrice,
+        purchaseCount: rows.length,
+      };
+    })
+    .filter((x) => x.purchaseCount > 0)
+    .sort((a, b) => a.avgUnitPrice - b.avgUnitPrice);
   
   // Price Variation Report
   const priceVariations = filteredProducts
@@ -1154,6 +1177,52 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
             <p className="text-sm text-gray-500 mb-6">
               Análise de quanto você ganha (economiza) comprando com cada fornecedor em relação à média de custos.
             </p>
+
+            {/* Cheapest suppliers overall */}
+            <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="font-semibold text-gray-900">Mais barato no geral (período)</h4>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Ranking por <strong>média de preço unitário</strong> ponderada pela quantidade comprada no período.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b border-gray-200">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs text-gray-600 font-semibold">Fornecedor</th>
+                      <th className="px-3 py-2 text-right text-xs text-gray-600 font-semibold">Média (ponderada)</th>
+                      <th className="px-3 py-2 text-right text-xs text-gray-600 font-semibold">Itens</th>
+                      <th className="px-3 py-2 text-right text-xs text-gray-600 font-semibold">Qtd</th>
+                      <th className="px-3 py-2 text-right text-xs text-gray-600 font-semibold">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {supplierCheapestOverall.slice(0, 8).map((row) => (
+                      <tr key={row.supplier.id} className="hover:bg-white/60">
+                        <td className="px-3 py-2 text-sm text-gray-900 font-medium">{row.supplier.name}</td>
+                        <td className="px-3 py-2 text-right text-sm tabular-nums text-gray-900">
+                          {Number.isFinite(row.avgUnitPrice) ? formatCurrency(row.avgUnitPrice) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right text-sm tabular-nums text-gray-700">{row.productCount}</td>
+                        <td className="px-3 py-2 text-right text-sm tabular-nums text-gray-700">{formatQuantity(row.totalQty)}</td>
+                        <td className="px-3 py-2 text-right text-sm tabular-nums text-gray-900">{formatCurrency(row.totalSpent)}</td>
+                      </tr>
+                    ))}
+                    {supplierCheapestOverall.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-gray-400 italic text-sm">
+                          Sem compras no período para calcular “mais barato no geral”.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
             
             <div className="overflow-x-auto">
               <table className="w-full">
