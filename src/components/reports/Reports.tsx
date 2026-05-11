@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { FileText, TrendingUp, TrendingDown, ShoppingCart, AlertTriangle, Package, DollarSign, History, User, ClipboardCheck, RefreshCw, Download, FileSpreadsheet, FileJson, Receipt, CreditCard, PackagePlus } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { jsPDF } from 'jspdf';
@@ -27,7 +27,7 @@ import {
   detectPriceVariation,
   forecastDemand,
 } from '../../utils/calculations';
-import { movementDateYmdLocal } from '../../utils/stockMovementFilters';
+import { movementDateYmdLocal, isBalanceStockIncrease, lineCostAtMovement } from '../../utils/stockMovementFilters';
 
 interface ReportsProps {
   products: Product[];
@@ -248,6 +248,46 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
     !searchQuery || r.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  /** Recebimentos (`stock_entries`) + ganhos de estoque por balanço (`ajuste` &gt; 0), respeitando filtros do relatório. */
+  const entriesDisplayData = useMemo(() => {
+    const apiRows = (entriesData || []).map((e: any) => ({
+      ...e,
+      entrySource: 'recebimento' as const,
+    }));
+    if (selectedSupplier !== 'all') {
+      return apiRows;
+    }
+    const balanceRows = filteredMovements
+      .filter(isBalanceStockIncrease)
+      .filter((m) => selectedProduct === 'all' || m.productId === selectedProduct)
+      .map((m) => {
+        const p = products.find((x) => x.id === m.productId);
+        const qty = Number(m.quantity) || 0;
+        const total = lineCostAtMovement(m, products);
+        const unitPrice = qty > 0 ? total / qty : 0;
+        const d = m.date instanceof Date ? m.date : new Date(m.date);
+        return {
+          id: `balanco:${m.id}`,
+          companyId: m.companyId,
+          productId: m.productId,
+          productName: p?.name || 'Produto desconhecido',
+          measurementUnit: p?.measurementUnit || 'un',
+          supplierId: null as string | null,
+          supplierName: 'Balanço de estoque',
+          quantity: qty,
+          unitPrice,
+          totalPrice: total,
+          entryDate: d,
+          batchNumber: undefined as string | undefined,
+          expirationDate: undefined as Date | undefined,
+          notes: [m.reason, m.notes].filter(Boolean).join(' — ') || undefined,
+          createdAt: m.date,
+          entrySource: 'balanco' as const,
+        };
+      });
+    return [...apiRows, ...balanceRows];
+  }, [entriesData, filteredMovements, products, selectedSupplier, selectedProduct]);
+
   // Get unique categories for filters
   const categories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
 
@@ -267,8 +307,9 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
 
       switch (activeTab) {
         case 'entries':
-          dataToExport = entriesData.map(e => ({
+          dataToExport = entriesDisplayData.map(e => ({
             'Data': formatDate(e.entryDate),
+            'Origem': e.entrySource === 'balanco' ? 'Balanço' : 'Recebimento',
             'Fornecedor': e.supplierName,
             'Produto': e.productName,
             'Quantidade': e.quantity,
@@ -435,9 +476,10 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
 
       switch (activeTab) {
         case 'entries':
-          head = [['Data', 'Fornecedor', 'Produto', 'Qtd', 'Preço Un.', 'Total']];
-          body = entriesData.map(e => [
+          head = [['Data', 'Origem', 'Fornecedor', 'Produto', 'Qtd', 'Preço Un.', 'Total']];
+          body = entriesDisplayData.map(e => [
             formatDate(e.entryDate),
+            e.entrySource === 'balanco' ? 'Balanço' : 'Recebimento',
             e.supplierName,
             e.productName,
             `${e.quantity} ${e.measurementUnit}`,
@@ -926,7 +968,10 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
       {/* Tabs */}
       <div className="bg-white rounded-lg border border-gray-200 p-1 flex gap-1 overflow-x-auto no-scrollbar md:grid md:grid-cols-3 lg:flex lg:overflow-visible">
         <button
-          onClick={() => setActiveTab('entries')}
+          onClick={() => {
+            setCurrentPage(1);
+            setActiveTab('entries');
+          }}
           className={`whitespace-nowrap flex-shrink-0 md:flex-1 px-3 md:px-4 py-2 rounded flex items-center justify-center gap-2 text-xs md:text-sm ${
             activeTab === 'entries' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
           }`}
@@ -935,7 +980,10 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
           Entradas
         </button>
         <button
-          onClick={() => setActiveTab('outputs')}
+          onClick={() => {
+            setCurrentPage(1);
+            setActiveTab('outputs');
+          }}
           className={`whitespace-nowrap flex-shrink-0 md:flex-1 px-3 md:px-4 py-2 rounded flex items-center justify-center gap-2 text-xs md:text-sm ${
             activeTab === 'outputs' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'
           }`}
@@ -1020,11 +1068,12 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
       {/* Entries Tab (NEW) */}
       {activeTab === 'entries' && (
         <EntriesTab
-          data={entriesData}
+          data={entriesDisplayData}
           loading={isLoadingEntries}
           currentPage={currentPage}
           itemsPerPage={itemsPerPage}
           onPageChange={setCurrentPage}
+          sortResetKey={`${startDate}-${endDate}-${selectedSupplier}-${selectedProduct}`}
         />
       )}
 
@@ -1039,6 +1088,7 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
           onPageChange={setCurrentPage}
           reportStartDate={startDate}
           reportEndDate={endDate}
+          sortResetKey={`${startDate}-${endDate}-${searchQuery}-${selectedCategory}-${selectedProduct}`}
         />
       )}
 

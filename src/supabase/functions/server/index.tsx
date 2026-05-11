@@ -3305,7 +3305,7 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
       return c.json({ error: 'Company ID not found' }, 400);
     }
 
-    const limit = parseInt(c.req.query('limit') || '100');
+    const limit = Math.min(parseInt(c.req.query('limit') || '5000', 10) || 5000, 10000);
     const startDate = c.req.query('startDate');
     const endDate = c.req.query('endDate');
     const supplierId = c.req.query('supplierId');
@@ -3314,7 +3314,7 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
     // Build query for stock entries
     let query = supabaseAdmin
       .from('stock_entries')
-      .select('*, suppliers(name), products(name)')
+      .select('*, suppliers(name), products(name, unit)')
       .eq('company_id', companyId)
       .order('entry_date', { ascending: false })
       .limit(limit);
@@ -3352,7 +3352,7 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
       companyId: entry.company_id,
       productId: entry.product_id,
       productName: entry.products?.name || 'Produto desconhecido',
-      measurementUnit: 'un', // Default unit
+      measurementUnit: entry.products?.unit || 'un',
       supplierId: entry.supplier_id,
       supplierName: entry.suppliers?.name || 'Fornecedor desconhecido',
       quantity: parseFloat(entry.quantity),

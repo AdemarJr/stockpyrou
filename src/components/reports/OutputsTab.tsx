@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { PackageX, TrendingDown, Package, AlertCircle, Filter } from 'lucide-react';
 import { ReportCard } from './ReportCard';
 import { ReportTable } from './ReportTable';
@@ -8,6 +8,7 @@ import {
   isAnyStockOutput,
   isExitConsumption,
   lineCostAtMovement,
+  normalizedStockMovementType,
 } from '../../utils/stockMovementFilters';
 import { ZigSaidaComparisonCard } from './ZigSaidaComparisonCard';
 
@@ -21,6 +22,8 @@ interface OutputsTabProps {
   /** Período do relatório (mesmo filtro global) — usado no comparativo ZIG × integração. */
   reportStartDate: string;
   reportEndDate: string;
+  /** Quando filtros globais do relatório mudam, volta à ordem padrão (últimas saídas primeiro). */
+  sortResetKey: string;
 }
 
 type OutputKindFilter =
@@ -28,7 +31,8 @@ type OutputKindFilter =
   | 'consumo'
   | 'saida'
   | 'venda'
-  | 'desperdicio';
+  | 'desperdicio'
+  | 'ajuste';
 
 const FILTER_LABELS: Record<OutputKindFilter, string> = {
   all: 'Todos os tipos',
@@ -36,7 +40,58 @@ const FILTER_LABELS: Record<OutputKindFilter, string> = {
   saida: 'Saída manual',
   venda: 'Venda PDV',
   desperdicio: 'Desperdício',
+  ajuste: 'Balanço / ajuste (baixa)',
 };
+
+function productName(products: Product[], id: string): string {
+  return products.find((p) => p.id === id)?.name ?? '';
+}
+
+function compareOutputRows(
+  a: StockMovement,
+  b: StockMovement,
+  field: string,
+  dir: 'asc' | 'desc',
+  products: Product[],
+): number {
+  const mul = dir === 'asc' ? 1 : -1;
+  switch (field) {
+    case 'date': {
+      const ta = a.date instanceof Date ? a.date.getTime() : new Date(a.date).getTime();
+      const tb = b.date instanceof Date ? b.date.getTime() : new Date(b.date).getTime();
+      return (ta - tb) * mul;
+    }
+    case 'type':
+      return normalizedStockMovementType(a).localeCompare(normalizedStockMovementType(b), 'pt-BR') * mul;
+    case 'productId': {
+      const na = productName(products, a.productId);
+      const nb = productName(products, b.productId);
+      return na.localeCompare(nb, 'pt-BR', { sensitivity: 'base' }) * mul;
+    }
+    case 'quantity': {
+      const qa = Number(a.quantity) || 0;
+      const qb = Number(b.quantity) || 0;
+      return (qa - qb) * mul;
+    }
+    case 'cost': {
+      const ca = lineCostAtMovement(a, products);
+      const cb = lineCostAtMovement(b, products);
+      return (ca - cb) * mul;
+    }
+    case 'reason': {
+      const ra = `${a.reason || ''} ${a.notes || ''}`;
+      const rb = `${b.reason || ''} ${b.notes || ''}`;
+      return ra.localeCompare(rb, 'pt-BR', { sensitivity: 'base' }) * mul;
+    }
+    case 'userId': {
+      const ua = String(a.userId ?? '');
+      const ub = String(b.userId ?? '');
+      return ua.localeCompare(ub, 'pt-BR') * mul;
+    }
+    default:
+      return 0;
+  }
+}
 
 export function OutputsTab({
   movements,
@@ -47,30 +102,38 @@ export function OutputsTab({
   onPageChange,
   reportStartDate,
   reportEndDate,
+  sortResetKey,
 }: OutputsTabProps) {
   const [kindFilter, setKindFilter] = useState<OutputKindFilter>('all');
   const [listSearch, setListSearch] = useState('');
+  const [sortField, setSortField] = useState<string | undefined>();
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  useEffect(() => {
+    setSortField(undefined);
+    setSortDirection('desc');
+  }, [sortResetKey, kindFilter]);
 
   function movementSourceLabel(m: StockMovement): string {
     const text = `${m.reason || ''} ${m.notes || ''}`.toLowerCase();
 
-    // Integração ZIG
     if (text.includes('integração automática zig') || text.includes('integracao automatica zig') || text.includes('venda zig')) {
       return 'Integração (ZIG)';
     }
 
-    // PDV/Caixa
     if (text.includes('venda pdv (caixa)') || text.includes('pdv (caixa)')) {
       return 'PDV (Caixa)';
     }
 
-    // Venda manual (PDV manual / checkout manual)
     if (text.includes('venda manual') || text.includes('venda pdv (manual)')) {
       return 'PDV (Manual)';
     }
 
-    // Baixa manual / ajustes de estoque
-    if (m.type === 'saida' || m.type === 'desperdicio' || m.type === 'ajuste') {
+    if (m.type === 'ajuste') {
+      return 'Balanço / ajuste';
+    }
+
+    if (m.type === 'saida' || m.type === 'desperdicio') {
       return 'Baixa manual';
     }
 
@@ -87,7 +150,7 @@ export function OutputsTab({
     if (kindFilter === 'consumo') {
       list = list.filter(isExitConsumption);
     } else if (kindFilter !== 'all') {
-      list = list.filter((m) => m.type === kindFilter);
+      list = list.filter((m) => normalizedStockMovementType(m) === kindFilter);
     }
     const q = listSearch.trim().toLowerCase();
     if (q) {
@@ -102,8 +165,28 @@ export function OutputsTab({
         );
       });
     }
-    return [...list].sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [baseOutputs, kindFilter, listSearch, products]);
+    const copy = [...list];
+    if (!sortField) {
+      copy.sort((a, b) => {
+        const tb = b.date instanceof Date ? b.date.getTime() : new Date(b.date).getTime();
+        const ta = a.date instanceof Date ? a.date.getTime() : new Date(a.date).getTime();
+        return tb - ta;
+      });
+    } else {
+      copy.sort((a, b) => compareOutputRows(a, b, sortField, sortDirection, products));
+    }
+    return copy;
+  }, [baseOutputs, kindFilter, listSearch, products, sortField, sortDirection]);
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+    onPageChange(1);
+  };
 
   const totalOutputs = outputMovements.length;
   const totalQuantity = outputMovements.reduce((sum, m) => sum + m.quantity, 0);
@@ -145,12 +228,15 @@ export function OutputsTab({
       label: 'Tipo',
       sortable: true,
       render: (value: string) => {
+        const key = String(value || '').toLowerCase().trim();
         const types: Record<string, { label: string; color: string }> = {
           saida: { label: 'Saída', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200' },
           venda: { label: 'Venda', color: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' },
           desperdicio: { label: 'Desperdício', color: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200' },
+          ajuste: { label: 'Ajuste', color: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' },
+          entrada: { label: 'Entrada (baixa)', color: 'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-100' },
         };
-        const type = types[value] || { label: value, color: 'bg-gray-100 text-gray-800' };
+        const type = types[key] || { label: value, color: 'bg-gray-100 text-gray-800' };
         return (
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${type.color}`}>
             {type.label}
@@ -202,6 +288,7 @@ export function OutputsTab({
     {
       key: 'reason',
       label: 'Motivo / observação',
+      sortable: true,
       render: (_value: unknown, row: StockMovement) => (
         <span className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
           {row.reason || row.notes || '—'}
@@ -211,6 +298,7 @@ export function OutputsTab({
     {
       key: 'userId',
       label: 'Usuário',
+      sortable: true,
       render: (value: unknown) => (value as string) || 'Sistema',
     },
   ];
@@ -296,7 +384,7 @@ export function OutputsTab({
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
           Distribuição por tipo (lista filtrada)
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg">
             <p className="text-sm text-blue-800 dark:text-blue-200 font-medium">Saídas</p>
             <p className="text-2xl font-bold text-blue-900 dark:text-blue-100 mt-1">{byType.saida || 0}</p>
@@ -308,6 +396,10 @@ export function OutputsTab({
           <div className="p-4 bg-red-50 dark:bg-red-950/40 rounded-lg">
             <p className="text-sm text-red-800 dark:text-red-200 font-medium">Desperdícios</p>
             <p className="text-2xl font-bold text-red-900 dark:text-red-100 mt-1">{byType.desperdicio || 0}</p>
+          </div>
+          <div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-lg">
+            <p className="text-sm text-amber-900 dark:text-amber-200 font-medium">Ajustes (baixa)</p>
+            <p className="text-2xl font-bold text-amber-950 dark:text-amber-100 mt-1">{byType.ajuste || 0}</p>
           </div>
         </div>
       </div>
@@ -321,6 +413,9 @@ export function OutputsTab({
         totalPages={totalPages}
         onPageChange={onPageChange}
         showPagination={totalPages > 1}
+        sortField={sortField}
+        sortDirection={sortDirection}
+        onSort={handleSort}
       />
     </div>
   );
