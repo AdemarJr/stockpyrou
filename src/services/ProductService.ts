@@ -50,25 +50,22 @@ export class ProductService {
    * Atualiza o estoque de um produto
    */
   static async updateStock(
-    productId: string, 
-    quantity: number, 
+    productId: string,
+    quantityDelta: number,
     newAverageCost?: number
   ): Promise<Product> {
-    const product = await ProductRepository.findById(productId);
-    
-    if (!product) {
+    const before = await ProductRepository.findById(productId);
+    if (!before) {
       throw new Error('Produto não encontrado');
     }
 
-    const updates: Partial<Product> = {
-      currentStock: product.currentStock + quantity,
-    };
+    await ProductRepository.updateStock(productId, quantityDelta, newAverageCost);
 
-    if (newAverageCost !== undefined) {
-      updates.averageCost = newAverageCost;
+    const updated = await ProductRepository.findById(productId);
+    if (!updated) {
+      throw new Error('Produto não encontrado após atualizar estoque');
     }
-
-    return ProductRepository.update(productId, updates);
+    return updated;
   }
 
   /**

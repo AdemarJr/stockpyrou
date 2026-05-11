@@ -878,6 +878,9 @@ function MainApp() {
                 onDuplicate={handleDuplicateProduct}
                 onBulkImport={() => setShowBulkImport(true)}
                 onImportFromFile={handleImportProductsFromFile}
+                onStockAdjusted={async () => {
+                  await refreshData({ silent: true });
+                }}
                 categories={categories}
                 canDelete={user.permissions.canDeleteProducts}
               />

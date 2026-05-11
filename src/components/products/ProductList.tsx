@@ -28,11 +28,25 @@ interface ProductListProps {
   onDuplicate?: (product: Product) => void;
   onBulkImport?: () => void;
   onImportFromFile?: (products: any[]) => void;
+  /** Após baixa de estoque no modal, recarrega produtos e movimentos (evita lista desatualizada). */
+  onStockAdjusted?: () => void | Promise<void>;
   categories: any[];
   canDelete: boolean;
 }
 
-export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDuplicate, onBulkImport, onImportFromFile, categories, canDelete }: ProductListProps) {
+export function ProductList({
+  products,
+  onEdit,
+  onDelete,
+  onView,
+  onAdd,
+  onDuplicate,
+  onBulkImport,
+  onImportFromFile,
+  onStockAdjusted,
+  categories,
+  canDelete,
+}: ProductListProps) {
   const isMobile = useIsMobile();
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -473,11 +487,10 @@ export function ProductList({ products, onEdit, onDelete, onView, onAdd, onDupli
       {adjustingProduct && (
         <StockAdjustmentModal
           product={adjustingProduct}
+          allProducts={products}
           onClose={() => setAdjustingProduct(null)}
-          onSuccess={() => {
-            // A atualização do estado global acontece via App.tsx ou reload
-            // Idealmente passaríamos um callback para refrescar os dados aqui
-            window.location.reload(); 
+          onSuccess={async () => {
+            await onStockAdjusted?.();
           }}
         />
       )}

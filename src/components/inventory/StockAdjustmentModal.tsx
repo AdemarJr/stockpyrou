@@ -10,11 +10,13 @@ import type { Product } from '../../types';
 
 interface StockAdjustmentModalProps {
   product: Product;
+  /** Para exibir nomes dos itens da promoção/combo. */
+  allProducts?: Product[];
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
 }
 
-export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjustmentModalProps) {
+export function StockAdjustmentModal({ product, allProducts = [], onClose, onSuccess }: StockAdjustmentModalProps) {
   const { user } = useAuth();
   const { currentCompany } = useCompany();
   const [quantity, setQuantity] = useState('');
@@ -22,6 +24,12 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
   const [reasonDescription, setReasonDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ quantity?: boolean; reason?: boolean }>({});
+
+  const bundleItems =
+    Array.isArray((product as any).bundleItems) && (product as any).bundleItems.length > 0
+      ? ((product as any).bundleItems as Array<{ productId: string; quantity: number }>)
+      : [];
+  const isBundle = bundleItems.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,14 +42,8 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
     setFieldErrors(err);
     if (Object.keys(err).length > 0) return;
 
-    const bundleItems =
-      Array.isArray((product as any).bundleItems) && (product as any).bundleItems.length > 0
-        ? ((product as any).bundleItems as Array<{ productId: string; quantity: number }>)
-        : [];
-    const isBundle = bundleItems.length > 0;
-
-    // Para produtos em promoção/combo, a baixa ocorre nos itens do combo (pode ficar negativo).
-    // Mantemos a validação "estoque insuficiente" apenas para produtos simples.
+    // Promo/combo: a baixa é aplicada em cada item configurado (não no cadastro “pai”).
+    // Para produtos simples, respeitamos o estoque atual do próprio SKU.
     if (!isBundle && qtd > product.currentStock) {
       toast.error('Estoque insuficiente para esta baixa');
       return;
@@ -74,7 +76,7 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
       }
 
       toast.success('Baixa de estoque realizada com sucesso!');
-      onSuccess();
+      await Promise.resolve(onSuccess());
       onClose();
     } catch (error: any) {
       console.error('Erro ao realizar baixa:', error);
@@ -99,7 +101,24 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
              <AlertTriangle className="w-5 h-5 text-blue-600 mt-0.5" />
              <div>
                 <p className="font-medium text-blue-900">{product.name}</p>
-                <p className="text-sm text-blue-700">Estoque atual: {product.currentStock} {product.measurementUnit}</p>
+                <p className="text-sm text-blue-700">
+                  {isBundle
+                    ? 'Promoção/combo: o estoque exibido acima é do cadastro promocional; a baixa será aplicada nos produtos vinculados abaixo.'
+                    : `Estoque atual: ${product.currentStock} ${product.measurementUnit}`}
+                </p>
+                {isBundle && (
+                  <ul className="mt-2 text-xs text-blue-800 list-disc list-inside space-y-0.5">
+                    {bundleItems.map((b, i) => {
+                      const name =
+                        allProducts.find((p) => p.id === b.productId)?.name || 'Produto vinculado';
+                      return (
+                        <li key={`${b.productId}-${i}`}>
+                          {name}: desconta {b.quantity} por cada 1 unidade baixada nesta promoção
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
              </div>
           </div>
 
@@ -142,7 +161,7 @@ export function StockAdjustmentModal({ product, onClose, onSuccess }: StockAdjus
                 type="number"
                 step="0.01"
                 min="0.01"
-                max={product.currentStock}
+                max={isBundle ? undefined : product.currentStock}
                 value={quantity}
                 onChange={(e) => {
                   setQuantity(e.target.value);
