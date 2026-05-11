@@ -13,7 +13,8 @@ interface StockAdjustmentModalProps {
   /** Para exibir nomes dos itens da promoção/combo. */
   allProducts?: Product[];
   onClose: () => void;
-  onSuccess: () => void | Promise<void>;
+  /** Produtos cujo `currentStock` já foi persistido no banco — para atualizar a lista na hora. */
+  onSuccess: (updatedProducts: Product[]) => void | Promise<void>;
 }
 
 export function StockAdjustmentModal({ product, allProducts = [], onClose, onSuccess }: StockAdjustmentModalProps) {
@@ -51,11 +52,12 @@ export function StockAdjustmentModal({ product, allProducts = [], onClose, onSuc
 
     setIsSubmitting(true);
     try {
+      const updatedProducts: Product[] = [];
       if (isBundle) {
         for (const b of bundleItems) {
           const q = (Number(b.quantity) || 0) * qtd;
           if (!b.productId || !Number.isFinite(q) || q <= 0) continue;
-          await StockService.processStockOutput(
+          const { product: p } = await StockService.processStockOutput(
             currentCompany.id,
             b.productId,
             q,
@@ -63,9 +65,10 @@ export function StockAdjustmentModal({ product, allProducts = [], onClose, onSuc
             reasonType,
             user.id
           );
+          updatedProducts.push(p);
         }
       } else {
-        await StockService.processStockOutput(
+        const { product: p } = await StockService.processStockOutput(
           currentCompany.id,
           product.id,
           qtd,
@@ -73,10 +76,16 @@ export function StockAdjustmentModal({ product, allProducts = [], onClose, onSuc
           reasonType,
           user.id
         );
+        updatedProducts.push(p);
+      }
+
+      if (updatedProducts.length === 0) {
+        toast.error('Não foi possível aplicar a baixa: verifique os itens da promoção/combo.');
+        return;
       }
 
       toast.success('Baixa de estoque realizada com sucesso!');
-      await Promise.resolve(onSuccess());
+      await Promise.resolve(onSuccess(updatedProducts));
       onClose();
     } catch (error: any) {
       console.error('Erro ao realizar baixa:', error);

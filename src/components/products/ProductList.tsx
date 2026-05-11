@@ -29,7 +29,8 @@ interface ProductListProps {
   onBulkImport?: () => void;
   onImportFromFile?: (products: any[]) => void;
   /** Após baixa de estoque no modal, recarrega produtos e movimentos (evita lista desatualizada). */
-  onStockAdjusted?: () => void | Promise<void>;
+  /** Recebe os produtos já atualizados no banco após a baixa (merge na lista). */
+  onStockAdjusted?: (updated: Product[]) => void | Promise<void>;
   categories: any[];
   canDelete: boolean;
 }
@@ -489,8 +490,8 @@ export function ProductList({
           product={adjustingProduct}
           allProducts={products}
           onClose={() => setAdjustingProduct(null)}
-          onSuccess={async () => {
-            await onStockAdjusted?.();
+          onSuccess={async (updated) => {
+            await onStockAdjusted?.(updated);
           }}
         />
       )}

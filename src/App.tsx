@@ -878,7 +878,13 @@ function MainApp() {
                 onDuplicate={handleDuplicateProduct}
                 onBulkImport={() => setShowBulkImport(true)}
                 onImportFromFile={handleImportProductsFromFile}
-                onStockAdjusted={async () => {
+                onStockAdjusted={async (updated) => {
+                  if (updated.length > 0) {
+                    setProducts((prev) => {
+                      const byId = new Map(updated.map((p) => [p.id, p]));
+                      return prev.map((p) => byId.get(p.id) ?? p);
+                    });
+                  }
                   await refreshData({ silent: true });
                 }}
                 categories={categories}

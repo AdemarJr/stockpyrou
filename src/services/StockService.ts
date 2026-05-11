@@ -2,7 +2,7 @@ import { StockRepository } from '../repositories/StockRepository';
 import { ProductService } from './ProductService';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { PriceHistoryRepository } from '../repositories/PriceHistoryRepository';
-import type { StockEntry, StockMovement } from '../types';
+import type { Product, StockEntry, StockMovement } from '../types';
 import { formatCurrency } from '../utils/calculations';
 
 /**
@@ -82,27 +82,29 @@ export class StockService {
     reason: string,
     type: 'saida' | 'venda' | 'desperdicio' = 'saida',
     userId?: string
-  ): Promise<StockMovement> {
+  ): Promise<{ movement: StockMovement; product: Product }> {
     if (quantity <= 0) {
       throw new Error('Quantidade deve ser maior que zero');
     }
 
-    // Verificar se há estoque suficiente
     const product = await ProductRepository.findById(productId);
 
     if (!product) {
       throw new Error('Produto não encontrado');
     }
-    
+
     if (product.companyId !== companyId) {
       throw new Error('Produto não pertence à empresa selecionada');
     }
 
-    // Atualizar estoque (pode ficar negativo)
     await ProductService.updateStock(productId, -quantity);
 
-    // Criar movimentação
-    return StockRepository.createMovement({
+    const updatedProduct = await ProductRepository.findById(productId);
+    if (!updatedProduct) {
+      throw new Error('Produto não encontrado após baixa de estoque');
+    }
+
+    const movement = await StockRepository.createMovement({
       companyId,
       productId,
       type,
@@ -111,6 +113,8 @@ export class StockService {
       cost: product.averageCost * quantity,
       userId,
     });
+
+    return { movement, product: updatedProduct };
   }
 
   /**
