@@ -979,7 +979,16 @@ function MainApp() {
              <CashRegister />
           )}
           {currentPage === 'reports' && user.permissions.canViewReports && (
-             <Reports products={products} movements={movements} recipes={[]} suppliers={suppliers} priceHistory={priceHistory} />
+             <Reports
+               products={products}
+               movements={movements}
+               recipes={[]}
+               suppliers={suppliers}
+               priceHistory={priceHistory}
+               onProductsRefreshRequested={async () => {
+                 await refreshData({ silent: true });
+               }}
+             />
           )}
           {currentPage === 'costs' && user.permissions.canViewReports && (
              <CostDashboard />

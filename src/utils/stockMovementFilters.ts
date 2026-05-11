@@ -54,3 +54,15 @@ export function lineCostAtMovement(m: StockMovement, products: Product[]): numbe
   const p = products.find((x) => x.id === m.productId);
   return Math.abs(q) * (p?.averageCost ?? 0);
 }
+
+/**
+ * Efeito da movimentação no saldo de estoque (para somar histórico e bater com `products.current_stock`).
+ * Convenção: entrada/ajuste somam `quantity`; saída/venda/desperdício subtraem o módulo da quantidade.
+ */
+export function movementLedgerDelta(m: StockMovement): number {
+  const t = normalizedStockMovementType(m);
+  const q = Number(m.quantity) || 0;
+  if (t === "entrada" || t === "ajuste") return q;
+  if (t === "saida" || t === "venda" || t === "desperdicio") return -Math.abs(q);
+  return 0;
+}

@@ -27,7 +27,12 @@ import {
   detectPriceVariation,
   forecastDemand,
 } from '../../utils/calculations';
-import { movementDateYmdLocal, isBalanceStockIncrease, lineCostAtMovement } from '../../utils/stockMovementFilters';
+import {
+  movementDateYmdLocal,
+  isBalanceStockIncrease,
+  lineCostAtMovement,
+  movementLedgerDelta,
+} from '../../utils/stockMovementFilters';
 
 interface ReportsProps {
   products: Product[];
@@ -35,11 +40,20 @@ interface ReportsProps {
   recipes: Recipe[];
   suppliers: Supplier[];
   priceHistory: PriceHistory[];
+  /** Após corrigir estoque na Revisão, atualiza produtos na aplicação (evita F5). */
+  onProductsRefreshRequested?: () => void | Promise<void>;
 }
 
 type AllTabTypes = TabType | 'outputs';
 
-export function Reports({ products, movements, recipes, suppliers, priceHistory }: ReportsProps) {
+export function Reports({
+  products,
+  movements,
+  recipes,
+  suppliers,
+  priceHistory,
+  onProductsRefreshRequested,
+}: ReportsProps) {
   const { user } = useAuth();
   const { currentCompany } = useCompany();
   const [activeTab, setActiveTab] = useState<AllTabTypes>('entries');
@@ -373,11 +387,12 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
         case 'audit':
           dataToExport = auditData.map(d => ({
             'Produto': d.product.name,
-            'Estoque Calculado': d.calculatedStock,
-            'Estoque Atual': d.currentStock,
+            'Estoque Calculado (histórico)': d.calculatedStock,
+            'Estoque Atual (cadastro)': d.currentStock,
             'Diferença': d.diff.toFixed(2),
             'Status': d.isDiscrepancy ? 'Divergente' : 'OK',
-            'Movimentações': d.movementsCount
+            'Mov. histórico completo': d.movementsCount,
+            'Mov. no período filtrado': d.movementsInPeriodCount,
           }));
           break;
         case 'sales':
@@ -606,16 +621,9 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
     try {
       setFixing(product.id);
       const diff = expectedStock - product.currentStock;
-      
-      // We update the stock to match expected. 
-      // ProductService.updateStock adds to current. So we pass the difference.
-      // If expected 10, current 8. Diff = 2. New = 8 + 2 = 10.
       await ProductService.updateStock(product.id, diff);
-      
       toast.success(`Estoque de ${product.name} corrigido para ${expectedStock} ${product.measurementUnit}`);
-      
-      // Reload to reflect changes
-      setTimeout(() => window.location.reload(), 1500);
+      await Promise.resolve(onProductsRefreshRequested?.());
     } catch (error: any) {
       toast.error(`Erro ao corrigir estoque: ${error.message}`);
     } finally {
@@ -623,32 +631,47 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
     }
   };
 
-  // Audit / Consistency Check
-  const auditData = filteredProducts.map(product => {
-    const productMovements = filteredMovements.filter(m => m.productId === product.id);
-    
-    const calculatedStock = productMovements.reduce((acc, m) => {
-      if (m.type === 'entrada') return acc + m.quantity;
-      if (m.type === 'ajuste') return acc + m.quantity; // Ajuste can be negative
-      return acc - m.quantity; // saida, venda, desperdicio
-    }, 0);
-    
-    // Fix floating point precision issues
+  const handleFixAllDiscrepancies = async () => {
+    const rows = auditData.filter((d) => d.isDiscrepancy);
+    if (rows.length === 0) return;
+    try {
+      setFixing('__bulk__');
+      for (const d of rows) {
+        const diff = d.calculatedStock - d.product.currentStock;
+        await ProductService.updateStock(d.product.id, diff);
+      }
+      toast.success(`${rows.length} produto(s) alinhado(s) ao estoque calculado pelo histórico.`);
+      await Promise.resolve(onProductsRefreshRequested?.());
+    } catch (error: any) {
+      toast.error(`Erro ao corrigir em lote: ${error.message}`);
+    } finally {
+      setFixing(null);
+    }
+  };
+
+  // Audit / Consistency Check — "Calculado" usa TODO o histórico de movimentos (não só o período do filtro).
+  const auditData = filteredProducts.map((product) => {
+    const productMovementsAll = movements.filter((m) => m.productId === product.id);
+    const productMovementsInPeriod = filteredMovements.filter((m) => m.productId === product.id);
+
+    const calculatedStock = productMovementsAll.reduce((acc, m) => acc + movementLedgerDelta(m), 0);
+
     const roundedCalculated = Math.round(calculatedStock * 10000) / 10000;
     const roundedCurrent = Math.round(product.currentStock * 10000) / 10000;
-    
+
     const diff = roundedCurrent - roundedCalculated;
     const isDiscrepancy = Math.abs(diff) > 0.001;
-    
+
     return {
       product,
       calculatedStock: roundedCalculated,
       currentStock: roundedCurrent,
       diff,
       isDiscrepancy,
-      movementsCount: productMovements.length
+      movementsCount: productMovementsAll.length,
+      movementsInPeriodCount: productMovementsInPeriod.length,
     };
-  }).sort((a, b) => (b.isDiscrepancy ? 1 : 0) - (a.isDiscrepancy ? 1 : 0)); // Show discrepancies first
+  }).sort((a, b) => (b.isDiscrepancy ? 1 : 0) - (a.isDiscrepancy ? 1 : 0));
 
   // Cost Performance Report
   const recipeProfitData = filteredRecipes.map(recipe => ({
@@ -1796,11 +1819,25 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
                   Revisão de Consistência de Estoque
                 </h3>
                 <p className="text-gray-600 mt-1 text-sm">
-                  Comparação do estoque atual (A) com o histórico de movimentações (B) no período.
+                  Compara o estoque gravado no cadastro (A) com a soma de <strong>todas</strong> as movimentações
+                  registradas (B). O filtro de datas afeta só a busca e a lista de produtos; o cálculo (B) usa o
+                  histórico completo para bater com o estoque real.
                 </p>
               </div>
-              <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg text-sm">
-                <strong>{auditData.filter(d => d.isDiscrepancy).length}</strong> inconsistências filtradas
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg text-sm">
+                  <strong>{auditData.filter((d) => d.isDiscrepancy).length}</strong> inconsistências
+                </div>
+                {auditData.some((d) => d.isDiscrepancy) && (
+                  <button
+                    type="button"
+                    onClick={() => void handleFixAllDiscrepancies()}
+                    disabled={fixing !== null}
+                    className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {fixing === '__bulk__' ? 'Corrigindo…' : 'Corrigir todas as divergências'}
+                  </button>
+                )}
               </div>
             </div>
             
@@ -1822,7 +1859,10 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
                       <td className="px-4 py-3 font-medium text-sm">
                         {data.product.name}
                         <div className="text-xs text-gray-500 font-normal">
-                          {data.movementsCount} movimentações no período
+                          {data.movementsCount} mov. no histórico completo
+                          {data.movementsInPeriodCount !== data.movementsCount ? (
+                            <> · {data.movementsInPeriodCount} no período filtrado</>
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right text-sm">
@@ -1849,8 +1889,8 @@ export function Reports({ products, movements, recipes, suppliers, priceHistory 
                       <td className="px-4 py-3 text-center">
                         {data.isDiscrepancy && (
                           <button
-                            onClick={() => handleFixStock(data.product, data.calculatedStock)}
-                            disabled={fixing === data.product.id}
+                            onClick={() => void handleFixStock(data.product, data.calculatedStock)}
+                            disabled={fixing !== null}
                             className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 disabled:bg-blue-300 flex items-center gap-1 mx-auto"
                           >
                             {fixing === data.product.id ? (
