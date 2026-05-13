@@ -66,19 +66,19 @@ export function Reports({
   const [isLoadingClosures, setIsLoadingClosures] = useState(false);
   const [isLoadingEntries, setIsLoadingEntries] = useState(false);
   
-  // Filters and Pagination
+  // Filters and Pagination (datas civis locais — alinhadas ao filtro de movimentações e ao período BR no servidor)
   const [startDate, setStartDate] = useState<string>(() => {
     const d = new Date();
-    d.setMonth(d.getMonth() - 1); // Último mês por padrão
-    return d.toISOString().split('T')[0];
+    d.setMonth(d.getMonth() - 1);
+    return movementDateYmdLocal({ date: d });
   });
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState<string>(() => movementDateYmdLocal({ date: new Date() }));
   const [draftStartDate, setDraftStartDate] = useState<string>(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 1);
-    return d.toISOString().split('T')[0];
+    return movementDateYmdLocal({ date: d });
   });
-  const [draftEndDate, setDraftEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [draftEndDate, setDraftEndDate] = useState<string>(() => movementDateYmdLocal({ date: new Date() }));
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');

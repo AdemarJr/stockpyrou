@@ -3279,6 +3279,31 @@ app.get("/make-server-8a20b27d/reports/closures", async (c) => {
   }
 });
 
+/** Próximo dia civil a partir de YYYY-MM-DD (soma 1 dia no calendário gregoriano em UTC). */
+function addOneCalendarDayYmd(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!m) return ymd;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const u = new Date(Date.UTC(y, mo - 1, d));
+  u.setUTCDate(u.getUTCDate() + 1);
+  return `${u.getUTCFullYear()}-${String(u.getUTCMonth() + 1).padStart(2, '0')}-${String(u.getUTCDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Início do dia civil em America/Sao_Paulo (UTC−3, sem horário de verão desde 2019) em ISO UTC.
+ * Usado com datas YYYY-MM-DD vindas do relatório (calendário local do usuário no Brasil).
+ */
+function brCalendarDayStartUtcIso(ymd: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(Date.UTC(y, mo - 1, d, 3, 0, 0, 0)).toISOString();
+}
+
 // Get stock entries for reports (NEW)
 app.get("/make-server-8a20b27d/reports/entries", async (c) => {
   try {
@@ -3319,12 +3344,15 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
       .order('entry_date', { ascending: false })
       .limit(limit);
 
-    // Apply date filters if provided
-    if (startDate) {
-      query = query.gte('entry_date', startDate);
+    // Período inclusivo no calendário BR: evita lte('YYYY-MM-DD') que no PostgREST vira meia-noite UTC
+    // e esconde recebimentos do próprio dia (entry_date é timestamptz).
+    const startUtc = startDate ? brCalendarDayStartUtcIso(String(startDate)) : null;
+    const endExclusiveUtc = endDate ? brCalendarDayStartUtcIso(addOneCalendarDayYmd(String(endDate))) : null;
+    if (startUtc) {
+      query = query.gte('entry_date', startUtc);
     }
-    if (endDate) {
-      query = query.lte('entry_date', endDate);
+    if (endExclusiveUtc) {
+      query = query.lt('entry_date', endExclusiveUtc);
     }
     if (supplierId) {
       query = query.eq('supplier_id', supplierId);
