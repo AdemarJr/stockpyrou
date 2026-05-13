@@ -985,6 +985,7 @@ function MainApp() {
                recipes={[]}
                suppliers={suppliers}
                priceHistory={priceHistory}
+               stockEntries={stockEntries}
                onProductsRefreshRequested={async () => {
                  await refreshData({ silent: true });
                }}

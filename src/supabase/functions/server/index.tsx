@@ -3336,13 +3336,11 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
     const supplierId = c.req.query('supplierId');
     const productId = c.req.query('productId');
     
-    // Build query for stock entries
+    // Filtros e ordenação: aplicar WHERE antes de ORDER BY + LIMIT (evita surpresas no PostgREST).
     let query = supabaseAdmin
       .from('stock_entries')
       .select('*, suppliers(name), products(name, unit)')
-      .eq('company_id', companyId)
-      .order('entry_date', { ascending: false })
-      .limit(limit);
+      .eq('company_id', companyId);
 
     // Período inclusivo no calendário BR: evita lte('YYYY-MM-DD') que no PostgREST vira meia-noite UTC
     // e esconde recebimentos do próprio dia (entry_date é timestamptz).
@@ -3360,6 +3358,8 @@ app.get("/make-server-8a20b27d/reports/entries", async (c) => {
     if (productId) {
       query = query.eq('product_id', productId);
     }
+
+    query = query.order('entry_date', { ascending: false }).limit(limit);
 
     const { data: entries, error: queryError } = await query;
 

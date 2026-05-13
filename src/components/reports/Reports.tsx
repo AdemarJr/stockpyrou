@@ -4,7 +4,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import type { Product, StockMovement, Recipe, Supplier, PriceHistory } from '../../types';
+import type { Product, StockMovement, Recipe, Supplier, PriceHistory, StockEntry } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { ProductService } from '../../services/ProductService';
@@ -40,6 +40,8 @@ interface ReportsProps {
   recipes: Recipe[];
   suppliers: Supplier[];
   priceHistory: PriceHistory[];
+  /** Mesmo índice do histórico de recebimento — garante que Entradas no relatório bate com a tela Recebimento. */
+  stockEntries: StockEntry[];
   /** Após corrigir estoque na Revisão, atualiza produtos na aplicação (evita F5). */
   onProductsRefreshRequested?: () => void | Promise<void>;
 }
@@ -52,6 +54,7 @@ export function Reports({
   recipes,
   suppliers,
   priceHistory,
+  stockEntries,
   onProductsRefreshRequested,
 }: ReportsProps) {
   const { user } = useAuth();
@@ -61,10 +64,8 @@ export function Reports({
   const [isExporting, setIsExporting] = useState(false);
   const [salesData, setSalesData] = useState<any[]>([]);
   const [closuresData, setClosuresData] = useState<any[]>([]);
-  const [entriesData, setEntriesData] = useState<any[]>([]);
   const [isLoadingSales, setIsLoadingSales] = useState(false);
   const [isLoadingClosures, setIsLoadingClosures] = useState(false);
-  const [isLoadingEntries, setIsLoadingEntries] = useState(false);
   
   // Filters and Pagination (datas civis locais — alinhadas ao filtro de movimentações e ao período BR no servidor)
   const [startDate, setStartDate] = useState<string>(() => {
@@ -174,54 +175,14 @@ export function Reports({
     }
   };
 
-  // Fetch entries data (NEW)
-  const fetchEntries = async () => {
-    if (!user?.accessToken || !currentCompany?.id) return;
-    
-    setIsLoadingEntries(true);
-    try {
-      const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'X-Custom-Token': user.accessToken,
-        'X-Company-Id': currentCompany.id,
-      };
-
-      const params = new URLSearchParams();
-      params.append('startDate', startDate);
-      params.append('endDate', endDate);
-      if (selectedSupplier !== 'all') params.append('supplierId', selectedSupplier);
-      if (selectedProduct !== 'all') params.append('productId', selectedProduct);
-
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/reports/entries?${params}`,
-        { headers }
-      );
-
-      const data = await response.json();
-      if (data.error) {
-        toast.error(data.error);
-        return;
-      }
-
-      setEntriesData(data.entries || []);
-    } catch (error) {
-      console.error('Error fetching entries:', error);
-      toast.error('Erro ao buscar entradas');
-    } finally {
-      setIsLoadingEntries(false);
-    }
-  };
-
-  // Load data when tab changes or dates change
+  // Load data when tab changes or dates change (vendas/fechamentos; entradas vêm de `stockEntries`)
   useEffect(() => {
-    if (activeTab === 'entries') {
-      fetchEntries();
-    } else if (activeTab === 'sales') {
+    if (activeTab === 'sales') {
       fetchSales();
     } else if (activeTab === 'closures') {
       fetchClosures();
     }
-  }, [activeTab, startDate, endDate, selectedSupplier, selectedProduct]);
+  }, [activeTab, startDate, endDate]);
 
   // Filter Data based on dates and search (data civil local — alinha com o calendário do usuário)
   const filteredMovements = movements.filter(m => {
@@ -262,12 +223,41 @@ export function Reports({
     !searchQuery || r.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  /** Recebimentos (`stock_entries`) + ganhos de estoque por balanço (`ajuste` &gt; 0), respeitando filtros do relatório. */
+  /** Recebimentos (mesmo `stockEntries` do histórico) + ganhos de estoque por balanço (`ajuste` &gt; 0). */
   const entriesDisplayData = useMemo(() => {
-    const apiRows = (entriesData || []).map((e: any) => ({
-      ...e,
-      entrySource: 'recebimento' as const,
-    }));
+    const recebimentoRows = (stockEntries || [])
+      .filter((e) => {
+        const d = e.entryDate instanceof Date ? e.entryDate : new Date(e.entryDate);
+        const ymd = movementDateYmdLocal({ date: d });
+        if (!ymd || ymd < startDate || ymd > endDate) return false;
+        if (selectedSupplier !== 'all' && e.supplierId !== selectedSupplier) return false;
+        if (selectedProduct !== 'all' && e.productId !== selectedProduct) return false;
+        return true;
+      })
+      .map((e) => {
+        const p = products.find((x) => x.id === e.productId);
+        const s = e.supplierId ? suppliers.find((x) => x.id === e.supplierId) : undefined;
+        return {
+          id: e.id,
+          companyId: e.companyId,
+          productId: e.productId,
+          productName: p?.name || 'Produto desconhecido',
+          measurementUnit: p?.measurementUnit || 'un',
+          supplierId: e.supplierId ?? null,
+          supplierName: s?.name || 'Fornecedor desconhecido',
+          quantity: e.quantity,
+          unitPrice: e.unitPrice,
+          totalPrice: e.totalPrice,
+          entryDate: e.entryDate instanceof Date ? e.entryDate : new Date(e.entryDate),
+          batchNumber: e.batchNumber,
+          expirationDate: e.expirationDate,
+          notes: e.notes,
+          createdAt: e.entryDate instanceof Date ? e.entryDate : new Date(e.entryDate),
+          entrySource: 'recebimento' as const,
+        };
+      });
+
+    const apiRows = recebimentoRows;
     if (selectedSupplier !== 'all') {
       return apiRows;
     }
@@ -300,7 +290,16 @@ export function Reports({
         };
       });
     return [...apiRows, ...balanceRows];
-  }, [entriesData, filteredMovements, products, selectedSupplier, selectedProduct]);
+  }, [
+    stockEntries,
+    startDate,
+    endDate,
+    filteredMovements,
+    products,
+    suppliers,
+    selectedSupplier,
+    selectedProduct,
+  ]);
 
   // Get unique categories for filters
   const categories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
@@ -1092,7 +1091,7 @@ export function Reports({
       {activeTab === 'entries' && (
         <EntriesTab
           data={entriesDisplayData}
-          loading={isLoadingEntries}
+          loading={false}
           currentPage={currentPage}
           itemsPerPage={itemsPerPage}
           onPageChange={setCurrentPage}
