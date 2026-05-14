@@ -4,7 +4,7 @@ import { ZigIntegrationSettings } from '../sales/ZigIntegrationSettings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 
 interface IntegrationsPageProps {
-  onSyncComplete?: () => void;
+  onSyncComplete?: () => void | Promise<void>;
 }
 
 export function IntegrationsPage({ onSyncComplete }: IntegrationsPageProps) {

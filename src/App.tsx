@@ -968,15 +968,25 @@ function MainApp() {
              <POS
                products={products}
                recipes={[]}
-               onSaleComplete={() => void refreshData({ silent: true })}
+               onSaleComplete={async () => {
+                 await refreshData({ silent: true });
+               }}
                onOpenIntegrations={() => setCurrentPage('integrations')}
              />
           )}
           {currentPage === 'integrations' && user.permissions.canManageStock && (
-            <IntegrationsPage onSyncComplete={() => void refreshData({ silent: true })} />
+            <IntegrationsPage
+              onSyncComplete={async () => {
+                await refreshData({ silent: true });
+              }}
+            />
           )}
           {currentPage === 'cashier' && (
-             <CashRegister />
+             <CashRegister
+               onInventoryChanged={async () => {
+                 await refreshData({ silent: true });
+               }}
+             />
           )}
           {currentPage === 'reports' && user.permissions.canViewReports && (
              <Reports

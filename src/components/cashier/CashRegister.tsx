@@ -26,9 +26,11 @@ import { SaleReceipt } from './SaleReceipt';
 
 interface CashRegisterProps {
   onBack?: () => void;
+  /** Atualiza produtos/movimentos/entradas no app inteiro após venda no caixa (lista de produtos, dashboard, etc.). */
+  onInventoryChanged?: () => void | Promise<void>;
 }
 
-export function CashRegister({ onBack }: CashRegisterProps) {
+export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) {
   const { user } = useAuth();
   const { currentCompany } = useCompany();
   const [currentRegister, setCurrentRegister] = useState<any>(null);
@@ -195,6 +197,7 @@ export function CashRegister({ onBack }: CashRegisterProps) {
     
     // Refresh register data in background
     await checkCurrentRegister();
+    await onInventoryChanged?.();
   };
 
   const handleCloseReceipt = () => {

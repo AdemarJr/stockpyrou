@@ -29,7 +29,7 @@ import { formatCurrency, formatQuantity } from '../../utils/calculations';
 
 interface CashierPOSProps {
   register: { id: string; companyId?: string; [key: string]: unknown };
-  onSaleComplete: (saleData: any) => void;
+  onSaleComplete: (saleData: any) => void | Promise<void>;
 }
 
 interface CartItem {
@@ -477,12 +477,11 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       setPaymentMethod('money');
       setFiadoCustomerName('');
       
-      // Reload products
+      // Reload products (lista local do caixa)
       console.log('🔄 Reloading products...');
       loadProducts();
-      
-      // Notify parent to refresh register data and show receipt
-      onSaleComplete(completedSaleData);
+
+      await onSaleComplete(completedSaleData);
 
     } catch (error) {
       console.error('💥 Error finalizing sale:', error);

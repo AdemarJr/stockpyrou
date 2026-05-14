@@ -77,7 +77,7 @@ type BaixaReportRow = {
   lines: number;
 };
 
-export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void }) {
+export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void | Promise<void> }) {
   const { currentCompany } = useCompany();
 
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -493,7 +493,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
       setProductSearch('');
       setShowOnlyNotFound(false);
       
-      if (onSyncComplete) onSyncComplete();
+      await onSyncComplete?.();
       
     } catch (error: any) {
       console.error('Confirm error:', error);

@@ -15,7 +15,7 @@ import { projectId, publicAnonKey } from '../../utils/supabase/env';
 interface POSProps {
   products: Product[];
   recipes: any[]; // Recipes removed, keeping for compatibility
-  onSaleComplete?: () => void;
+  onSaleComplete?: () => void | Promise<void>;
   /** Abre a tela Integrações (ZIG e futuras conexões). */
   onOpenIntegrations?: () => void;
 }
@@ -502,7 +502,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       
       // Atualiza os dados se a função callback foi fornecida
       if (onSaleComplete) {
-        onSaleComplete();
+        await onSaleComplete();
       }
 
     } catch (error: any) {

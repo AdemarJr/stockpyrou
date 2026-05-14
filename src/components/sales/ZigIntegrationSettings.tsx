@@ -12,7 +12,7 @@ interface ZigStore {
   name: string;
 }
 
-export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: () => void }) {
+export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: () => void | Promise<void> }) {
   const { currentCompany } = useCompany();
 
   const [stores, setStores] = useState<ZigStore[]>([]);
@@ -189,7 +189,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
       } else {
         toast.success(data.message || `Processado: ${data.processed ?? 0} grupo(s).`);
       }
-      if (onSyncComplete) onSyncComplete();
+      await onSyncComplete?.();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(message || 'Erro na baixa automática');
@@ -238,7 +238,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
       setHasTokenOnServer(true);
       if (tok) setTokenMasked(`${tok.slice(0, 4)}…${tok.slice(-4)}`);
       setZigToken('');
-      if (onSyncComplete) onSyncComplete();
+      await onSyncComplete?.();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`Erro: ${message}`);
