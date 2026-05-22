@@ -1,6 +1,6 @@
 import type { Product, StockMovement } from '../types';
 
-/** Data civil local da movimentação (evita deslocar o dia com `toISOString()` em UTC). */
+/** Data civil local (evita deslocar o dia com `toISOString()` em UTC). */
 export function movementDateYmdLocal(m: { date: Date }): string {
   const d = m.date instanceof Date ? m.date : new Date(m.date);
   if (Number.isNaN(d.getTime())) return "";
@@ -8,6 +8,19 @@ export function movementDateYmdLocal(m: { date: Date }): string {
   const mo = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${mo}-${day}`;
+}
+
+/** Mesma regra para `entryDate` de recebimentos (`stock_entries`). */
+export function entryDateYmdLocal(entryDate: Date | string | undefined | null): string {
+  if (entryDate == null) return "";
+  if (typeof entryDate === "string") {
+    const raw = entryDate.trim();
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+    if (m) return m[1];
+  }
+  return movementDateYmdLocal({
+    date: entryDate instanceof Date ? entryDate : new Date(entryDate),
+  });
 }
 
 export function normalizedStockMovementType(m: Pick<StockMovement, "type">): string {

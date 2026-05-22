@@ -10,6 +10,7 @@ import { Button } from '../ui/button';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 import { usePagination } from '../../hooks/usePagination';
 import { toast } from 'sonner@2.0.3';
+import { entryDateYmdLocal } from '../../utils/stockMovementFilters';
 
 interface StockEntryListProps {
   entries: StockEntry[];
@@ -27,7 +28,9 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
   const safeSuppliers = Array.isArray(suppliers) ? suppliers : [];
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
-  /** Datas aplicadas na lista. */
+  /** Rascunho no formulário; só filtra após «Aplicar» (evita “sumir” linhas ao digitar a data). */
+  const [draftDateFrom, setDraftDateFrom] = useState('');
+  const [draftDateTo, setDraftDateTo] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   
@@ -43,21 +46,9 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
         (entry.batchNumber?.toLowerCase().includes(q) ?? false) ||
         (supplier?.name.toLowerCase().includes(q) ?? false);
       const matchesSupplier = filterSupplier ? entry.supplierId === filterSupplier : true;
-      // Evita bug de fuso (toISOString pode "virar o dia" e quebrar filtro por período).
-      const entryDateVal = (entry as any).entryDate;
-      const entryDayRaw =
-        typeof entryDateVal === 'string' ? entryDateVal.split('T')[0] : '';
-      const entryDay = (() => {
-        if (entryDayRaw && /^\d{4}-\d{2}-\d{2}$/.test(entryDayRaw)) return entryDayRaw;
-        if (entryDateVal instanceof Date) return entryDateVal.toISOString().split('T')[0];
-        try {
-          return new Date(entryDateVal).toISOString().split('T')[0];
-        } catch {
-          return '';
-        }
-      })();
-      const matchesFrom = !dateFrom || entryDay >= dateFrom;
-      const matchesTo = !dateTo || entryDay <= dateTo;
+      const entryDay = entryDateYmdLocal(entry.entryDate);
+      const matchesFrom = !dateFrom || (entryDay !== '' && entryDay >= dateFrom);
+      const matchesTo = !dateTo || (entryDay !== '' && entryDay <= dateTo);
       return matchesSearch && matchesSupplier && matchesFrom && matchesTo;
     });
   }, [safeEntries, safeProducts, safeSuppliers, searchTerm, filterSupplier, dateFrom, dateTo]);
@@ -67,13 +58,16 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
     usePagination(filteredEntries, 12, filterKey);
 
   const applyDateFilters = useCallback(() => {
-    if (dateFrom && dateTo && dateFrom > dateTo) {
+    if (draftDateFrom && draftDateTo && draftDateFrom > draftDateTo) {
       toast.error('A data inicial deve ser anterior ou igual à data final.');
       return;
     }
-    // UX: quando filtra, volta pra primeira página (senão parece que "não filtrou").
+    setDateFrom(draftDateFrom);
+    setDateTo(draftDateTo);
     setPage(1);
-  }, [dateFrom, dateTo, setPage]);
+  }, [draftDateFrom, draftDateTo, setPage]);
+
+  const hasActiveDateFilter = Boolean(dateFrom || dateTo);
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm mt-8">
@@ -119,11 +113,8 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                 <Label className="text-xs text-gray-500">Recebimento de</Label>
                 <Input
                   type="date"
-                  value={dateFrom}
-                  onChange={(e) => {
-                    setDateFrom(e.target.value);
-                    setPage(1);
-                  }}
+                  value={draftDateFrom}
+                  onChange={(e) => setDraftDateFrom(e.target.value)}
                   className="w-[160px]"
                 />
               </div>
@@ -131,11 +122,8 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                 <Label className="text-xs text-gray-500">até</Label>
                 <Input
                   type="date"
-                  value={dateTo}
-                  onChange={(e) => {
-                    setDateTo(e.target.value);
-                    setPage(1);
-                  }}
+                  value={draftDateTo}
+                  onChange={(e) => setDraftDateTo(e.target.value)}
                   className="w-[160px]"
                 />
               </div>
@@ -146,6 +134,8 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                 type="button"
                 className="text-sm text-blue-600 hover:underline px-2"
                 onClick={() => {
+                  setDraftDateFrom('');
+                  setDraftDateTo('');
                   setDateFrom('');
                   setDateTo('');
                   setPage(1);
@@ -154,6 +144,14 @@ export function StockEntryList({ entries, products, suppliers, onEdit, onDelete 
                 Limpar datas
               </button>
             </div>
+            {hasActiveDateFilter && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Filtro de período ativo
+                {dateFrom ? ` de ${dateFrom.split('-').reverse().join('/')}` : ''}
+                {dateTo ? ` até ${dateTo.split('-').reverse().join('/')}` : ''}
+                . Entradas fora desse intervalo ficam ocultas — use «Limpar datas» para ver tudo.
+              </p>
+            )}
           </div>
         </div>
       </div>

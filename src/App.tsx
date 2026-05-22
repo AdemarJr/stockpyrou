@@ -313,18 +313,18 @@ function MainApp() {
         PriceHistoryRepository.findAll(companyId),
       ]);
 
-      const pick = <T,>(i: number, empty: T): T => {
+      const mergeOrKeep = <T,>(i: number, prev: T): T => {
         const r = results[i];
         if (r.status === 'fulfilled') return r.value as T;
         console.error('[refreshData] Falha ao carregar índice', i, r.reason);
-        return empty;
+        return prev;
       };
 
-      setProducts(pick(0, [] as Product[]));
-      setSuppliers(pick(1, [] as Supplier[]));
-      setStockEntries(pick(2, [] as StockEntry[]));
-      setMovements(pick(3, [] as StockMovement[]));
-      setPriceHistory(pick(4, [] as PriceHistory[]));
+      setProducts((prev) => mergeOrKeep(0, prev));
+      setSuppliers((prev) => mergeOrKeep(1, prev));
+      setStockEntries((prev) => mergeOrKeep(2, prev));
+      setMovements((prev) => mergeOrKeep(3, prev));
+      setPriceHistory((prev) => mergeOrKeep(4, prev));
 
       const failed = results.filter((r) => r.status === 'rejected');
       if (failed.length > 0) {
