@@ -29,6 +29,8 @@ import {
 } from '../../utils/calculations';
 import {
   movementDateYmdLocal,
+  entryDateYmdLocal,
+  todayYmdLocal,
   isBalanceStockIncrease,
   lineCostAtMovement,
   movementLedgerDelta,
@@ -102,6 +104,18 @@ export function Reports({
     setEndDate(draftEndDate);
     setCurrentPage(1);
   }, [draftStartDate, draftEndDate]);
+
+  const todayYmd = todayYmdLocal();
+  const periodFilterPending =
+    draftStartDate !== startDate || draftEndDate !== endDate;
+  const periodEndsBeforeToday = endDate < todayYmd;
+
+  const extendReportPeriodToToday = useCallback(() => {
+    setDraftEndDate(todayYmd);
+    setEndDate(todayYmd);
+    setCurrentPage(1);
+    toast.success('Período do relatório estendido até hoje.');
+  }, [todayYmd]);
 
   // Fetch sales data
   const fetchSales = async () => {
@@ -227,8 +241,7 @@ export function Reports({
   const entriesDisplayData = useMemo(() => {
     const recebimentoRows = (stockEntries || [])
       .filter((e) => {
-        const d = e.entryDate instanceof Date ? e.entryDate : new Date(e.entryDate);
-        const ymd = movementDateYmdLocal({ date: d });
+        const ymd = entryDateYmdLocal(e.entryDate);
         if (!ymd || ymd < startDate || ymd > endDate) return false;
         if (selectedSupplier !== 'all' && e.supplierId !== selectedSupplier) return false;
         if (selectedProduct !== 'all' && e.productId !== selectedProduct) return false;
@@ -986,6 +999,50 @@ export function Reports({
           </button>
         </div>
       </div>
+
+      {(periodFilterPending || periodEndsBeforeToday) && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            {periodFilterPending && (
+              <p>
+                As datas nos campos acima ainda não foram aplicadas. Clique em <strong>Filtrar período</strong> ou Enter.
+              </p>
+            )}
+            {periodEndsBeforeToday && (
+              <p className={periodFilterPending ? 'mt-1' : ''}>
+                Período aplicado termina em <strong>{formatDate(endDate)}</strong>
+                {todayYmd ? ` (hoje: ${formatDate(todayYmd)})` : ''}. Entradas e saídas de dias mais recentes ficam ocultas.
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {periodFilterPending && (
+              <button
+                type="button"
+                onClick={() => applyReportDateFilter()}
+                className="px-3 py-1.5 rounded-md bg-amber-800 text-white text-xs font-medium hover:bg-amber-900"
+              >
+                Aplicar período
+              </button>
+            )}
+            {periodEndsBeforeToday && (
+              <button
+                type="button"
+                onClick={extendReportPeriodToToday}
+                className="px-3 py-1.5 rounded-md border border-amber-700 text-amber-950 text-xs font-medium hover:bg-amber-100"
+              >
+                Estender até hoje
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {(activeTab === 'entries' || activeTab === 'outputs') && !periodFilterPending && !periodEndsBeforeToday && (
+        <p className="text-xs text-gray-500 px-1">
+          Período do relatório: {formatDate(startDate)} até {formatDate(endDate)} (datas no calendário local).
+        </p>
+      )}
       
       {/* Tabs */}
       <div className="bg-white rounded-lg border border-gray-200 p-1 flex gap-1 overflow-x-auto no-scrollbar md:grid md:grid-cols-3 lg:flex lg:overflow-visible">

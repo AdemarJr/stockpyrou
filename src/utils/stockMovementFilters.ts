@@ -10,6 +10,11 @@ export function movementDateYmdLocal(m: { date: Date }): string {
   return `${y}-${mo}-${day}`;
 }
 
+/** Data civil local de hoje (calendário do navegador). */
+export function todayYmdLocal(): string {
+  return movementDateYmdLocal({ date: new Date() });
+}
+
 /** Mesma regra para `entryDate` de recebimentos (`stock_entries`). */
 export function entryDateYmdLocal(entryDate: Date | string | undefined | null): string {
   if (entryDate == null) return "";

@@ -4,20 +4,77 @@ import type { StockEntry, StockMovement } from '../types';
 /**
  * Repository Pattern: Abstração para acesso a dados de estoque
  */
+const MOVEMENTS_PAGE_SIZE = 1000;
+
 export class StockRepository {
-  static async findAllEntries(companyId: string): Promise<StockEntry[]> {
-    const { data, error } = await supabase
-      .from('stock_entries')
-      .select('*')
-      .eq('company_id', companyId)
-      .order('entry_date', { ascending: false });
+  /** PostgREST limita ~1000 linhas por request; pagina para não “cortar” o histórico recente. */
+  private static async fetchAllRows<T>(
+    table: string,
+    companyId: string,
+    orderColumn: string,
+  ): Promise<T[]> {
+    const rows: T[] = [];
+    let offset = 0;
+    for (;;) {
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .eq('company_id', companyId)
+        .order(orderColumn, { ascending: false, nullsFirst: false })
+        .range(offset, offset + MOVEMENTS_PAGE_SIZE - 1);
 
-    if (error) {
-      console.error('Error fetching stock entries:', error);
-      throw error;
+      if (error) {
+        console.error(`Error fetching ${table}:`, error);
+        throw error;
+      }
+
+      const batch = (data ?? []) as T[];
+      rows.push(...batch);
+      if (batch.length < MOVEMENTS_PAGE_SIZE) break;
+      offset += MOVEMENTS_PAGE_SIZE;
     }
+    return rows;
+  }
 
-    return (data || []).map(item => ({
+  private static mapMovementRow(item: Record<string, unknown>): StockMovement {
+    const qty = Number(item.quantity) || 0;
+    const unitCost = Number(item.unit_cost) || 0;
+    const totalValRaw = item.total_value;
+    const totalVal =
+      totalValRaw != null && totalValRaw !== ''
+        ? Number(totalValRaw)
+        : NaN;
+    const lineCost =
+      Number.isFinite(totalVal) && totalVal > 0 ? totalVal : qty * unitCost;
+
+    const rawDate = item.movement_date ?? item.date ?? item.created_at;
+    const parsedDate = rawDate ? new Date(String(rawDate)) : new Date(NaN);
+    const typeRaw = String(item.movement_type ?? item.type ?? 'ajuste').toLowerCase().trim();
+
+    return {
+      id: String(item.id),
+      companyId: String(item.company_id),
+      productId: String(item.product_id),
+      type: typeRaw as StockMovement['type'],
+      quantity: qty,
+      reason: String(item.reason ?? item.notes ?? ''),
+      wasteReason: undefined,
+      cost: lineCost > 0 ? lineCost : undefined,
+      batchNumber: item.batch_number != null ? String(item.batch_number) : undefined,
+      date: parsedDate,
+      userId: item.created_by != null ? String(item.created_by) : item.user_id != null ? String(item.user_id) : undefined,
+      notes: item.notes != null ? String(item.notes) : undefined,
+    };
+  }
+
+  static async findAllEntries(companyId: string): Promise<StockEntry[]> {
+    const data = await this.fetchAllRows<Record<string, unknown>>(
+      'stock_entries',
+      companyId,
+      'entry_date',
+    );
+
+    return data.map(item => ({
       id: item.id,
       companyId: item.company_id,
       productId: item.product_id,
@@ -152,44 +209,12 @@ export class StockRepository {
   }
 
   static async findAllMovements(companyId: string): Promise<StockMovement[]> {
-    const { data, error } = await supabase
-      .from('stock_movements')
-      .select('*')
-      .eq('company_id', companyId)
-      .order('movement_date', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching stock movements:', error);
-      throw error;
-    }
-
-    return (data || []).map((item) => {
-      const qty = Number(item.quantity) || 0;
-      const unitCost = Number(item.unit_cost) || 0;
-      const totalValRaw = item.total_value;
-      const totalVal =
-        totalValRaw != null && totalValRaw !== ''
-          ? Number(totalValRaw)
-          : NaN;
-      /** Valor da linha: total_value quando existe; senão quantidade × custo unitário (evita confundir unit com total). */
-      const lineCost =
-        Number.isFinite(totalVal) && totalVal > 0 ? totalVal : qty * unitCost;
-
-      return {
-        id: item.id,
-        companyId: item.company_id,
-        productId: item.product_id,
-        type: item.movement_type,
-        quantity: item.quantity,
-        reason: item.notes || '',
-        wasteReason: undefined,
-        cost: lineCost > 0 ? lineCost : undefined,
-        batchNumber: undefined,
-        date: new Date(item.movement_date),
-        userId: item.created_by || undefined,
-        notes: item.notes || undefined,
-      };
-    });
+    const data = await this.fetchAllRows<Record<string, unknown>>(
+      'stock_movements',
+      companyId,
+      'movement_date',
+    );
+    return data.map((item) => this.mapMovementRow(item));
   }
 
   static async createMovement(movement: Omit<StockMovement, 'id' | 'date'> & { userId?: string }): Promise<StockMovement> {
