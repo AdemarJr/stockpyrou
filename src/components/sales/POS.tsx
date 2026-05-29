@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package, Plug } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
-import { supabase } from '../../utils/supabase/client';
 import { useCompany } from '../../contexts/CompanyContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
 import { SaleReceipt } from './SaleReceipt';
 import { ZigSalesBaixa } from './ZigSalesBaixa';
@@ -427,34 +427,27 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
               const source = `sale:${saleId ?? checkoutId}:${b.productId}:combo`;
               const notes = `Venda Combo: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
-              const { data: applied, error: dedErr } = await supabase.rpc('deduct_stock_once', {
-                p_company_id: currentCompany.id,
-                p_product_id: b.productId,
-                p_qty: qtyToDeduct,
-                p_source: source,
-                p_notes: notes,
-                p_movement_type: 'venda',
-                p_movement_date: new Date().toISOString(),
+              await StockRepository.deductStockOnce({
+                companyId: currentCompany.id,
+                productId: b.productId,
+                quantity: qtyToDeduct,
+                source,
+                notes,
+                movementType: 'venda',
               });
-              if (dedErr) throw dedErr;
-              // `applied` pode ser false se já foi baixado (idempotente)
-              void applied;
             }
           } else {
             // Venda direta de produto
             const source = `sale:${saleId ?? checkoutId}:${item.id}:direct`;
             const notes = `Venda Manual: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
-            const { data: applied, error: dedErr } = await supabase.rpc('deduct_stock_once', {
-              p_company_id: currentCompany.id,
-              p_product_id: item.id,
-              p_qty: item.quantity,
-              p_source: source,
-              p_notes: notes,
-              p_movement_type: 'venda',
-              p_movement_date: new Date().toISOString(),
+            await StockRepository.deductStockOnce({
+              companyId: currentCompany.id,
+              productId: item.id,
+              quantity: item.quantity,
+              source,
+              notes,
+              movementType: 'venda',
             });
-            if (dedErr) throw dedErr;
-            void applied;
           }
         } else if (item.type === 'recipe') {
           // Venda de receita (baixa ingredientes)
@@ -467,17 +460,14 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
               const source = `sale:${saleId ?? checkoutId}:${ingredient.productId}:recipe`;
               const notes = `Venda Receita: ${item.quantity}x ${recipe.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
-              const { data: applied, error: dedErr } = await supabase.rpc('deduct_stock_once', {
-                p_company_id: currentCompany.id,
-                p_product_id: ingredient.productId,
-                p_qty: qtyToDeduct,
-                p_source: source,
-                p_notes: notes,
-                p_movement_type: 'venda',
-                p_movement_date: new Date().toISOString(),
+              await StockRepository.deductStockOnce({
+                companyId: currentCompany.id,
+                productId: ingredient.productId,
+                quantity: qtyToDeduct,
+                source,
+                notes,
+                movementType: 'venda',
               });
-              if (dedErr) throw dedErr;
-              void applied;
             }
           }
         }

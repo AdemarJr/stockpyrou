@@ -413,32 +413,26 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               const qtyToDeduct = (Number(b.quantity) || 0) * item.quantity;
               if (!b.productId || qtyToDeduct <= 0) continue;
 
-              await ProductService.updateStock(b.productId, -qtyToDeduct);
-              const ing = products.find((p) => p.id === b.productId);
-              const lineCost = (ing?.averageCost ?? 0) * qtyToDeduct;
-              await StockRepository.createMovement({
+              const source = `sale:${saleId}:${b.productId}:combo`;
+              const notes = `Combo ${item.quantity}x ${item.name} · Ref. venda ${saleId}`;
+              await StockRepository.deductStockOnce({
                 companyId,
                 productId: b.productId,
-                type: 'venda',
                 quantity: qtyToDeduct,
-                reason: 'Venda PDV (Caixa) — combo',
-                notes: `Combo ${item.quantity}x ${item.name} · Ref. venda ${saleId}`,
-                cost: lineCost > 0 ? lineCost : undefined,
-                userId: user?.id,
+                source,
+                notes: `Venda PDV (Caixa) — ${notes}`,
+                movementType: 'venda',
               });
             }
           } else {
-            await ProductService.updateStock(item.id, -item.quantity);
-            const lineCost = (product.averageCost ?? 0) * item.quantity;
-            await StockRepository.createMovement({
+            const source = `sale:${saleId}:${item.id}:direct`;
+            await StockRepository.deductStockOnce({
               companyId,
               productId: item.id,
-              type: 'venda',
               quantity: item.quantity,
-              reason: 'Venda PDV (Caixa)',
-              notes: `Venda ${item.quantity}x ${item.name} · Ref. venda ${saleId}`,
-              cost: lineCost > 0 ? lineCost : undefined,
-              userId: user?.id,
+              source,
+              notes: `Venda PDV (Caixa) · Venda ${item.quantity}x ${item.name} · Ref. venda ${saleId}`,
+              movementType: 'venda',
             });
           }
           console.log(`✅ Estoque e movimento registrados: ${item.name}`);

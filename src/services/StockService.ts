@@ -97,22 +97,45 @@ export class StockService {
       throw new Error('Produto não pertence à empresa selecionada');
     }
 
-    await ProductService.updateStock(productId, -quantity);
+    const movementType = type === 'venda' ? 'venda' : type === 'desperdicio' ? 'desperdicio' : 'saida';
+    const source = `manual:${userId ?? 'system'}:${crypto.randomUUID()}`;
+
+    const { movementId, newStock } = await StockRepository.deductStockOnce({
+      companyId,
+      productId,
+      quantity,
+      source,
+      notes: reason,
+      movementType,
+    });
+
+    let movement: StockMovement | null = movementId
+      ? await StockRepository.findMovementById(movementId)
+      : null;
+
+    if (!movement) {
+      movement = {
+        id: movementId ?? source,
+        companyId,
+        productId,
+        type: movementType,
+        quantity,
+        reason,
+        cost: product.averageCost * quantity,
+        date: new Date(),
+        userId: userId ?? '',
+        notes: reason,
+      };
+    }
 
     const updatedProduct = await ProductRepository.findById(productId);
     if (!updatedProduct) {
       throw new Error('Produto não encontrado após baixa de estoque');
     }
 
-    const movement = await StockRepository.createMovement({
-      companyId,
-      productId,
-      type,
-      quantity,
-      reason,
-      cost: product.averageCost * quantity,
-      userId,
-    });
+    if (Number.isFinite(newStock)) {
+      updatedProduct.currentStock = newStock;
+    }
 
     return { movement, product: updatedProduct };
   }
@@ -301,10 +324,10 @@ export class StockService {
       throw new Error('O estoque atual já é igual à quantidade informada');
     }
 
-    // Update product stock directly (absolute value)
+    // Update product stock directly (absolute value) — movimento usa exatamente a diferença aplicada
     await ProductRepository.update(productId, { currentStock: actualQuantity });
 
-    // Create adjustment movement
+    // Create adjustment movement (quantity = delta real no produto)
     return StockRepository.createMovement({
       companyId,
       productId,

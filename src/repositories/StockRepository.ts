@@ -217,6 +217,60 @@ export class StockRepository {
     return data.map((item) => this.mapMovementRow(item));
   }
 
+  static async findMovementById(id: string): Promise<StockMovement | null> {
+    const { data, error } = await supabase
+      .from('stock_movements')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !data) {
+      if (error) console.error('Error fetching stock movement:', error);
+      return null;
+    }
+    return this.mapMovementRow(data as Record<string, unknown>);
+  }
+
+  /**
+   * Baixa atômica: atualiza `products.current_stock` e insere `stock_movements` na mesma transação (RPC).
+   * Usar em vendas, baixa manual (saida/desperdicio) e PDV — evita movimento sem baixa ou baixa sem movimento.
+   */
+  static async deductStockOnce(params: {
+    companyId: string;
+    productId: string;
+    quantity: number;
+    source: string;
+    notes?: string;
+    movementType: 'venda' | 'saida' | 'desperdicio';
+    movementDate?: string;
+  }): Promise<{ applied: boolean; movementId: string | null; newStock: number }> {
+    const { data, error } = await supabase.rpc('deduct_stock_once', {
+      p_company_id: params.companyId,
+      p_product_id: params.productId,
+      p_qty: params.quantity,
+      p_source: params.source,
+      p_notes: params.notes ?? null,
+      p_movement_type: params.movementType,
+      p_movement_date: params.movementDate ?? new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error('Error in deduct_stock_once:', error);
+      throw error;
+    }
+
+    const row = (Array.isArray(data) ? data[0] : data) as
+      | { applied?: boolean; movement_id?: string; new_stock?: number | string }
+      | null
+      | undefined;
+
+    return {
+      applied: row?.applied === true,
+      movementId: row?.movement_id ?? null,
+      newStock: Number(row?.new_stock ?? NaN) || 0,
+    };
+  }
+
   static async createMovement(movement: Omit<StockMovement, 'id' | 'date'> & { userId?: string }): Promise<StockMovement> {
     const unitCost = movement.quantity > 0 && movement.cost 
       ? movement.cost / movement.quantity 
