@@ -1,5 +1,7 @@
+import { useOwnApi } from '../lib/apiConfig';
 import { supabase } from '../utils/supabase/client';
 import type { Product } from '../types';
+import { ProductApi } from './productApi';
 
 /**
  * Repository Pattern: Abstração para acesso a dados de produtos
@@ -25,6 +27,10 @@ export class ProductRepository {
   }
 
   static async findAll(companyId: string): Promise<Product[]> {
+    if (useOwnApi()) {
+      return ProductApi.findAll(companyId);
+    }
+
     const { data, error } = await supabase
       .from(this.TABLE)
       .select('*')
@@ -43,6 +49,10 @@ export class ProductRepository {
    * Busca um produto por ID
    */
   static async findById(id: string): Promise<Product | null> {
+    if (useOwnApi()) {
+      return ProductApi.findById(id);
+    }
+
     const { data, error } = await supabase
       .from(this.TABLE)
       .select('*')
@@ -61,6 +71,10 @@ export class ProductRepository {
    * Cria um novo produto
    */
   static async create(product: Omit<Product, 'id' | 'createdAt' | 'updatedAt' | 'companyId'>, companyId: string): Promise<Product> {
+    if (useOwnApi()) {
+      return ProductApi.create(product, companyId);
+    }
+
     const dbData = this.mapToDatabase(product);
     dbData.company_id = companyId;
 
@@ -82,6 +96,10 @@ export class ProductRepository {
    * Atualiza um produto existente
    */
   static async update(id: string, updates: Partial<Product>): Promise<Product> {
+    if (useOwnApi()) {
+      return ProductApi.update(id, updates);
+    }
+
     const updateData: any = {};
     
     if (updates.name) updateData.name = updates.name;
@@ -126,6 +144,11 @@ export class ProductRepository {
    * Atualiza apenas o estoque e custo do produto
    */
   static async updateStock(id: string, quantityToAdd: number, newAverageCost?: number): Promise<void> {
+    if (useOwnApi()) {
+      await ProductApi.updateStock(id, quantityToAdd, newAverageCost);
+      return;
+    }
+
     // Primeiro busca o produto atual para calcular
     const product = await this.findById(id);
     if (!product) throw new Error('Product not found');
@@ -155,6 +178,11 @@ export class ProductRepository {
    * Deleta um produto
    */
   static async delete(id: string): Promise<void> {
+    if (useOwnApi()) {
+      await ProductApi.delete(id);
+      return;
+    }
+
     const { error } = await supabase
       .from(this.TABLE)
       .delete()
