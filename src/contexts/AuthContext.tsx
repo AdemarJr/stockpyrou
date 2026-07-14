@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../utils/supabase/client';
 import type { AuthUser, UserProfile } from '../types';
 import { toast } from 'sonner@2.0.3';
+import { useOwnApi } from '../lib/apiConfig';
 import { getBackendApiRoot } from '../lib/backendUrl';
 import { publicAnonKey } from '../utils/supabase/env';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
@@ -25,10 +26,12 @@ export function useAuth() {
   return context;
 }
 
-const API_URL = getBackendApiRoot();
-
 const CUSTOM_TOKEN_KEY = 'pyroustock_custom_token';
 const AUTH_EVENT_KEY = 'pyroustock_auth_event';
+
+function authApiRoot(): string {
+  return getBackendApiRoot();
+}
 
 function getCustomToken(): string | null {
   return safeStorage.getItem(CUSTOM_TOKEN_KEY);
@@ -180,13 +183,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (customToken) {
       console.log('🔍 Found custom token, verifying...');
       void (async () => {
-        const res = await fetchWithTimeout(`${API_URL}/auth/me`, {
+        const res = await fetchWithTimeout(`${authApiRoot()}/auth/me`, {
           headers: { 'Authorization': `Bearer ${customToken}`, 'X-Custom-Token': customToken },
           timeoutMs: 15000
         });
         if (!res?.ok) {
           console.log('❌ /auth/me failed or timeout, clearing custom token');
           removeCustomToken();
+          if (useOwnApi()) {
+            setUser(null);
+            setLoading(false);
+            return;
+          }
           await checkSupabaseSession();
           return;
         }
@@ -201,14 +209,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setLoading(false);
           } else {
             removeCustomToken();
+            if (useOwnApi()) {
+              setUser(null);
+              setLoading(false);
+              return;
+            }
             await checkSupabaseSession();
           }
         } catch (err) {
           console.error('❌ Error parsing /auth/me:', err);
           removeCustomToken();
+          if (useOwnApi()) {
+            setUser(null);
+            setLoading(false);
+            return;
+          }
           await checkSupabaseSession();
         }
       })();
+    } else if (useOwnApi()) {
+      console.log('🔍 Own API mode: sem custom token — tela de login');
+      setLoading(false);
     } else {
       console.log('🔍 No custom token, checking Supabase session');
       void checkSupabaseSession();
@@ -308,6 +329,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       
+      // Com API própria, sessão Supabase sozinha não autentica o backend — ignore.
+      if (useOwnApi()) {
+        setLoading(false);
+        return;
+      }
+
       // Update user if session exists (SIGNED_IN, INITIAL_SESSION, etc)
       if (session?.user && !hasCustomToken) {
         console.log('✅ Updating user from Supabase session');
@@ -350,19 +377,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Login function with Fallback to Custom Server Auth
+  // Login: com VITE_USE_OWN_API usa só a API (token custom_). Senão Supabase + fallback custom.
   async function login(email: string, password: string): Promise<boolean> {
     try {
-      setLoading(true);
-      
-      // Special handling for Super Admin - Skip Supabase Auth and go straight to custom
-      // This avoids Rate Limits and errors when using the master account
-      if (email === 'admin@stockwise.com') {
-        console.log('⚡ Super Admin login detected - Skipping Supabase Auth...');
+      // Não usar `loading` global aqui — desmontaria a tela de Login no AppContent.
+      if (useOwnApi() || email === 'admin@stockwise.com') {
+        console.log(
+          useOwnApi()
+            ? '⚡ Own API mode — login via stockpyrou-api...'
+            : '⚡ Super Admin login detected - Skipping Supabase Auth...',
+        );
         return await loginCustom(email, password);
       }
-      
-      // Try Supabase Auth First
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -393,7 +420,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return true;
       }
 
-      // If Supabase fails, try Custom Server Auth
       console.log('Supabase login failed, trying custom server auth...');
       return await loginCustom(email, password);
 
@@ -401,8 +427,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Login error:', error);
       toast.error(formatLoginErrorMessage(error));
       return false;
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -411,7 +435,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (email === 'admin@stockwise.com') {
       console.log('Admin login detected, ensuring system is initialized...');
       try {
-        const initResponse = await fetch(`${API_URL}/auth/init`, {
+        const initResponse = await fetch(`${authApiRoot()}/auth/init`, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
@@ -427,8 +451,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     console.log('🔐 Attempting custom login for:', email);
     console.log('🔐 Password length:', password?.length);
+    console.log('🔐 Auth API:', authApiRoot());
     
-    const response = await fetchWithTimeout(`${API_URL}/auth/login`, {
+    const response = await fetchWithTimeout(`${authApiRoot()}/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -439,7 +464,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (!response) {
-      throw new Error('Servidor não respondeu a tempo. Verifique sua internet e tente novamente.');
+      throw new Error(
+        useOwnApi()
+          ? 'API fora do ar (Railway). Confira https://stockpyrou-api.up.railway.app/api/health'
+          : 'Servidor não respondeu a tempo. Verifique sua internet e tente novamente.',
+      );
+    }
+
+    if (response.status === 404) {
+      throw new Error(
+        'API não encontrada no Railway (Application not found). Verifique o deploy e o domínio público.',
+      );
     }
 
     let serverData: {
