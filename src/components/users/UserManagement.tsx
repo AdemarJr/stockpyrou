@@ -19,6 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import type { UserProfile, UserRole } from '../../types';
 import { toast } from 'sonner@2.0.3';
+import { getBackendApiRoot } from '../../lib/backendUrl';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { rowMatchesSearch } from '../../utils/listFilters';
 import { Input } from '../ui/input';
@@ -34,7 +35,7 @@ import { Search } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { ariaInvalidProps } from '../../lib/formFieldValidation';
 
-const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
+const API_URL = getBackendApiRoot();
 
 const roleLabels: Record<UserRole, string> = {
   superadmin: 'Super Administrador',

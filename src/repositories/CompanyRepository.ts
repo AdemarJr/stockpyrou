@@ -1,6 +1,8 @@
+import { useOwnApi } from '../lib/apiConfig';
+import { getBackendUrl } from '../lib/backendUrl';
 import { supabase } from '../utils/supabase/client';
 import type { Company, UserCompany } from '../types';
-import { projectId } from '../utils/supabase/env';
+import { CompanyApi } from './companyApi';
 
 export class CompanyRepository {
   private static readonly TABLE = 'companies';
@@ -11,6 +13,8 @@ export class CompanyRepository {
    * Usa endpoint backend que bypassa RLS com Service Role Key
    */
   static async findAll(): Promise<Company[]> {
+    if (useOwnApi()) return CompanyApi.findAll();
+
     console.log('[CompanyRepository.findAll] 👑 Fetching ALL companies for superadmin...');
     
     try {
@@ -30,7 +34,7 @@ export class CompanyRepository {
 
       console.log('[CompanyRepository.findAll] 🔑 Using token type:', token.startsWith('custom_') ? 'Custom Token' : 'Supabase JWT');
 
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/superadmin/companies`;
+      const url = getBackendUrl('/superadmin/companies');
       console.log('[CompanyRepository.findAll] 🌐 Calling:', url);
 
       const response = await fetch(url, {
@@ -72,6 +76,8 @@ export class CompanyRepository {
    * Busca todas as empresas que o usuário tem acesso
    */
   static async findByUser(userId: string): Promise<Company[]> {
+    if (useOwnApi()) return CompanyApi.findByUser(userId);
+
     // Primeiro busca os IDs das empresas na tabela de relação
     const { data: userCompanies, error: relationError } = await supabase
       .from(this.RELATION_TABLE)
@@ -113,6 +119,8 @@ export class CompanyRepository {
    * Cria uma nova empresa e vincula ao criador como admin
    */
   static async create(name: string, userId: string, cnpj?: string): Promise<Company> {
+    if (useOwnApi()) return CompanyApi.create(name, userId, cnpj);
+
     // 1. Criar a empresa
     const { data: company, error: createError } = await supabase
       .from(this.TABLE)
@@ -156,6 +164,8 @@ export class CompanyRepository {
    * Busca dados de uma empresa específica
    */
   static async findById(id: string): Promise<Company | null> {
+    if (useOwnApi()) return CompanyApi.findById(id);
+
     const { data, error } = await supabase
       .from(this.TABLE)
       .select('*')

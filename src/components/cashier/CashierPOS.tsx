@@ -21,7 +21,8 @@ import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { getBackendUrl } from '../../lib/backendUrl';
+import { publicAnonKey } from '../../utils/supabase/env';
 import { ProductService } from '../../services/ProductService';
 import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
@@ -367,7 +368,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       console.log('📤 Sending sale to server:', salePayload);
       
       const saleResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/sale`,
+        getBackendUrl('/cashier/sale'),
         {
           method: 'POST',
           headers,

@@ -1,5 +1,7 @@
+import { useOwnApi } from '../lib/apiConfig';
 import { supabase } from '../utils/supabase/client';
 import type { StockEntry, StockMovement } from '../types';
+import { StockApi } from './stockApi';
 
 /**
  * Repository Pattern: Abstração para acesso a dados de estoque
@@ -68,6 +70,8 @@ export class StockRepository {
   }
 
   static async findAllEntries(companyId: string): Promise<StockEntry[]> {
+    if (useOwnApi()) return StockApi.findAllEntries(companyId);
+
     const data = await this.fetchAllRows<Record<string, unknown>>(
       'stock_entries',
       companyId,
@@ -91,6 +95,8 @@ export class StockRepository {
   }
 
   static async createEntry(entry: Omit<StockEntry, 'id' | 'entryDate' | 'userId'>): Promise<StockEntry> {
+    if (useOwnApi()) return StockApi.createEntry(entry);
+
     const { data, error } = await supabase
       .from('stock_entries')
       .insert({
@@ -130,6 +136,8 @@ export class StockRepository {
   }
 
   static async findById(id: string): Promise<StockEntry | null> {
+    if (useOwnApi()) return StockApi.findById(id);
+
     const { data, error } = await supabase
       .from('stock_entries')
       .select('*')
@@ -158,6 +166,11 @@ export class StockRepository {
   }
 
   static async deleteEntry(id: string): Promise<void> {
+    if (useOwnApi()) {
+      await StockApi.deleteEntry(id);
+      return;
+    }
+
     const { error } = await supabase
       .from('stock_entries')
       .delete()
@@ -170,6 +183,8 @@ export class StockRepository {
   }
 
   static async updateEntry(id: string, updates: Partial<StockEntry>): Promise<StockEntry> {
+    if (useOwnApi()) return StockApi.updateEntry(id, updates);
+
     const dbUpdates: any = {};
     if (updates.quantity !== undefined) dbUpdates.quantity = updates.quantity;
     if (updates.unitPrice !== undefined) dbUpdates.unit_cost = updates.unitPrice;
@@ -209,6 +224,8 @@ export class StockRepository {
   }
 
   static async findAllMovements(companyId: string): Promise<StockMovement[]> {
+    if (useOwnApi()) return StockApi.findAllMovements(companyId);
+
     const data = await this.fetchAllRows<Record<string, unknown>>(
       'stock_movements',
       companyId,
@@ -218,6 +235,8 @@ export class StockRepository {
   }
 
   static async findMovementById(id: string): Promise<StockMovement | null> {
+    if (useOwnApi()) return StockApi.findMovementById(id);
+
     const { data, error } = await supabase
       .from('stock_movements')
       .select('*')
@@ -244,6 +263,8 @@ export class StockRepository {
     movementType: 'venda' | 'saida' | 'desperdicio';
     movementDate?: string;
   }): Promise<{ applied: boolean; movementId: string | null; newStock: number }> {
+    if (useOwnApi()) return StockApi.deductStockOnce(params);
+
     const { data, error } = await supabase.rpc('deduct_stock_once', {
       p_company_id: params.companyId,
       p_product_id: params.productId,
@@ -272,7 +293,9 @@ export class StockRepository {
   }
 
   static async createMovement(movement: Omit<StockMovement, 'id' | 'date'> & { userId?: string }): Promise<StockMovement> {
-    const unitCost = movement.quantity > 0 && movement.cost 
+    if (useOwnApi()) return StockApi.createMovement(movement);
+
+    const unitCost = movement.quantity > 0 && movement.cost
       ? movement.cost / movement.quantity 
       : (movement.cost || 0);
       

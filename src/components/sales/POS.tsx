@@ -10,7 +10,8 @@ import { SaleReceipt } from './SaleReceipt';
 import { ZigSalesBaixa } from './ZigSalesBaixa';
 import { useIsMobile } from '../ui/use-mobile';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { getBackendUrl } from '../../lib/backendUrl';
+import { publicAnonKey } from '../../utils/supabase/env';
 
 interface POSProps {
   products: Product[];
@@ -357,7 +358,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
         // 1) Get current register (or open one with 0 initial balance)
         const curRes = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/current`,
+          getBackendUrl('/cashier/current'),
           { headers },
         );
         const curData = await curRes.json().catch(() => ({}));
@@ -365,7 +366,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
         if (!registerId) {
           const openRes = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/open`,
+            getBackendUrl('/cashier/open'),
             {
               method: 'POST',
               headers,
@@ -396,7 +397,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           };
 
           const saleRes = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/sale`,
+            getBackendUrl('/cashier/sale'),
             {
               method: 'POST',
               headers,

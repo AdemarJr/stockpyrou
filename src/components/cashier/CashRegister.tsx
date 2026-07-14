@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { getBackendUrl } from '../../lib/backendUrl';
+import { publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 import { cn } from '../ui/utils';
 import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
@@ -73,7 +74,7 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       }
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/current`,
+        getBackendUrl('/cashier/current'),
         { headers }
       );
 
@@ -148,7 +149,7 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       });
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/open`,
+        getBackendUrl('/cashier/open'),
         {
           method: 'POST',
           headers,

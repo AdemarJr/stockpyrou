@@ -3,6 +3,7 @@ import type { Company } from '../types';
 import { CompanyRepository } from '../repositories/CompanyRepository';
 import { useAuth } from './AuthContext';
 import { toast } from 'sonner@2.0.3';
+import { getBackendUrl } from '../lib/backendUrl';
 import { projectId } from '../utils/supabase/env';
 import { fetchCompanyStatusJson, fetchWithTimeout } from '../utils/fetchWithTimeout';
 import {
@@ -73,7 +74,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
           
           if (token) {
             const response = await fetchWithTimeout(
-              `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/companies/me`,
+              getBackendUrl('/companies/me'),
               {
                 headers: {
                   'Authorization': `Bearer ${token}`,

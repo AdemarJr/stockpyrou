@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../utils/supabase/client';
 import type { AuthUser, UserProfile } from '../types';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../utils/supabase/env';
+import { getBackendApiRoot } from '../lib/backendUrl';
+import { publicAnonKey } from '../utils/supabase/env';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 import { safeStorage } from '../utils/safeStorage';
 
@@ -24,7 +25,7 @@ export function useAuth() {
   return context;
 }
 
-const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
+const API_URL = getBackendApiRoot();
 
 const CUSTOM_TOKEN_KEY = 'pyroustock_custom_token';
 const AUTH_EVENT_KEY = 'pyroustock_auth_event';

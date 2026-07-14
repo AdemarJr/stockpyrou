@@ -25,7 +25,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { rowMatchesSearch } from '../../utils/listFilters';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { getBackendUrl } from '../../lib/backendUrl';
+import { publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 
 export function CashierHistory() {
@@ -91,7 +92,7 @@ export function CashierHistory() {
       }
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/history?limit=30`,
+        getBackendUrl('/cashier/history?limit=30'),
         { headers }
       );
 

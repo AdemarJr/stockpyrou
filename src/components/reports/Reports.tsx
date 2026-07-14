@@ -10,6 +10,7 @@ import { useCompany } from '../../contexts/CompanyContext';
 import { ProductService } from '../../services/ProductService';
 import { useIsMobile } from '../ui/use-mobile';
 import { toast } from 'sonner@2.0.3';
+import { getBackendUrl } from '../../lib/backendUrl';
 import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { ReportCard } from './ReportCard';
 import { ReportTable } from './ReportTable';
@@ -134,7 +135,7 @@ export function Reports({
       params.append('endDate', endDate);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/reports/sales?${params}`,
+        getBackendUrl(`/reports/sales?${params}`),
         { headers }
       );
 
@@ -170,7 +171,7 @@ export function Reports({
       params.append('endDate', endDate);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/reports/closures?${params}`,
+        getBackendUrl(`/reports/closures?${params}`),
         { headers }
       );
 

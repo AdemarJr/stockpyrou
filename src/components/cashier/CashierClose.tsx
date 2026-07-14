@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { getBackendUrl } from '../../lib/backendUrl';
+import { publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 
 interface CashierCloseProps {
@@ -82,7 +83,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/withdrawal`,
+        getBackendUrl('/cashier/withdrawal'),
         {
           method: 'POST',
           headers,
@@ -134,7 +135,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/deposit`,
+        getBackendUrl('/cashier/deposit'),
         {
           method: 'POST',
           headers,
@@ -186,7 +187,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/cashier/close`,
+        getBackendUrl('/cashier/close'),
         {
           method: 'POST',
           headers,

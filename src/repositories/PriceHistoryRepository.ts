@@ -1,5 +1,7 @@
+import { useOwnApi } from '../lib/apiConfig';
 import { supabase } from '../utils/supabase/client';
 import type { PriceHistory } from '../types';
+import { PriceHistoryApi } from './priceHistoryApi';
 
 /**
  * Repository Pattern: Abstração para acesso a dados de histórico de preços
@@ -8,6 +10,8 @@ export class PriceHistoryRepository {
   private static readonly TABLE = 'price_history';
 
   static async findAll(companyId?: string): Promise<PriceHistory[]> {
+    if (useOwnApi()) return PriceHistoryApi.findAll(companyId);
+
     let query = supabase
       .from(this.TABLE)
       .select(`
@@ -33,6 +37,8 @@ export class PriceHistoryRepository {
   }
 
   static async findByProduct(productId: string): Promise<PriceHistory[]> {
+    if (useOwnApi()) return PriceHistoryApi.findByProduct(productId);
+
     const { data, error } = await supabase
       .from(this.TABLE)
       .select('*')
@@ -48,6 +54,8 @@ export class PriceHistoryRepository {
   }
 
   static async getBestPriceForProduct(productId: string): Promise<PriceHistory | null> {
+    if (useOwnApi()) return PriceHistoryApi.getBestPriceForProduct(productId);
+
     // Busca o menor preço nos últimos 6 meses
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
@@ -71,6 +79,8 @@ export class PriceHistoryRepository {
   }
 
   static async create(priceHistory: Omit<PriceHistory, 'id' | 'date'>): Promise<PriceHistory> {
+    if (useOwnApi()) return PriceHistoryApi.create(priceHistory);
+
     const { data, error } = await supabase
       .from(this.TABLE)
       .insert({

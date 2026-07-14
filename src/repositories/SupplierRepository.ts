@@ -1,5 +1,7 @@
+import { useOwnApi } from '../lib/apiConfig';
 import { supabase } from '../utils/supabase/client';
 import type { Supplier } from '../types';
+import { SupplierApi } from './supplierApi';
 
 /**
  * Repository Pattern: Abstração para acesso a dados de fornecedores
@@ -8,6 +10,8 @@ export class SupplierRepository {
   private static readonly TABLE = 'suppliers';
 
   static async findAll(companyId: string): Promise<Supplier[]> {
+    if (useOwnApi()) return SupplierApi.findAll(companyId);
+
     const { data, error } = await supabase
       .from(this.TABLE)
       .select('*')
@@ -23,6 +27,8 @@ export class SupplierRepository {
   }
 
   static async create(supplier: Omit<Supplier, 'id' | 'createdAt' | 'updatedAt' | 'companyId'>, companyId: string): Promise<Supplier> {
+    if (useOwnApi()) return SupplierApi.create(supplier, companyId);
+
     const { data, error } = await supabase
       .from(this.TABLE)
       .insert({
@@ -46,6 +52,8 @@ export class SupplierRepository {
   }
 
   static async findById(id: string): Promise<Supplier | null> {
+    if (useOwnApi()) return SupplierApi.findById(id);
+
     const { data, error } = await supabase
       .from(this.TABLE)
       .select('*')
@@ -61,6 +69,8 @@ export class SupplierRepository {
   }
 
   static async update(id: string, updates: Partial<Supplier>): Promise<Supplier> {
+    if (useOwnApi()) return SupplierApi.update(id, updates);
+
     const updateData: any = {};
     if (updates.name) updateData.name = updates.name;
     if (updates.contact !== undefined) updateData.contact = updates.contact;
@@ -85,6 +95,11 @@ export class SupplierRepository {
   }
 
   static async delete(id: string): Promise<void> {
+    if (useOwnApi()) {
+      await SupplierApi.delete(id);
+      return;
+    }
+
     const { error } = await supabase
       .from(this.TABLE)
       .delete()
