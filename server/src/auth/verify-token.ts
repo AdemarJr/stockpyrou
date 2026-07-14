@@ -1,5 +1,6 @@
 import { query } from '../db/pool.js';
 import type { AuthContext } from '../types/auth.js';
+import { mapAppUserRole } from '../auth/permissions.js';
 
 type KvRow = { value: Record<string, unknown> };
 
@@ -53,7 +54,7 @@ async function profileFromAppUser(userId: string): Promise<AuthContext | null> {
     userId: row.id,
     email: row.email,
     fullName: row.full_name,
-    role: row.role,
+    role: mapAppUserRole(row.role),
     companyId: row.company_id ?? undefined,
   };
 }

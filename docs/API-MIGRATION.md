@@ -1,51 +1,76 @@
-# API própria (Supabase só como banco)
+# Migração: Supabase só como banco + backend próprio
 
-Backend Node em `server/` roda **em paralelo** ao fluxo atual (Supabase client + Edge Functions).
+Backend Node em `server/` roda **em paralelo** ao fluxo atual. **Por padrão nada muda** no sistema em produção.
 
-## Comportamento padrão (produção / sem config)
+## Arquitetura
 
-- `VITE_USE_OWN_API` **não definido** ou `false`
-- O sistema continua usando **Supabase direto** e **Edge Functions**
-- Nenhuma funcionalidade muda
+```
+Frontend (src/)  →  server/ (Node + Hono + pg)  →  PostgreSQL (Supabase)
+```
 
-## Ativar a API nova (testes locais)
+- **Sem** `VITE_USE_OWN_API` → Supabase client + Edge Functions (comportamento atual)
+- **Com** `VITE_USE_OWN_API=true` → API em `server/`; Postgres via `DATABASE_URL`
 
-1. Copie `server/.env.example` → `server/.env` e preencha `DATABASE_URL` (Postgres do Supabase).
+## Módulos migrados (dual-mode)
 
-2. Instale e suba a API:
+| Módulo | Frontend | API |
+|--------|----------|-----|
+| Produtos | `ProductRepository` | `/api/products` |
+| Fornecedores | `SupplierRepository` | `/api/suppliers` |
+| Estoque | `StockRepository` | `/api/stock/*` |
+| Histórico de preços | `PriceHistoryRepository` | `/api/price-history` |
+| Empresas | `CompanyRepository` | `/api/companies/*` |
+| Auth (login/me/init) | `AuthContext` | `/api/auth/*` |
+| Caixa / PDV | Cashier, POS | `/api/cashier/*` |
+| Relatórios vendas/fechamentos | `Reports` | `/api/reports/*` |
+
+## Ainda na Edge Function (quando flag ativa)
+
+Estes continuam na Edge até próxima fase:
+
+- **ZIG** (`/zig/*`)
+- **Admin SaaS** (`/admin/*`, `/users/*`)
+- **Custos** (`CostRepository` → Supabase direto)
+- Integrações financeiras documentadas em `API-INTEGRACAO-FINANCEIRA.md`
+
+## Ativar localmente
 
 ```bash
+# 1. Banco
+cp server/.env.example server/.env
+# Preencha DATABASE_URL (Supabase → Database → Connection string)
+
+# 2. API
 cd server && npm install && npm run dev
-```
 
-3. Em outro terminal, suba o front (proxy `/api` → `:3001`):
-
-```bash
+# 3. Front (outro terminal)
 npm run dev
-```
 
-4. Opcional — ativar só produtos via API:
-
-```env
-# .env.local
+# 4. .env.local na raiz
 VITE_USE_OWN_API=true
 VITE_API_URL=/api
 ```
 
-5. Faça login **normalmente** (Edge/Supabase). O token `custom_` existente funciona na API nova.
-
-## Módulos migrados (dual-mode)
-
-| Módulo | Repository | Rotas API |
-|--------|------------|-----------|
-| Produtos | `ProductRepository` | `GET/POST/PUT/PATCH/DELETE /api/products` |
-
-Próximos candidatos: `StockRepository`, `SupplierRepository`, caixa (`/cashier/*`), custos.
+Login normal; token `custom_` existente funciona na API nova.
 
 ## Scripts
 
 | Comando | Descrição |
 |---------|-----------|
-| `npm run dev:api` | Só o backend (`:3001`) |
+| `npm run dev:api` | Só backend (`:3001`) |
 | `npm run dev:all` | Backend + frontend |
 | `npm run build:api` | Typecheck do server |
+
+## Próximas fases
+
+1. Custos (`CostRepository` → `/api/costs/*`)
+2. ZIG (`zig_service.tsx` → `/api/zig/*`)
+3. Admin / usuários (`/api/admin/*`, `/api/users/*`)
+4. Remover `@supabase/supabase-js` do frontend
+5. Desligar Edge Functions
+
+## Segurança (produção com API própria)
+
+- `DATABASE_URL` só no servidor
+- Bloquear PostgREST anon quando API estiver 100% ativa
+- CORS restrito ao domínio do front
