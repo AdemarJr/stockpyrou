@@ -1,5 +1,5 @@
 /**
- * Feature flag: API própria (server/) em paralelo ao Supabase/Edge.
+ * Feature flag: API própria (stockpyrou-api) em paralelo ao Supabase/Edge.
  * Padrão false — zero mudança de comportamento até VITE_USE_OWN_API=true.
  */
 export function useOwnApi(): boolean {

@@ -1,15 +1,17 @@
 # Migração: Supabase só como banco + backend próprio
 
-Backend Node em `server/` roda **em paralelo** ao fluxo atual. **Por padrão nada muda** no sistema em produção.
+Backend Node em **`stockpyrou-api`** (repo separado) roda **em paralelo** ao fluxo atual. **Por padrão nada muda** no sistema em produção.
+
+Repo API: https://github.com/AdemarJr/stockpyrou-api
 
 ## Arquitetura
 
 ```
-Frontend (src/)  →  server/ (Node + Hono + pg)  →  PostgreSQL (Supabase)
+Frontend (src/)  →  stockpyrou-api (Node + Hono + pg)  →  PostgreSQL (Supabase)
 ```
 
 - **Sem** `VITE_USE_OWN_API` → Supabase client + Edge Functions (comportamento atual)
-- **Com** `VITE_USE_OWN_API=true` → API em `server/`; Postgres via `DATABASE_URL`
+- **Com** `VITE_USE_OWN_API=true` → API em `stockpyrou-api`; Postgres via `DATABASE_URL`
 
 ## Módulos migrados (dual-mode)
 
@@ -36,30 +38,33 @@ Estes continuam na Edge até próxima fase:
 ## Ativar localmente
 
 ```bash
-# 1. Banco
-cp server/.env.example server/.env
-# Preencha DATABASE_URL (Supabase → Database → Connection string)
+# 1. Clone / pasta stockpyrou-api
+cd stockpyrou-api
+cp .env.example .env   # DATABASE_URL do Supabase
+npm install && npm run dev
 
-# 2. API
-cd server && npm install && npm run dev
-
-# 3. Front (outro terminal)
+# 2. Front (outro terminal, na raiz do stockpyrou)
 npm run dev
 
-# 4. .env.local na raiz
+# 3. .env.local na raiz do front
 VITE_USE_OWN_API=true
 VITE_API_URL=/api
+# ou URL do Railway: https://seu-servico.up.railway.app/api
 ```
 
 Login normal; token `custom_` existente funciona na API nova.
 
-## Scripts
+## Scripts (se `stockpyrou-api/` estiver ao lado / dentro do monorepo)
 
 | Comando | Descrição |
 |---------|-----------|
 | `npm run dev:api` | Só backend (`:3001`) |
 | `npm run dev:all` | Backend + frontend |
-| `npm run build:api` | Typecheck do server |
+| `npm run build:api` | Typecheck da API |
+
+## Railway
+
+Deploy do repo **`AdemarJr/stockpyrou-api`** (raiz do repo). Variáveis: `DATABASE_URL`, `FRONTEND_URL`.
 
 ## Próximas fases
 

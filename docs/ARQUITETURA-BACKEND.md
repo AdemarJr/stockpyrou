@@ -14,14 +14,14 @@ Risco: chave anon exposta; regras de negócio no cliente.
 
 ```
 ┌─────────────────┐     HTTPS + JWT      ┌─────────────────┐     DATABASE_URL    ┌──────────────┐
-│  Frontend       │ ───────────────────► │  server/        │ ────────────────► │  PostgreSQL  │
+│  Frontend       │ ───────────────────► │  stockpyrou-api │ ────────────────► │  PostgreSQL  │
 │  (React/Vite)   │                      │  (Node/Hono/pg) │                   │  (Supabase)  │
 └─────────────────┘                      └─────────────────┘                   └──────────────┘
 ```
 
 ## O que foi implementado
 
-### Backend (`server/`)
+### Backend (`stockpyrou-api` — https://github.com/AdemarJr/stockpyrou-api)
 
 | Área | Rotas |
 |------|-------|
@@ -67,7 +67,7 @@ Risco: chave anon exposta; regras de negócio no cliente.
 ## Como validar
 
 1. Sem flag: login, estoque, caixa, relatórios — fluxo normal
-2. Com flag + `server/.env`: mesmos fluxos via `/api`
+2. Com flag + `.env` da API: mesmos fluxos via `/api`
 3. Comparar listagens (produtos, movimentos) entre os dois modos
 
 Ver também: [API-MIGRATION.md](./API-MIGRATION.md)
