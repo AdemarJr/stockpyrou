@@ -13,6 +13,7 @@ import {
   paidAmountFromExpenseRow
 } from '../utils/expensePaidAmount';
 import { ProductRepository } from './ProductRepository';
+import { today as todayYmdLocal } from '../utils/safeDate';
 
 export class CostRepository {
   private static isExpenseGroupColumnsMissingError(message: string): boolean {
@@ -929,7 +930,7 @@ export class CostRepository {
 
     const applied = Math.min(Math.round(payNow * 100) / 100, remaining);
     const newPaid = Math.round((prevPaid + applied) * 100) / 100;
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayYmdLocal();
     const dueRaw = row.due_date ? String(row.due_date).split('T')[0] : '';
     const st = String(row.payment_status || '');
 

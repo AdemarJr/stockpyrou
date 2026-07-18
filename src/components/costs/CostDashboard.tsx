@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
 import { remainingFromExpenseRow } from '../../utils/expensePaidAmount';
+import { today as todayYmdLocal } from '../../utils/safeDate';
 import { CostRepository } from '../../repositories/CostRepository';
 import { CostCenterManagement } from './CostCenterManagement';
 import { ExpenseManagement } from './ExpenseManagement';
@@ -102,7 +103,7 @@ export function CostDashboard() {
 
       // Calculate metrics
       const monthYmdPrefix = `${referenceMonth}-`;
-      const todayYmd = new Date().toISOString().split('T')[0];
+      const todayYmd = todayYmdLocal();
 
       const monthExpenses = (expenses as any[]).filter((e: any) => {
         const due = String(e.due_date || '').split('T')[0];

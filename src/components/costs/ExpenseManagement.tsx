@@ -47,6 +47,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency } from '../../utils/calculations';
+import { formatDateBR, today as todayYmdLocal } from '../../utils/safeDate';
 import { cn } from '../ui/utils';
 import type {
   CostCenter,
@@ -112,6 +113,13 @@ function formatPaymentTermsLine(expense: {
 function ymdFromDb(value: string | null | undefined): string {
   if (!value) return '';
   return value.split('T')[0];
+}
+
+/** Formata data civil (YYYY-MM-DD) sem deslocar por timezone UTC. */
+function formatYmdBR(value: string | null | undefined, empty = '—'): string {
+  const ymd = ymdFromDb(value);
+  if (!ymd) return empty;
+  return formatDateBR(ymd);
 }
 
 function addDaysYmd(ymd: string, days: number): string {
@@ -250,7 +258,7 @@ export function ExpenseManagement({
   const [listSearch, setListSearch] = useState('');
 
   const filteredExpenses = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayYmdLocal();
     return expenses.filter((e: any) => {
       if (!expenseMatchesStatusFilter(e, filter, today)) return false;
       if (!listSearch.trim()) return true;
@@ -277,7 +285,7 @@ export function ExpenseManagement({
   }, [expenses, filter, listSearch]);
 
   const expenseKpis = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayYmdLocal();
     let totalPaid = 0;
     let totalOpen = 0;
     let totalOverdue = 0;
@@ -859,8 +867,8 @@ export function ExpenseManagement({
       .map((e: any) => {
         const amt = formatCurrency(parseFloat(e.amount));
         const saldo = formatCurrency(expenseRemaining(e));
-        const due = e.due_date ? new Date(e.due_date).toLocaleDateString('pt-BR') : '—';
-        const paidDt = e.payment_date ? new Date(e.payment_date).toLocaleDateString('pt-BR') : '—';
+        const due = formatYmdBR(e.due_date);
+        const paidDt = formatYmdBR(e.payment_date);
         return `<tr>
           <td>${getStatusLabelStatic(e.payment_status)}</td>
           <td>${(e.description || '—').replace(/</g, '&lt;')}</td>
@@ -948,7 +956,7 @@ export function ExpenseManagement({
   const setPaymentStatus = (status: PaymentStatus) => {
     setFormData((prev) => {
       if (status === 'paid') {
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayYmdLocal();
         return {
           ...prev,
           paymentStatus: status,
@@ -1336,7 +1344,7 @@ export function ExpenseManagement({
                       )}
                     </td>
                     <td className="py-3 px-4">
-                      <span className="text-sm">{new Date(expense.due_date).toLocaleDateString('pt-BR')}</span>
+                      <span className="text-sm">{formatYmdBR(expense.due_date, '-')}</span>
                     </td>
                     <td className="py-3 px-4">
                       <div className="text-sm space-y-1">
@@ -1346,7 +1354,7 @@ export function ExpenseManagement({
                             <p>{paymentMethodLabel(expense.payment_method)}</p>
                             {expense.payment_date && (
                               <p className="text-xs text-gray-500">
-                                Pago em {new Date(expense.payment_date).toLocaleDateString('pt-BR')}
+                                Pago em {formatYmdBR(expense.payment_date)}
                               </p>
                             )}
                           </>
@@ -1354,7 +1362,7 @@ export function ExpenseManagement({
                           <p className="text-xs text-amber-700 dark:text-amber-500">
                             Pagamento parcial
                             {expense.payment_date && (
-                              <> · último em {new Date(expense.payment_date).toLocaleDateString('pt-BR')}</>
+                              <> · último em {formatYmdBR(expense.payment_date)}</>
                             )}
                           </p>
                         ) : (
@@ -1572,7 +1580,7 @@ export function ExpenseManagement({
                       <tbody>
                         {paymentHistory.map((p) => (
                           <tr key={p.id} className="border-b last:border-0">
-                            <td className="p-2">{p.payment_date || '—'}</td>
+                            <td className="p-2">{formatYmdBR(p.payment_date)}</td>
                             <td className="p-2">{paymentMethodLabel(p.payment_method)}</td>
                             <td className="p-2 text-right tabular-nums">{formatCurrency(p.amount)}</td>
                           </tr>
