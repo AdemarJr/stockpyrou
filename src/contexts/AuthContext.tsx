@@ -466,7 +466,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!response) {
       throw new Error(
         useOwnApi()
-          ? 'API fora do ar (Railway). Confira https://stockpyrou-api.up.railway.app/api/health'
+          ? 'API fora do ar (Railway). Confira https://stockpyrou-api-production.up.railway.app/api/health'
           : 'Servidor não respondeu a tempo. Verifique sua internet e tente novamente.',
       );
     }

@@ -3,9 +3,17 @@ import { getApiBaseUrl, useOwnApi } from './apiConfig';
 
 const LEGACY_PREFIX = '/make-server-8a20b27d';
 
-/** Raiz da API (Edge Function ou server/ próprio). */
+/** Raiz da API (Railway own API ou Edge Function legado). */
 export function getBackendApiRoot(): string {
   if (useOwnApi()) return getApiBaseUrl();
+  return getLegacyEdgeRoot();
+}
+
+/**
+ * Edge Function no Supabase (ZIG, Admin SaaS, custos via edge).
+ * Continua no projeto Supabase até essas rotas existirem na stockpyrou-api.
+ */
+export function getLegacyEdgeRoot(): string {
   return `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
 }
 

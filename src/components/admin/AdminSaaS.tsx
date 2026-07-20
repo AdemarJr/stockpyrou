@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, Users, Plus, ShieldCheck, Mail, Lock, UserPlus, Search, Globe, ChevronRight, Activity, Trash2, X, Power, CheckCircle2, AlertCircle, Menu, Key, UserCog } from 'lucide-react';
 import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { publicAnonKey } from '../../utils/supabase/env';
+import { getLegacyEdgeRoot } from '../../lib/backendUrl';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Company } from '../../types';
@@ -77,7 +78,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
       if (!user) return;
       
       console.log('🔍 Fetching all users to map to companies...');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/users`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/users`, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
           'X-Custom-Token': user.accessToken || ''
@@ -122,7 +123,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
       // Fetch users in parallel
       fetchUsers();
       
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/companies`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies`, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`
         }
@@ -157,7 +158,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
       setLoading(true);
       const loadingToast = toast.loading('Sincronizando empresas...');
       
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/companies/sync`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies/sync`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`
@@ -180,7 +181,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
   const toggleCompanyStatus = async (companyId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/companies/${companyId}/status`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies/${companyId}/status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -207,7 +208,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     e.preventDefault();
     try {
       const loadingToast = toast.loading('Criando organização...');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/create-company`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/admin/create-company`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -233,7 +234,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     try {
       const loadingToast = toast.loading('Criando usuário e vinculando empresa...');
       
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/create-user`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/admin/create-user`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -261,7 +262,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     
     try {
       const loadingToast = toast.loading('Excluindo empresa...');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/companies/${confirmModal.company.id}`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies/${confirmModal.company.id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`
@@ -307,7 +308,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
 
     try {
       const loadingToast = toast.loading('Atualizando sua senha...');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/users/${user.id}/reset-password`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/users/${user.id}/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -344,7 +345,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     
     try {
       const loadingToast = toast.loading('Alterando senha da empresa...');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/companies/${changePasswordModal.company.id}/change-password`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies/${changePasswordModal.company.id}/change-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -388,7 +389,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     
     try {
       const loadingToast = toast.loading('Limpando dados selecionados...');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/admin/clear-data`, {
+      const response = await fetch(`${getLegacyEdgeRoot()}/admin/clear-data`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

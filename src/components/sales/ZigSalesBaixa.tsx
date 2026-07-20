@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { RefreshCw, Store, AlertCircle, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { publicAnonKey } from '../../utils/supabase/env';
+import { getLegacyEdgeRoot } from '../../lib/backendUrl';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
 import { APP_NAME } from '../../config/branding';
 import { ReportExport } from '../reports/ReportExport';
@@ -250,7 +251,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     return Array.from(groups.values()).sort((a, b) => b.quantity - a.quantity);
   }, [salesByDate, selectedSales]);
 
-  const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
+  // ZIG ainda na Edge Supabase (baixa grava no DB do projeto Supabase até migrar a rota).
+  const SERVER_URL = getLegacyEdgeRoot();
 
   const edgeAuthHeaders = {
     Authorization: `Bearer ${publicAnonKey}`,

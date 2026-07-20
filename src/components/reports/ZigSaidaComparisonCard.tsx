@@ -3,7 +3,8 @@ import { Database, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { publicAnonKey } from '../../utils/supabase/env';
+import { getLegacyEdgeRoot } from '../../lib/backendUrl';
 import { formatCurrency } from '../../utils/calculations';
 
 type ZigDayRow = { lines: number; qty: number; value: number };
@@ -52,7 +53,7 @@ export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaCompariso
     (async () => {
       try {
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/zig/config/${currentCompany.id}`,
+          `${getLegacyEdgeRoot()}/zig/config/${currentCompany.id}`,
           { headers: ZIG_CONFIG_HEADERS },
         );
         const body = await res.json().catch(() => ({}));
@@ -86,7 +87,7 @@ export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaCompariso
       params.set('endDate', endDate);
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d/reports/zig-saida-comparison?${params}`,
+        `${getLegacyEdgeRoot()}/reports/zig-saida-comparison?${params}`,
         {
           headers: {
             Authorization: `Bearer ${publicAnonKey}`,

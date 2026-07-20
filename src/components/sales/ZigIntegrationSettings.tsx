@@ -4,7 +4,8 @@ import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
 import { toast } from 'sonner@2.0.3';
 import { useCompany } from '../../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
+import { publicAnonKey } from '../../utils/supabase/env';
+import { getLegacyEdgeRoot } from '../../lib/backendUrl';
 import { readZigBaixaUiDisabled, writeZigBaixaUiDisabled } from '../../utils/zigBaixaUi';
 
 interface ZigStore {
@@ -30,7 +31,8 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
   /** Se true, o botão «Buscar vendas» em Vendas/Baixa fica disponível (preferência local neste navegador). */
   const [zigPdvBaixaAtiva, setZigPdvBaixaAtiva] = useState(true);
 
-  const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-8a20b27d`;
+  // ZIG ainda roda na Edge Function (Supabase) — não migrado para stockpyrou-api.
+  const SERVER_URL = getLegacyEdgeRoot();
 
   const edgeHeaders = {
     Authorization: `Bearer ${publicAnonKey}`,
