@@ -1,0 +1,1 @@
+INSERT INTO "public"."v_gross_profit_month" ("company_id", "month", "revenue", "cogs", "gross_profit") VALUES ('052fbef1-ef6f-4b82-8f36-553205707c93', '2026-04', '0.00', '0', '0.00'), ('2d97925f-1828-4758-8d74-7c16b2335115', '2026-04', '43.66', '0', '43.66'), ('a5989342-3633-4358-be9e-900a0ac689f3', '2026-01', '54.01', '0', '54.01');

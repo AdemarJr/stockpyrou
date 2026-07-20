@@ -1,0 +1,21 @@
+BEGIN
+SET
+INSERT 0 5
+INSERT 0 5
+INSERT 0 5
+INSERT 0 1
+INSERT 0 89
+INSERT 0 305
+INSERT 0 56
+INSERT 0 42
+INSERT 0 5
+INSERT 0 5
+INSERT 0 92
+INSERT 0 418
+INSERT 0 291
+INSERT 0 788
+INSERT 0 878
+INSERT 0 485
+psql:stock-db/dumps/import-all-rows.sql:36: ERROR:  syntax error at or near "zig_processed"
+LINE 1: ...K|dfddcf7d-b681-4973-bf15-4f9f73872885', tru'), ('zig_proces...
+                                                             ^
