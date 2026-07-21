@@ -4,9 +4,8 @@
  * Padrão: true (grava no EasyPanel via Railway).
  * Para voltar ao Supabase client + Edge: VITE_USE_OWN_API=false
  *
- * Ainda no Supabase (não migrados para a API):
- * - CostRepository (despesas/custos)
- * - Edge ZIG / Admin (funções make-server-8a20b27d)
+ * Ainda no Supabase (Edge legado): ZIG / Admin.
+ * Despesas operacionais → /api/costs (EasyPanel).
  */
 export function useOwnApi(): boolean {
   const raw = import.meta.env.VITE_USE_OWN_API;

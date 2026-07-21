@@ -1,4 +1,7 @@
 import { supabase } from '../utils/supabase/client';
+import { useOwnApi } from '../lib/apiConfig';
+import { readLastCompanyId } from '../config/branding';
+import { CostApi } from './costApi';
 import type {
   CostCenter,
   ExpenseType,
@@ -26,6 +29,8 @@ export class CostRepository {
   // ==================== COST CENTERS ====================
   
   static async findAllCostCenters(companyId: string): Promise<CostCenter[]> {
+    if (useOwnApi()) return CostApi.findAllCostCenters(companyId);
+
     const { data, error } = await supabase
       .from('cost_centers')
       .select('*')
@@ -126,6 +131,8 @@ export class CostRepository {
   // ==================== EXPENSE TYPES ====================
 
   static async findAllExpenseTypes(companyId: string): Promise<ExpenseType[]> {
+    if (useOwnApi()) return CostApi.findAllExpenseTypes(companyId);
+
     const { data, error } = await supabase
       .from('expense_types')
       .select('*, cost_centers(name, code)')
@@ -208,6 +215,10 @@ export class CostRepository {
       paymentStatus?: string;
     }
   ): Promise<OperationalExpense[]> {
+    if (useOwnApi()) {
+      return CostApi.findAllExpenses(companyId, filters);
+    }
+
     let query = supabase
       .from('operational_expenses')
       .select(`
@@ -800,6 +811,8 @@ export class CostRepository {
   }
 
   static async createExpense(expense: Omit<OperationalExpense, 'id' | 'createdAt' | 'updatedAt'>): Promise<OperationalExpense> {
+    if (useOwnApi()) return CostApi.createExpense(expense);
+
     const { data, error } = await supabase
       .from('operational_expenses')
       .insert(this.expenseInsertRow(expense))
@@ -824,6 +837,8 @@ export class CostRepository {
     items: Array<Omit<OperationalExpense, 'id' | 'createdAt' | 'updatedAt'>>
   ): Promise<OperationalExpense[]> {
     if (items.length === 0) return [];
+    if (useOwnApi()) return CostApi.createExpensesBatch(items);
+
     const rows = items.map((e) => this.expenseInsertRow(e));
     const { data, error } = await supabase.from('operational_expenses').insert(rows).select();
 
@@ -841,6 +856,12 @@ export class CostRepository {
   }
 
   static async updateExpense(id: string, updates: Partial<OperationalExpense>): Promise<OperationalExpense> {
+    if (useOwnApi()) {
+      const companyId = updates.companyId || readLastCompanyId();
+      if (!companyId) throw new Error('Empresa não selecionada');
+      return CostApi.updateExpense(id, updates, companyId);
+    }
+
     const patch: Record<string, unknown> = {
       updated_at: new Date().toISOString()
     };
@@ -904,6 +925,12 @@ export class CostRepository {
     payNow: number,
     paymentMethod: PaymentMethod
   ): Promise<OperationalExpense> {
+    if (useOwnApi()) {
+      const companyId = readLastCompanyId();
+      if (!companyId) throw new Error('Empresa não selecionada');
+      return CostApi.registerExpensePayment(id, payNow, paymentMethod, companyId);
+    }
+
     if (!Number.isFinite(payNow) || payNow <= 0) {
       throw new Error('Informe um valor maior que zero');
     }
@@ -1019,6 +1046,20 @@ export class CostRepository {
       created_at: string;
     }>
   > {
+    if (useOwnApi()) {
+      return CostApi.findExpensePayments(companyId, expenseId) as Promise<
+        Array<{
+          id: string;
+          expense_id: string;
+          amount: number;
+          payment_date: string;
+          payment_method: string | null;
+          notes: string | null;
+          created_at: string;
+        }>
+      >;
+    }
+
     const { data, error } = await supabase
       .from('operational_expense_payments')
       .select('id, expense_id, amount, payment_date, payment_method, notes, created_at')
@@ -1035,6 +1076,13 @@ export class CostRepository {
   }
 
   static async deleteExpense(id: string): Promise<void> {
+    if (useOwnApi()) {
+      const companyId = readLastCompanyId();
+      if (!companyId) throw new Error('Empresa não selecionada');
+      await CostApi.deleteExpense(id, companyId);
+      return;
+    }
+
     const { error } = await supabase
       .from('operational_expenses')
       .delete()
@@ -1045,6 +1093,11 @@ export class CostRepository {
 
   /** Remove todas as parcelas do mesmo grupo (mesma NF). */
   static async deleteExpenseGroup(companyId: string, expenseGroupId: string): Promise<void> {
+    if (useOwnApi()) {
+      await CostApi.deleteExpenseGroup(companyId, expenseGroupId);
+      return;
+    }
+
     const { error } = await supabase
       .from('operational_expenses')
       .delete()
