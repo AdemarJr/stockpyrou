@@ -202,8 +202,10 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
   };
 
   useEffect(() => {
-    fetchCompanies();
-  }, []);
+    if (!user?.accessToken) return;
+    void fetchCompanies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recarrega quando o token do superadmin estiver disponível
+  }, [user?.accessToken]);
 
   const handleCreateCompany = async (e: React.FormEvent) => {
     e.preventDefault();
