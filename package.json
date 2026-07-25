@@ -31,7 +31,6 @@
     "@radix-ui/react-toggle": "^1.1.2",
     "@radix-ui/react-toggle-group": "^1.1.2",
     "@radix-ui/react-tooltip": "^1.1.8",
-    "@supabase/supabase-js": "^2.101.1",
     "bcryptjs": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "*",
@@ -71,8 +70,6 @@
     "dev:api": "npm run dev --prefix stockpyrou-api",
     "dev:all": "npm run dev:api & npm run dev",
     "build": "vite build",
-    "build:api": "npm run typecheck --prefix stockpyrou-api",
-    "supabase:sync-function": "cp src/supabase/functions/server/index.tsx supabase/functions/make-server-8a20b27d/main.tsx && cp src/supabase/functions/server/auth.tsx supabase/functions/make-server-8a20b27d/auth.tsx && cp src/supabase/functions/server/auth_types.ts supabase/functions/make-server-8a20b27d/auth_types.ts && cp src/supabase/functions/server/kv_store.tsx supabase/functions/make-server-8a20b27d/kv_store.tsx && cp src/supabase/functions/server/zig_service.tsx supabase/functions/make-server-8a20b27d/zig_service.tsx && (test -f src/supabase/functions/server/costs.tsx && cp src/supabase/functions/server/costs.tsx supabase/functions/make-server-8a20b27d/costs.tsx || true) && cp src/supabase/functions/server/backfill_sale_movements.tsx supabase/functions/make-server-8a20b27d/backfill_sale_movements.tsx",
-    "supabase:deploy-function": "npm run supabase:sync-function && supabase functions deploy make-server-8a20b27d"
+    "build:api": "npm run typecheck --prefix stockpyrou-api"
   }
 }

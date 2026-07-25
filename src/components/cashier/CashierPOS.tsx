@@ -22,7 +22,6 @@ import type { Product } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { getBackendUrl } from '../../lib/backendUrl';
-import { publicAnonKey } from '../../utils/supabase/env';
 import { ProductService } from '../../services/ProductService';
 import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
@@ -332,7 +331,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       console.log('💵 Total:', calculateTotal());
 
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user?.accessToken || ''}`,
         'X-Custom-Token': user?.accessToken || '',
         'Content-Type': 'application/json',
       };

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster } from 'sonner@2.0.3';
-import { supabase } from './utils/supabase/client';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CompanyProvider, useCompany } from './contexts/CompanyContext';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -291,7 +290,6 @@ function MainApp() {
   ];
   
   const companyId = currentCompany?.id;
-  const realtimeTimerRef = useRef<number | null>(null);
   const visibilityRefreshTimerRef = useRef<number | null>(null);
 
   // silent: não cobre a tela com loading (evita desmontar formulários ao sincronizar dados após venda, etc.)
@@ -351,65 +349,6 @@ function MainApp() {
     if (!currentCompany?.id) return;
     void refreshData();
   }, [currentCompany?.id, refreshData]);
-
-  // Realtime sync: se outro usuário/aba alterar dados da mesma empresa,
-  // atualiza o índice (silencioso) para manter tudo consistente em todos os navegadores.
-  useEffect(() => {
-    if (!companyId) return;
-
-    const scheduleRefresh = () => {
-      if (realtimeTimerRef.current) {
-        window.clearTimeout(realtimeTimerRef.current);
-      }
-      // debounce curto para agrupar múltiplos eventos (ex: venda cria movimento + update produto)
-      realtimeTimerRef.current = window.setTimeout(() => {
-        void refreshData({ silent: true });
-      }, 400);
-    };
-
-    const channel = supabase
-      .channel(`company-sync:${companyId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'products', filter: `company_id=eq.${companyId}` },
-        scheduleRefresh
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'stock_entries', filter: `company_id=eq.${companyId}` },
-        scheduleRefresh
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'stock_movements', filter: `company_id=eq.${companyId}` },
-        scheduleRefresh
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'price_history', filter: `company_id=eq.${companyId}` },
-        scheduleRefresh
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'suppliers', filter: `company_id=eq.${companyId}` },
-        scheduleRefresh
-      )
-      .subscribe((status) => {
-        console.log('[realtime] company sync status:', status);
-      });
-
-    return () => {
-      try {
-        if (realtimeTimerRef.current) {
-          window.clearTimeout(realtimeTimerRef.current);
-          realtimeTimerRef.current = null;
-        }
-      } catch {
-        // ignore
-      }
-      supabase.removeChannel(channel);
-    };
-  }, [companyId, refreshData]);
 
   // Fallback leve: ao voltar para a aba, um refresh silencioso (sem polling em background).
   // Cobre quando Realtime não está habilitado no projeto ou rede oscila.

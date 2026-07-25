@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, Users, Plus, ShieldCheck, Mail, Lock, UserPlus, Search, Globe, ChevronRight, Activity, Trash2, X, Power, CheckCircle2, AlertCircle, Menu, Key, UserCog } from 'lucide-react';
 import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
-import { publicAnonKey } from '../../utils/supabase/env';
-import { getLegacyEdgeRoot } from '../../lib/backendUrl';
+import { getBackendApiRoot } from '../../lib/backendUrl';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Company } from '../../types';
@@ -10,6 +9,18 @@ import { APP_NAME } from '../../config/branding';
 
 interface AdminSaaSProps {
   onLogout: () => void;
+}
+
+function adminAuthHeaders(accessToken?: string | null): HeadersInit {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const token = accessToken || '';
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers['X-Custom-Token'] = token;
+  }
+  return headers;
 }
 
 export function AdminSaaS({ onLogout }: AdminSaaSProps) {
@@ -78,11 +89,8 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
       if (!user) return;
       
       console.log('🔍 Fetching all users to map to companies...');
-      const response = await fetch(`${getLegacyEdgeRoot()}/users`, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'X-Custom-Token': user.accessToken || ''
-        }
+      const response = await fetch(`${getBackendApiRoot()}/users`, {
+        headers: adminAuthHeaders(user.accessToken)
       });
       
       const data = await response.json();
@@ -123,10 +131,8 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
       // Fetch users in parallel
       fetchUsers();
       
-      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies`, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`
-        }
+      const response = await fetch(`${getBackendApiRoot()}/admin/companies`, {
+        headers: adminAuthHeaders(user?.accessToken)
       });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
@@ -158,11 +164,9 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
       setLoading(true);
       const loadingToast = toast.loading('Sincronizando empresas...');
       
-      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies/sync`, {
+      const response = await fetch(`${getBackendApiRoot()}/admin/companies/sync`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`
-        }
+        headers: adminAuthHeaders(user?.accessToken)
       });
       
       const data = await response.json();
@@ -181,12 +185,9 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
   const toggleCompanyStatus = async (companyId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     try {
-      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies/${companyId}/status`, {
+      const response = await fetch(`${getBackendApiRoot()}/admin/companies/${companyId}/status`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
+        headers: adminAuthHeaders(user?.accessToken),
         body: JSON.stringify({ status: newStatus })
       });
       
@@ -208,12 +209,9 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     e.preventDefault();
     try {
       const loadingToast = toast.loading('Criando organização...');
-      const response = await fetch(`${getLegacyEdgeRoot()}/admin/create-company`, {
+      const response = await fetch(`${getBackendApiRoot()}/admin/create-company`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
+        headers: adminAuthHeaders(user?.accessToken),
         body: JSON.stringify(newCompany)
       });
       
@@ -234,12 +232,9 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     try {
       const loadingToast = toast.loading('Criando usuário e vinculando empresa...');
       
-      const response = await fetch(`${getLegacyEdgeRoot()}/admin/create-user`, {
+      const response = await fetch(`${getBackendApiRoot()}/admin/create-user`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
+        headers: adminAuthHeaders(user?.accessToken),
         body: JSON.stringify(newUser)
       });
 
@@ -262,11 +257,9 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     
     try {
       const loadingToast = toast.loading('Excluindo empresa...');
-      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies/${confirmModal.company.id}`, {
+      const response = await fetch(`${getBackendApiRoot()}/admin/companies/${confirmModal.company.id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`
-        }
+        headers: adminAuthHeaders(user?.accessToken)
       });
       
       const result = await response.json();
@@ -308,13 +301,9 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
 
     try {
       const loadingToast = toast.loading('Atualizando sua senha...');
-      const response = await fetch(`${getLegacyEdgeRoot()}/users/${user.id}/reset-password`, {
+      const response = await fetch(`${getBackendApiRoot()}/users/${user.id}/reset-password`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'X-Custom-Token': user.accessToken || ''
-        },
+        headers: adminAuthHeaders(user.accessToken),
         body: JSON.stringify({ newPassword: adminPasswordData.new })
       });
       
@@ -345,12 +334,9 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     
     try {
       const loadingToast = toast.loading('Alterando senha da empresa...');
-      const response = await fetch(`${getLegacyEdgeRoot()}/admin/companies/${changePasswordModal.company.id}/change-password`, {
+      const response = await fetch(`${getBackendApiRoot()}/admin/companies/${changePasswordModal.company.id}/change-password`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
+        headers: adminAuthHeaders(user?.accessToken),
         body: JSON.stringify({ newPassword })
       });
       
@@ -389,12 +375,9 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     
     try {
       const loadingToast = toast.loading('Limpando dados selecionados...');
-      const response = await fetch(`${getLegacyEdgeRoot()}/admin/clear-data`, {
+      const response = await fetch(`${getBackendApiRoot()}/admin/clear-data`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
+        headers: adminAuthHeaders(user?.accessToken),
         body: JSON.stringify({
           companyId: clearDataModal.company.id,
           confirmationCode: clearDataConfirmation,

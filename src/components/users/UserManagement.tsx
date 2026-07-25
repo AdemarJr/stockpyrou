@@ -20,7 +20,6 @@ import { useCompany } from '../../contexts/CompanyContext';
 import type { UserProfile, UserRole } from '../../types';
 import { toast } from 'sonner@2.0.3';
 import { getBackendApiRoot } from '../../lib/backendUrl';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { rowMatchesSearch } from '../../utils/listFilters';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -137,7 +136,7 @@ export function UserManagement() {
       
       const response = await fetch(url, {
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
+          'Authorization': `Bearer ${user?.accessToken || ''}`,
           'X-Custom-Token': user?.accessToken || '',
           'Content-Type': 'application/json',
         },
@@ -175,7 +174,7 @@ export function UserManagement() {
         const response = await fetch(`${API_URL}/users/${editingUser.id}`, {
           method: 'PUT',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${user?.accessToken || ''}`,
             'X-Custom-Token': user?.accessToken || '',
             'Content-Type': 'application/json',
           },
@@ -228,7 +227,7 @@ export function UserManagement() {
       const response = await fetch(`${API_URL}/users/${deletingUser.id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
+          'Authorization': `Bearer ${user?.accessToken || ''}`,
           'X-Custom-Token': user?.accessToken || '',
           'Content-Type': 'application/json',
         },
@@ -266,7 +265,7 @@ export function UserManagement() {
       const response = await fetch(`${API_URL}/users/${resettingPassword.id}/reset-password`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
+          'Authorization': `Bearer ${user?.accessToken || ''}`,
           'X-Custom-Token': user?.accessToken || '',
           'Content-Type': 'application/json',
         },

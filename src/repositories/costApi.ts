@@ -31,12 +31,80 @@ export class CostApi {
     return data.costCenters ?? [];
   }
 
+  static async findCostCenterById(id: string, companyId: string): Promise<CostCenter | null> {
+    try {
+      const data = await apiClient.get<{ costCenter: CostCenter }>(
+        `/costs/centers/${id}`,
+        companyId,
+      );
+      return data.costCenter ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  static async createCostCenter(
+    center: Omit<CostCenter, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<CostCenter> {
+    const data = await apiClient.post<{ costCenter: CostCenter }>(
+      '/costs/centers',
+      center,
+      center.companyId,
+    );
+    return data.costCenter;
+  }
+
+  static async updateCostCenter(
+    id: string,
+    updates: Partial<CostCenter>,
+    companyId: string,
+  ): Promise<CostCenter> {
+    const data = await apiClient.put<{ costCenter: CostCenter }>(
+      `/costs/centers/${id}`,
+      updates,
+      companyId,
+    );
+    return data.costCenter;
+  }
+
+  static async deleteCostCenter(id: string, companyId: string): Promise<void> {
+    await apiClient.delete(`/costs/centers/${id}`, companyId);
+  }
+
   static async findAllExpenseTypes(companyId: string): Promise<ExpenseType[]> {
     const data = await apiClient.get<{ expenseTypes: ExpenseType[] }>(
       '/costs/types',
       companyId,
     );
     return data.expenseTypes ?? [];
+  }
+
+  static async createExpenseType(
+    type: Omit<ExpenseType, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<ExpenseType> {
+    const data = await apiClient.post<{ expenseType: ExpenseType }>(
+      '/costs/types',
+      type,
+      type.companyId,
+    );
+    return data.expenseType;
+  }
+
+  static async updateExpenseType(
+    id: string,
+    updates: Partial<ExpenseType>,
+    companyId: string,
+  ): Promise<ExpenseType> {
+    const data = await apiClient.put<{ expenseType: ExpenseType }>(
+      `/costs/types/${id}`,
+      updates,
+      companyId,
+    );
+    return data.expenseType;
+  }
+
+  static async deleteExpenseType(id: string, companyId: string): Promise<void> {
+    await apiClient.delete(`/costs/types/${id}`, companyId);
   }
 
   static async findAllExpenses(
@@ -134,5 +202,99 @@ export class CostApi {
       companyId,
     );
     return data.expense;
+  }
+
+  static async getStockPurchasesMonthTotal(
+    companyId: string,
+    referenceMonth?: string,
+  ): Promise<number> {
+    const qs = referenceMonth ? `?month=${encodeURIComponent(referenceMonth)}` : '';
+    const data = await apiClient.get<{ purchasesMonthTotal: number }>(
+      `/costs/metrics/stock${qs}`,
+      companyId,
+    );
+    return Number(data.purchasesMonthTotal) || 0;
+  }
+
+  static async getMonthlyFinancialSnapshot(
+    companyId: string,
+    month: string,
+  ): Promise<{ month: string; revenue: number; cogs: number; fiadoReceivable: number }> {
+    const data = await apiClient.get<{
+      month: string;
+      revenue: number;
+      cogs: number;
+      fiadoReceivable: number;
+    }>(`/costs/metrics/financial-snapshot?month=${encodeURIComponent(month)}`, companyId);
+    return data;
+  }
+
+  static async getCashFlowProjection(
+    companyId: string,
+    startYmd: string,
+    endYmd: string,
+  ): Promise<
+    Array<{
+      date: string;
+      inRealized: number;
+      inExpected: number;
+      outRealized: number;
+      outExpected: number;
+      net: number;
+      projectedBalance: number;
+    }>
+  > {
+    const data = await apiClient.get<{
+      days: Array<{
+        date: string;
+        inRealized: number;
+        inExpected: number;
+        outRealized: number;
+        outExpected: number;
+        net: number;
+        projectedBalance: number;
+      }>;
+    }>(
+      `/costs/analytics/cash-flow?start=${encodeURIComponent(startYmd)}&end=${encodeURIComponent(endYmd)}`,
+      companyId,
+    );
+    return data.days ?? [];
+  }
+
+  static async getDreByMonth(
+    companyId: string,
+    startMonth: string,
+    endMonth: string,
+  ): Promise<
+    Array<{ month: string; revenue: number; cogs: number; expenses: number; grossProfit: number; net: number }>
+  > {
+    const data = await apiClient.get<{
+      dre: Array<{ month: string; revenue: number; cogs: number; expenses: number; grossProfit: number; net: number }>;
+    }>(
+      `/costs/analytics/dre?startMonth=${encodeURIComponent(startMonth)}&endMonth=${encodeURIComponent(endMonth)}`,
+      companyId,
+    );
+    return data.dre ?? [];
+  }
+
+  static async getCostCenterSummary(companyId: string): Promise<any[]> {
+    const data = await apiClient.get<{ summary: any[] }>(
+      '/costs/analytics/cost-centers-summary',
+      companyId,
+    );
+    return data.summary ?? [];
+  }
+
+  static async getProductCostAnalysis(companyId: string): Promise<any[]> {
+    const data = await apiClient.get<{ products: any[] }>(
+      '/costs/analytics/product-costs',
+      companyId,
+    );
+    return data.products ?? [];
+  }
+
+  static async getWasteAnalysis(companyId: string): Promise<any[]> {
+    const data = await apiClient.get<{ waste: any[] }>('/costs/analytics/waste', companyId);
+    return data.waste ?? [];
   }
 }

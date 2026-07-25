@@ -26,7 +26,6 @@ import { rowMatchesSearch } from '../../utils/listFilters';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { getBackendUrl } from '../../lib/backendUrl';
-import { publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 
 export function CashierHistory() {
@@ -83,7 +82,7 @@ export function CashierHistory() {
       setLoading(true);
       
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user?.accessToken || ''}`,
         'X-Custom-Token': user?.accessToken || '',
       };
       

@@ -15,9 +15,9 @@ const STATIC_CACHE = [
 
 // URLs de API que devem ser cacheadas
 const API_URLS = [
-  '/functions/v1/make-server-8a20b27d/cashier/',
-  '/functions/v1/make-server-8a20b27d/products/',
-  '/functions/v1/make-server-8a20b27d/stock/',
+  '/api/cashier/',
+  '/api/products/',
+  '/api/stock/',
 ];
 
 console.log(`[SW] Service Worker versão ${VERSION} carregando...`);
@@ -95,9 +95,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Ignora requisições para outros domínios (exceto Supabase)
-  if (url.origin !== self.location.origin && 
-      !url.hostname.includes('supabase.co')) {
+  // Ignora requisições para outros domínios (exceto a API própria no Railway)
+  if (url.origin !== self.location.origin &&
+      !url.hostname.includes('railway.app')) {
     return;
   }
 

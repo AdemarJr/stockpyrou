@@ -1,19 +1,3 @@
-/**
- * Feature flag: API própria (stockpyrou-api / Railway → Postgres EasyPanel).
- *
- * Padrão: true (grava no EasyPanel via Railway).
- * Para voltar ao Supabase client + Edge: VITE_USE_OWN_API=false
- *
- * Ainda no Supabase (Edge legado): ZIG / Admin.
- * Despesas operacionais → /api/costs (EasyPanel).
- */
-export function useOwnApi(): boolean {
-  const raw = import.meta.env.VITE_USE_OWN_API;
-  // Sem variável = own API (EasyPanel). Só desliga com false/0.
-  if (raw === undefined || raw === '') return true;
-  return raw === 'true' || raw === '1';
-}
-
 /** Base da API (ex.: /api com proxy Vite ou URL Railway …/api). */
 export function getApiBaseUrl(): string {
   const configured = import.meta.env.VITE_API_URL?.trim();

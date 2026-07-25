@@ -1,19 +1,20 @@
-# Migração: Supabase só como banco + backend próprio
+# Arquitetura: backend próprio (stockpyrou-api) + Postgres (EasyPanel)
 
-Backend Node em **`stockpyrou-api`** (repo separado) roda **em paralelo** ao fluxo atual. **Por padrão nada muda** no sistema em produção.
+O Supabase foi **removido** do frontend. Todo acesso a dados passa pela API própria em **`stockpyrou-api`** (repo separado), que fala com um Postgres hospedado no EasyPanel.
 
 Repo API: https://github.com/AdemarJr/stockpyrou-api
 
 ## Arquitetura
 
 ```
-Frontend (src/)  →  stockpyrou-api (Node + Hono + pg)  →  PostgreSQL (Supabase)
+Frontend (src/)  →  stockpyrou-api (Node + Hono + pg)  →  PostgreSQL (EasyPanel)
 ```
 
-- **Sem** `VITE_USE_OWN_API` → Supabase client + Edge Functions (comportamento atual)
-- **Com** `VITE_USE_OWN_API=true` → API em `stockpyrou-api`; Postgres via `DATABASE_URL`
+- O frontend chama exclusivamente `getApiBaseUrl()` (`src/lib/apiConfig.ts`), configurável via `VITE_API_URL`.
+- Autenticação usa apenas o token custom (`Authorization: Bearer <token>` + `X-Custom-Token: <token>`) contra `/api/auth/*`. Não há mais `supabase.auth`, `publicAnonKey` nem `onAuthStateChange`.
+- Não existe mais modo dual (`useOwnApi()` foi removido); os repositórios (`ProductRepository`, `StockRepository`, `SupplierRepository`, `PriceHistoryRepository`, `CompanyRepository`, `CostRepository`, etc.) chamam diretamente as respectivas classes `*Api`.
 
-## Módulos migrados (dual-mode)
+## Módulos
 
 | Módulo | Frontend | API |
 |--------|----------|-----|
@@ -25,34 +26,25 @@ Frontend (src/)  →  stockpyrou-api (Node + Hono + pg)  →  PostgreSQL (Supaba
 | Auth (login/me/init) | `AuthContext` | `/api/auth/*` |
 | Caixa / PDV | Cashier, POS | `/api/cashier/*` |
 | Relatórios vendas/fechamentos | `Reports` | `/api/reports/*` |
+| Custos (centros de custo, tipos de despesa, analytics) | `CostRepository` | `/api/costs/*` |
+| ZIG (config, preview, confirm, comparativo) | `ZigSalesBaixa`, `ZigIntegrationSettings`, `ZigSaidaComparisonCard` | `/api/zig/*` |
+| Admin SaaS / usuários | `AdminSaaS`, `UserManagement` | `/api/admin/*`, `/api/users/*` |
 
-## Ainda na Edge Function (quando flag ativa)
-
-Estes continuam na Edge até próxima fase:
-
-- **ZIG** (`/zig/*`)
-- **Admin SaaS** (`/admin/*`, `/users/*`)
-- **Custos** (`CostRepository` → Supabase direto)
-- Integrações financeiras documentadas em `API-INTEGRACAO-FINANCEIRA.md`
-
-## Ativar localmente
+## Rodar localmente
 
 ```bash
-# 1. Clone / pasta stockpyrou-api
+# 1. Backend
 cd stockpyrou-api
-cp .env.example .env   # DATABASE_URL do Supabase
+cp .env.example .env   # DATABASE_URL do Postgres (EasyPanel) + FRONTEND_URL
 npm install && npm run dev
 
 # 2. Front (outro terminal, na raiz do stockpyrou)
 npm run dev
 
 # 3. .env.local na raiz do front
-VITE_USE_OWN_API=true
 VITE_API_URL=/api
 # ou URL do Railway: https://seu-servico.up.railway.app/api
 ```
-
-Login normal; token `custom_` existente funciona na API nova.
 
 ## Scripts (se `stockpyrou-api/` estiver ao lado / dentro do monorepo)
 
@@ -62,20 +54,13 @@ Login normal; token `custom_` existente funciona na API nova.
 | `npm run dev:all` | Backend + frontend |
 | `npm run build:api` | Typecheck da API |
 
-## Railway
+## Deploy
 
-Deploy do repo **`AdemarJr/stockpyrou-api`** (raiz do repo). Variáveis: `DATABASE_URL`, `FRONTEND_URL`.
+- **Frontend**: build estático (Vite) com `VITE_API_URL` apontando para a API em produção.
+- **API**: deploy do repo `AdemarJr/stockpyrou-api` no Railway. Variáveis obrigatórias: `DATABASE_URL` (Postgres EasyPanel) e `FRONTEND_URL` (CORS).
 
-## Próximas fases
+## Segurança (produção)
 
-1. Custos (`CostRepository` → `/api/costs/*`)
-2. ZIG (`zig_service.tsx` → `/api/zig/*`)
-3. Admin / usuários (`/api/admin/*`, `/api/users/*`)
-4. Remover `@supabase/supabase-js` do frontend
-5. Desligar Edge Functions
-
-## Segurança (produção com API própria)
-
-- `DATABASE_URL` só no servidor
-- Bloquear PostgREST anon quando API estiver 100% ativa
-- CORS restrito ao domínio do front
+- `DATABASE_URL` só no servidor (nunca exposto ao frontend)
+- CORS restrito ao domínio do front via `FRONTEND_URL`
+- Sem chaves anônimas públicas: toda rota autenticada exige o token custom do usuário

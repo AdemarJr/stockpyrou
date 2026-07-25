@@ -15,7 +15,6 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { getBackendUrl } from '../../lib/backendUrl';
-import { publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 import { cn } from '../ui/utils';
 import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
@@ -63,7 +62,7 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       console.log('🏢 Current company:', currentCompany?.id);
       
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user.accessToken}`,
         'X-Custom-Token': user.accessToken,
       };
       
@@ -133,7 +132,7 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       setIsOpening(true);
       
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user.accessToken}`,
         'X-Custom-Token': user.accessToken,
         'Content-Type': 'application/json',
       };

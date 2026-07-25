@@ -1,4 +1,4 @@
-/** Mensagem legível a partir de erro do Supabase/PostgREST ou qualquer throw. */
+/** Mensagem legível a partir de erro da API/Postgres ou qualquer throw. */
 export function messageFromUnknownError(err: unknown): string {
   if (err == null) return 'Erro desconhecido';
   if (typeof err === 'string') return err;

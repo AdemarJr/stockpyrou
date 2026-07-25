@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { RefreshCw, Store, AlertCircle, Calendar, ShoppingCart, Package, X, CheckCircle2, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { publicAnonKey } from '../../utils/supabase/env';
-import { getLegacyEdgeRoot } from '../../lib/backendUrl';
+import { getBackendApiRoot } from '../../lib/backendUrl';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
 import { APP_NAME } from '../../config/branding';
 import { ReportExport } from '../reports/ReportExport';
@@ -80,6 +80,7 @@ type BaixaReportRow = {
 
 export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void | Promise<void> }) {
   const { currentCompany } = useCompany();
+  const { user } = useAuth();
 
   const [configLoaded, setConfigLoaded] = useState(false);
   /** Preferência em Integrações: esconde baixa ZIG neste navegador. */
@@ -251,13 +252,11 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     return Array.from(groups.values()).sort((a, b) => b.quantity - a.quantity);
   }, [salesByDate, selectedSales]);
 
-  // ZIG ainda na Edge Supabase (baixa grava no DB do projeto Supabase até migrar a rota).
-  const SERVER_URL = getLegacyEdgeRoot();
+  const SERVER_URL = getBackendApiRoot();
 
-  const edgeAuthHeaders = {
-    Authorization: `Bearer ${publicAnonKey}`,
-    apikey: publicAnonKey,
-  };
+  const edgeAuthHeaders: Record<string, string> = user?.accessToken
+    ? { Authorization: `Bearer ${user.accessToken}`, 'X-Custom-Token': user.accessToken }
+    : {};
 
   /** YYYY-MM-DD no calendário de São Paulo (mesma base do servidor ZIG). */
   const ymdSaoPaulo = (d: Date) =>
@@ -473,14 +472,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Erro no processamento' }));
-        let msg =
+        const msg =
           (typeof err.error === 'string' && err.error) || 'Erro na resposta do servidor';
-        if (/Falha ao buscar vendas ZIG/i.test(msg)) {
-          msg =
-            'A Edge Function no Supabase ainda está com build antigo: o POST /zig/confirm não pode chamar a API ZIG (só baixa local com snapshot). ' +
-            'Faça o deploy da função `make-server-8a20b27d` a partir deste repositório (pasta `supabase/functions/make-server-8a20b27d`). ' +
-            `Confira com GET …/zig/meta (deve mostrar callsZigApiOnConfirm: false). Detalhe: ${msg}`;
-        }
         throw new Error(msg);
       }
 

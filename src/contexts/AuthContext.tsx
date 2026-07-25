@@ -1,10 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../utils/supabase/client';
 import type { AuthUser, UserProfile } from '../types';
 import { toast } from 'sonner@2.0.3';
-import { useOwnApi } from '../lib/apiConfig';
 import { getBackendApiRoot } from '../lib/backendUrl';
-import { publicAnonKey } from '../utils/supabase/env';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 import { safeStorage } from '../utils/safeStorage';
 
@@ -68,30 +65,7 @@ function broadcastAuthEvent(type: 'login' | 'logout'): void {
   }
 }
 
-function clearSupabaseAuthKeys(): void {
-  // Never clear the whole storage (breaks app state on refresh/back navigation).
-  // Only remove Supabase auth-related keys.
-  try {
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
-        keysToRemove.push(key);
-      }
-    }
-    keysToRemove.forEach((k) => {
-      try {
-        localStorage.removeItem(k);
-      } catch {
-        // ignore
-      }
-    });
-  } catch {
-    // localStorage may be blocked (Safari private mode, hardened settings)
-  }
-}
-
-/** Mensagens do Supabase/servidor em inglês → português para o usuário */
+/** Mensagens do servidor em inglês → português para o usuário */
 function formatLoginErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err ?? '');
   const t = raw.trim();
@@ -122,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function fetchUserProfile(userId: string): Promise<Partial<UserProfile> | null> {
     try {
       // Tenta buscar perfil estendido no KV store se existir
-      return null; 
+      return null;
     } catch (error) {
       console.error('Error fetching user profile:', error);
       return null;
@@ -130,72 +104,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    // 1. Check for Custom Token first
     const customToken = getCustomToken();
-    
-    async function checkSupabaseSession() {
-      try {
-        // Check active session with error handling
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        // If there's a refresh token error, clear the session
-        if (error) {
-          console.log('Session error, clearing auth state:', error.message);
-          await supabase.auth.signOut({ scope: 'local' });
-          clearSupabaseAuthKeys();
-          setUser(null);
-          setLoading(false);
-          return;
-        }
-        
-        if (session?.user) {
-          const metadata = session.user.user_metadata || {};
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            fullName: metadata.name || metadata.full_name || 'Usuário',
-            role: metadata.role || 'admin',
-            companyId: metadata.company_id,
-            permissions: {
-              canViewDashboard: true,
-              canManageProducts: true,
-              canDeleteProducts: true,
-              canManageStock: true,
-              canManageRecipes: true,
-              canViewReports: true,
-              canManageUsers: true,
-              canManageSettings: true
-            },
-            accessToken: session.access_token,
-          });
-        }
-      } catch (err) {
-        console.error('Error checking session:', err);
-        // Clear any corrupted auth state
-        await supabase.auth.signOut({ scope: 'local' });
-        clearSupabaseAuthKeys();
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    }
 
     if (customToken) {
       console.log('🔍 Found custom token, verifying...');
       void (async () => {
         const res = await fetchWithTimeout(`${authApiRoot()}/auth/me`, {
-          headers: { 'Authorization': `Bearer ${customToken}`, 'X-Custom-Token': customToken },
+          headers: { Authorization: `Bearer ${customToken}`, 'X-Custom-Token': customToken },
           timeoutMs: 15000
         });
         if (!res?.ok) {
           console.log('❌ /auth/me failed or timeout, clearing custom token');
           removeCustomToken();
-          if (useOwnApi()) {
-            setUser(null);
-            setLoading(false);
-            return;
-          }
-          await checkSupabaseSession();
+          setUser(null);
+          setLoading(false);
           return;
         }
         try {
@@ -206,47 +128,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               ...data.user,
               accessToken: customToken
             });
-            setLoading(false);
           } else {
             removeCustomToken();
-            if (useOwnApi()) {
-              setUser(null);
-              setLoading(false);
-              return;
-            }
-            await checkSupabaseSession();
+            setUser(null);
           }
         } catch (err) {
           console.error('❌ Error parsing /auth/me:', err);
           removeCustomToken();
-          if (useOwnApi()) {
-            setUser(null);
-            setLoading(false);
-            return;
-          }
-          await checkSupabaseSession();
+          setUser(null);
+        } finally {
+          setLoading(false);
         }
       })();
-    } else if (useOwnApi()) {
-      console.log('🔍 Own API mode: sem custom token — tela de login');
-      setLoading(false);
     } else {
-      console.log('🔍 No custom token, checking Supabase session');
-      void checkSupabaseSession();
+      console.log('🔍 No custom token — tela de login');
+      setLoading(false);
     }
 
-    /** Outra aba fez logout: limpar tokens locais e sessão em memória do Supabase */
+    /** Outra aba fez logout: limpar token local */
     const applyCrossTabLogout = () => {
       removeCustomToken();
-      void (async () => {
-        try {
-          await supabase.auth.signOut({ scope: 'local' });
-        } catch {
-          // ignore
-        }
-        clearSupabaseAuthKeys();
-        setUser(null);
-      })();
+      setUser(null);
     };
 
     // Cross-tab auth sync (logout/login in another tab)
@@ -278,90 +180,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       bc = null;
     }
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      console.log('🔔 Auth state changed:', _event, 'Has session:', !!session);
-      
-      // Don't clear user if we have a custom token active
-      const hasCustomToken = !!getCustomToken();
-      console.log('🎫 Has custom token:', hasCustomToken);
-      
-      // Handle sign out event only
-      if (_event === 'SIGNED_OUT') {
-        console.log('👋 SIGNED_OUT event');
-        if (!hasCustomToken) {
-          console.log('❌ No custom token, clearing user');
-          setUser(null);
-          broadcastAuthEvent('logout');
-        } else {
-          console.log('✅ Custom token exists, keeping user logged in');
-        }
-        return;
-      }
-      
-      // Handle token refresh - don't clear user
-      if (_event === 'TOKEN_REFRESHED') {
-        console.log('🔄 Token refreshed');
-        if (session?.user) {
-          console.log('✅ Updating user from refreshed session');
-          const metadata = session.user.user_metadata || {};
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            fullName: metadata.name || metadata.full_name || 'Usuário',
-            role: metadata.role || 'admin',
-            companyId: metadata.company_id,
-            permissions: {
-              canViewDashboard: true,
-              canManageProducts: true,
-              canDeleteProducts: true,
-              canManageStock: true,
-              canManageRecipes: true,
-              canViewReports: true,
-              canManageUsers: true,
-              canManageSettings: true
-            },
-            accessToken: session.access_token,
-          });
-        }
-        return;
-      }
-      
-      // Com API própria, sessão Supabase sozinha não autentica o backend — ignore.
-      if (useOwnApi()) {
-        setLoading(false);
-        return;
-      }
-
-      // Update user if session exists (SIGNED_IN, INITIAL_SESSION, etc)
-      if (session?.user && !hasCustomToken) {
-        console.log('✅ Updating user from Supabase session');
-        const metadata = session.user.user_metadata || {};
-         setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          fullName: metadata.name || metadata.full_name || 'Usuário',
-          role: metadata.role || 'admin',
-          companyId: metadata.company_id,
-          permissions: {
-            canViewDashboard: true,
-            canManageProducts: true,
-            canDeleteProducts: true,
-            canManageStock: true,
-            canManageRecipes: true,
-            canViewReports: true,
-            canManageUsers: true,
-            canManageSettings: true
-          },
-          accessToken: session.access_token,
-        });
-      }
-      
-      setLoading(false);
-    });
-
     return () => {
       try {
         window.removeEventListener('storage', onStorage);
@@ -373,56 +191,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // ignore
       }
-      subscription.unsubscribe();
     };
   }, []);
 
-  // Login: com VITE_USE_OWN_API usa só a API (token custom_). Senão Supabase + fallback custom.
+  // Login: sempre via API própria (stockpyrou-api).
   async function login(email: string, password: string): Promise<boolean> {
     try {
-      // Não usar `loading` global aqui — desmontaria a tela de Login no AppContent.
-      if (useOwnApi() || email === 'admin@stockwise.com') {
-        console.log(
-          useOwnApi()
-            ? '⚡ Own API mode — login via stockpyrou-api...'
-            : '⚡ Super Admin login detected - Skipping Supabase Auth...',
-        );
-        return await loginCustom(email, password);
-      }
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (!error && data.user) {
-        const metadata = data.user.user_metadata || {};
-        setUser({
-          id: data.user.id,
-          email: data.user.email || '',
-          fullName: metadata.name || metadata.full_name || 'Usuário',
-          role: metadata.role || 'admin',
-          companyId: metadata.company_id,
-          permissions: {
-            canViewDashboard: true,
-            canManageProducts: true,
-            canDeleteProducts: true,
-            canManageStock: true,
-            canManageRecipes: true,
-            canViewReports: true,
-            canManageUsers: true,
-            canManageSettings: true
-          },
-          accessToken: data.session?.access_token || '',
-        });
-        broadcastAuthEvent('login');
-        toast.success(`Bem-vindo, ${metadata.name || metadata.full_name || 'Usuário'}!`);
-        return true;
-      }
-
-      console.log('Supabase login failed, trying custom server auth...');
       return await loginCustom(email, password);
-
     } catch (error: unknown) {
       console.error('Login error:', error);
       toast.error(formatLoginErrorMessage(error));
@@ -437,9 +212,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const initResponse = await fetch(`${authApiRoot()}/auth/init`, {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
+          headers: {
+            'Content-Type': 'application/json'
           }
         });
         const initData = await initResponse.json();
@@ -448,16 +222,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Init error (non-fatal):', initError);
       }
     }
-    
+
     console.log('🔐 Attempting custom login for:', email);
     console.log('🔐 Password length:', password?.length);
     console.log('🔐 Auth API:', authApiRoot());
-    
+
     const response = await fetchWithTimeout(`${authApiRoot()}/auth/login`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${publicAnonKey}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ email, password }),
       timeoutMs: 25000
@@ -465,9 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (!response) {
       throw new Error(
-        useOwnApi()
-          ? 'API fora do ar (Railway). Confira https://stockpyrou-api-production.up.railway.app/api/health'
-          : 'Servidor não respondeu a tempo. Verifique sua internet e tente novamente.',
+        'API fora do ar (Railway). Confira https://stockpyrou-api-production.up.railway.app/api/health',
       );
     }
 
@@ -515,15 +286,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Logout function
   async function logout() {
     try {
-      // Clear custom token first
       removeCustomToken();
-      
-      // Sign out from Supabase (won't throw error if no session)
-      await supabase.auth.signOut({ scope: 'local' });
-      
-      // Clear all localStorage related to auth
-      clearSupabaseAuthKeys();
-      
       setUser(null);
       broadcastAuthEvent('logout');
       toast.success('Logout realizado com sucesso');
@@ -539,9 +302,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Refresh user data
   async function refreshUser() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      // Atualizar estado se necessário
+    const token = getCustomToken();
+    if (!token) return;
+    try {
+      const res = await fetchWithTimeout(`${authApiRoot()}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}`, 'X-Custom-Token': token },
+        timeoutMs: 15000
+      });
+      if (!res?.ok) return;
+      const data = await res.json();
+      if (data.user) {
+        setUser({
+          ...data.user,
+          accessToken: token
+        });
+      }
+    } catch (err) {
+      console.error('Error refreshing user:', err);
     }
   }
 

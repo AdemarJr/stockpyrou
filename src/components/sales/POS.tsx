@@ -11,7 +11,6 @@ import { ZigSalesBaixa } from './ZigSalesBaixa';
 import { useIsMobile } from '../ui/use-mobile';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
 import { getBackendUrl } from '../../lib/backendUrl';
-import { publicAnonKey } from '../../utils/supabase/env';
 
 interface POSProps {
   products: Product[];
@@ -350,7 +349,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       let saleId: string | null = null;
       try {
         const headers: Record<string, string> = {
-          Authorization: `Bearer ${publicAnonKey}`,
+          Authorization: `Bearer ${user?.accessToken || ''}`,
           'X-Custom-Token': user?.accessToken || '',
           'Content-Type': 'application/json',
           'X-Company-Id': currentCompany.id,

@@ -36,9 +36,9 @@ const STATIC_CACHE = [
 ];
 
 const API_URLS = [
-  '/functions/v1/make-server-8a20b27d/cashier/',
-  '/functions/v1/make-server-8a20b27d/products/',
-  '/functions/v1/make-server-8a20b27d/stock/',
+  '/api/cashier/',
+  '/api/products/',
+  '/api/stock/',
 ];
 
 console.log(\`[SW] Service Worker versão \${VERSION} carregando...\`);
@@ -109,8 +109,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.origin !== self.location.origin && 
-      !url.hostname.includes('supabase.co')) {
+  if (url.origin !== self.location.origin &&
+      !url.hostname.includes('railway.app')) {
     return;
   }
 

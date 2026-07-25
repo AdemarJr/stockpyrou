@@ -11,7 +11,6 @@ import { ProductService } from '../../services/ProductService';
 import { useIsMobile } from '../ui/use-mobile';
 import { toast } from 'sonner@2.0.3';
 import { getBackendUrl } from '../../lib/backendUrl';
-import { projectId, publicAnonKey } from '../../utils/supabase/env';
 import { ReportCard } from './ReportCard';
 import { ReportTable } from './ReportTable';
 import { ReportTabs, type TabType } from './ReportTabs';
@@ -125,7 +124,7 @@ export function Reports({
     setIsLoadingSales(true);
     try {
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user.accessToken}`,
         'X-Custom-Token': user.accessToken,
         'X-Company-Id': currentCompany.id,
       };
@@ -161,7 +160,7 @@ export function Reports({
     setIsLoadingClosures(true);
     try {
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user.accessToken}`,
         'X-Custom-Token': user.accessToken,
         'X-Company-Id': currentCompany.id,
       };

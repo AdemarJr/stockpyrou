@@ -16,7 +16,6 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { getBackendUrl } from '../../lib/backendUrl';
-import { publicAnonKey } from '../../utils/supabase/env';
 import { toast } from 'sonner@2.0.3';
 
 interface CashierCloseProps {
@@ -73,7 +72,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
 
     try {
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user?.accessToken || ''}`,
         'X-Custom-Token': user?.accessToken || '',
         'Content-Type': 'application/json',
       };
@@ -125,7 +124,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
 
     try {
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user?.accessToken || ''}`,
         'X-Custom-Token': user?.accessToken || '',
         'Content-Type': 'application/json',
       };
@@ -177,7 +176,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
       setIsClosing(true);
 
       const headers: Record<string, string> = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        'Authorization': `Bearer ${user?.accessToken || ''}`,
         'X-Custom-Token': user?.accessToken || '',
         'Content-Type': 'application/json',
       };

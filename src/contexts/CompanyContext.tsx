@@ -4,7 +4,6 @@ import { CompanyRepository } from '../repositories/CompanyRepository';
 import { useAuth } from './AuthContext';
 import { toast } from 'sonner@2.0.3';
 import { getBackendUrl } from '../lib/backendUrl';
-import { projectId } from '../utils/supabase/env';
 import { fetchCompanyStatusJson, fetchWithTimeout } from '../utils/fetchWithTimeout';
 import {
   readLastCompanyId,
@@ -64,10 +63,10 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         console.log(`[CompanyContext] ✅ Loaded ${data.length} companies for user`);
       }
       
-      // Fallback: Se o usuário tem companyId mas não retornou empresas (caso de login por credencial da empresa ou Custom Auth)
-      // Tenta buscar via API do servidor (bypassing Supabase RLS que falha com token customizado)
+      // Fallback: Se o usuário tem companyId mas não retornou empresas (caso de login por credencial da empresa)
+      // Tenta buscar via API do servidor
       if (data.length === 0 && user.companyId && user.role !== 'superadmin') {
-        console.log('[CompanyContext] No companies found via Supabase, trying Server API fallback...');
+        console.log('[CompanyContext] No companies found, trying Server API fallback...');
         try {
           // Usa o token do AuthContext ou localStorage
           const token = user.accessToken || localStorage.getItem('pyroustock_custom_token');
@@ -111,7 +110,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
       if (user.companyId && user.role !== 'superadmin') {
         const userCompany = data.find(c => c.id === user.companyId);
         if (userCompany) {
-          const statusJson = await fetchCompanyStatusJson(projectId, user.companyId);
+          const statusJson = await fetchCompanyStatusJson(user.companyId, user.accessToken);
           const status = statusJson?.status;
           if (status === 'inactive') {
             toast.error('Empresa desativada. Selecione outra empresa ou contate o suporte.');
@@ -138,7 +137,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         if (savedCompanyId) {
           const savedCompany = data.find(c => c.id === savedCompanyId);
           if (savedCompany) {
-            const statusJson = await fetchCompanyStatusJson(projectId, savedCompanyId);
+            const statusJson = await fetchCompanyStatusJson(savedCompanyId, user.accessToken);
             const status = statusJson?.status;
             if (status === 'inactive') {
               clearLastCompanyId();
@@ -171,7 +170,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      const statusJson = await fetchCompanyStatusJson(projectId, companyId);
+      const statusJson = await fetchCompanyStatusJson(companyId, user?.accessToken);
       const status = statusJson?.status;
 
       if (status === 'inactive') {

@@ -3,9 +3,9 @@ import { RefreshCw, Store, Check, Settings, Network, Zap, KeyRound } from 'lucid
 import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
 import { toast } from 'sonner@2.0.3';
+import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { publicAnonKey } from '../../utils/supabase/env';
-import { getLegacyEdgeRoot } from '../../lib/backendUrl';
+import { getBackendApiRoot } from '../../lib/backendUrl';
 import { readZigBaixaUiDisabled, writeZigBaixaUiDisabled } from '../../utils/zigBaixaUi';
 
 interface ZigStore {
@@ -15,6 +15,7 @@ interface ZigStore {
 
 export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: () => void | Promise<void> }) {
   const { currentCompany } = useCompany();
+  const { user } = useAuth();
 
   const [stores, setStores] = useState<ZigStore[]>([]);
   const [selectedStore, setSelectedStore] = useState<string>('');
@@ -31,13 +32,11 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
   /** Se true, o botão «Buscar vendas» em Vendas/Baixa fica disponível (preferência local neste navegador). */
   const [zigPdvBaixaAtiva, setZigPdvBaixaAtiva] = useState(true);
 
-  // ZIG ainda roda na Edge Function (Supabase) — não migrado para stockpyrou-api.
-  const SERVER_URL = getLegacyEdgeRoot();
+  const SERVER_URL = getBackendApiRoot();
 
-  const edgeHeaders = {
-    Authorization: `Bearer ${publicAnonKey}`,
-    apikey: publicAnonKey,
-  };
+  const edgeHeaders: Record<string, string> = user?.accessToken
+    ? { Authorization: `Bearer ${user.accessToken}`, 'X-Custom-Token': user.accessToken }
+    : {};
 
   const fetchStores = async (overrideRedeId?: string) => {
     if (!currentCompany) return;

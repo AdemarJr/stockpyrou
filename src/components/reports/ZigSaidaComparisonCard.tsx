@@ -3,8 +3,7 @@ import { Database, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
-import { publicAnonKey } from '../../utils/supabase/env';
-import { getLegacyEdgeRoot } from '../../lib/backendUrl';
+import { getBackendApiRoot } from '../../lib/backendUrl';
 import { formatCurrency } from '../../utils/calculations';
 
 type ZigDayRow = { lines: number; qty: number; value: number };
@@ -32,11 +31,6 @@ interface ZigSaidaComparisonCardProps {
   endDate: string;
 }
 
-const ZIG_CONFIG_HEADERS: Record<string, string> = {
-  Authorization: `Bearer ${publicAnonKey}`,
-  apikey: publicAnonKey,
-};
-
 export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaComparisonCardProps) {
   const { user } = useAuth();
   const { currentCompany } = useCompany();
@@ -52,9 +46,14 @@ export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaCompariso
     let cancelled = false;
     (async () => {
       try {
+        const token = user?.accessToken;
         const res = await fetch(
-          `${getLegacyEdgeRoot()}/zig/config/${currentCompany.id}`,
-          { headers: ZIG_CONFIG_HEADERS },
+          `${getBackendApiRoot()}/zig/config/${currentCompany.id}`,
+          {
+            headers: token
+              ? { Authorization: `Bearer ${token}`, 'X-Custom-Token': token }
+              : {},
+          },
         );
         const body = await res.json().catch(() => ({}));
         if (cancelled) return;
@@ -67,7 +66,7 @@ export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaCompariso
     return () => {
       cancelled = true;
     };
-  }, [currentCompany?.id]);
+  }, [currentCompany?.id, user?.accessToken]);
 
   const load = useCallback(async () => {
     if (!user?.accessToken || !currentCompany?.id) {
@@ -83,15 +82,15 @@ export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaCompariso
     setData(null);
     try {
       const params = new URLSearchParams();
+      params.set('companyId', currentCompany.id);
       params.set('startDate', startDate);
       params.set('endDate', endDate);
 
       const res = await fetch(
-        `${getLegacyEdgeRoot()}/reports/zig-saida-comparison?${params}`,
+        `${getBackendApiRoot()}/zig/saida-comparison?${params}`,
         {
           headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-            apikey: publicAnonKey,
+            Authorization: `Bearer ${user.accessToken}`,
             'X-Custom-Token': user.accessToken,
             'X-Company-Id': currentCompany.id,
           },

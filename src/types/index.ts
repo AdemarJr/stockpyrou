@@ -182,7 +182,7 @@ export interface UserPermissions {
 }
 
 export interface UserProfile {
-  id: string; // Supabase Auth ID
+  id: string;
   email: string;
   fullName: string;
   role: UserRole;
