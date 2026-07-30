@@ -404,11 +404,22 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             },
           );
           const saleData = await saleRes.json().catch(() => ({}));
+          if (!saleRes.ok || saleData.error) {
+            throw new Error(saleData.error || `Falha ao registrar venda (HTTP ${saleRes.status})`);
+          }
           saleId = saleData?.sale?.id ?? null;
+          if (!saleId) {
+            throw new Error('Venda não retornou ID do servidor');
+          }
+        } else {
+          throw new Error('Não foi possível abrir ou localizar o caixa para registrar a venda');
         }
       } catch (e) {
-        // Se falhar, seguimos com a baixa de estoque; mas receita do mês pode ficar subcontabilizada.
-        console.warn('[POS] Falha ao registrar venda em sales (continuando com baixa):', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[POS] Falha ao registrar venda em sales:', e);
+        toast.error(msg, { id: toastId });
+        setIsProcessing(false);
+        return;
       }
 
       // Processa cada item do carrinho sequencialmente
