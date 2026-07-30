@@ -54,7 +54,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
   // Payment state
-  const [paymentMethod, setPaymentMethod] = useState<'money' | 'pix' | 'credit' | 'debit' | 'fiado'>('money');
+  const [paymentMethod, setPaymentMethod] = useState<'money' | 'pix' | 'credit' | 'debit' | 'fiado' | 'boleto'>('money');
   const [cashReceived, setCashReceived] = useState('');
   const [fiadoDueDate, setFiadoDueDate] = useState<string>(() => {
     const d = new Date();
@@ -317,8 +317,8 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         return;
       }
     }
-    if (paymentMethod === 'fiado' && fiadoDueDate.trim() === '') {
-      toast.error('Informe a data de vencimento do fiado');
+    if ((paymentMethod === 'fiado' || paymentMethod === 'boleto') && fiadoDueDate.trim() === '') {
+      toast.error('Informe a data de vencimento');
       return;
     }
 
@@ -356,7 +356,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 cashReceived: parseFloat(cashReceived),
                 change: calculateChange(),
               }
-            : paymentMethod === 'fiado'
+            : paymentMethod === 'fiado' || paymentMethod === 'boleto'
               ? {
                   dueDate: fiadoDueDate.trim(),
                   customerName: fiadoCustomerName.trim() || undefined,
@@ -593,6 +593,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                     { value: 'credit', label: 'Crédito', icon: CreditCard, color: 'purple' },
                     { value: 'debit', label: 'Débito', icon: CreditCard, color: 'orange' },
                     { value: 'fiado', label: 'Fiado', icon: Receipt, color: 'slate' },
+                    { value: 'boleto', label: 'Boleto', icon: Receipt, color: 'slate' },
                   ].map((method) => {
                     const Icon = method.icon;
                     const isSelected = paymentMethod === method.value;
@@ -671,10 +672,10 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 </div>
               )}
 
-              {paymentMethod === 'fiado' && (
+              {(paymentMethod === 'fiado' || paymentMethod === 'boleto') && (
                 <div className="space-y-3">
                   <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
-                    Fiado (a receber)
+                    {paymentMethod === 'boleto' ? 'Boleto (a receber)' : 'Fiado (a receber)'}
                   </label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1">
@@ -696,7 +697,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                         className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                       />
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Venda será registrada como <strong>a receber</strong> (não entra no caixa agora).
+                        Gera título em <strong>Contas a receber</strong> (não entra no caixa agora).
                       </p>
                     </div>
                   </div>
@@ -717,7 +718,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   disabled={
                     isProcessing ||
                     (paymentMethod === 'money' && getChange() < 0) ||
-                    (paymentMethod === 'fiado' && !fiadoDueDate.trim())
+                    ((paymentMethod === 'fiado' || paymentMethod === 'boleto') && !fiadoDueDate.trim())
                   }
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >

@@ -12,7 +12,8 @@ import {
   FileText,
   Settings,
   Package,
-  Warehouse
+  Warehouse,
+  Wallet
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
 import { remainingFromExpenseRow } from '../../utils/expensePaidAmount';
@@ -20,6 +21,7 @@ import { today as todayYmdLocal } from '../../utils/safeDate';
 import { CostRepository } from '../../repositories/CostRepository';
 import { CostCenterManagement } from './CostCenterManagement';
 import { ExpenseManagement } from './ExpenseManagement';
+import { ReceivableManagement } from './ReceivableManagement';
 import { CostAnalytics } from './CostAnalytics';
 import { FinancialDashboard } from './FinancialDashboard';
 import { DreDashboard } from './DreDashboard';
@@ -377,7 +379,7 @@ export function CostDashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1 h-auto">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 h-auto">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <PieChart className="w-4 h-4" />
             <span className="hidden md:inline">Visão Geral</span>
@@ -392,7 +394,11 @@ export function CostDashboard() {
           </TabsTrigger>
           <TabsTrigger value="expenses" className="flex items-center gap-2">
             <FileText className="w-4 h-4" />
-            <span className="hidden md:inline">Despesas / Contas a pagar</span>
+            <span className="hidden md:inline">Contas a pagar</span>
+          </TabsTrigger>
+          <TabsTrigger value="receivables" className="flex items-center gap-2">
+            <Wallet className="w-4 h-4" />
+            <span className="hidden md:inline">Contas a receber</span>
           </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
@@ -414,6 +420,10 @@ export function CostDashboard() {
 
         <TabsContent value="expenses">
           <ExpenseManagement forcedPeriod={forcedPeriod} />
+        </TabsContent>
+
+        <TabsContent value="receivables">
+          <ReceivableManagement />
         </TabsContent>
 
         <TabsContent value="analytics">

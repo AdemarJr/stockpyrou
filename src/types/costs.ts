@@ -172,3 +172,43 @@ export interface WasteAnalysis {
   wasteReason?: string;
   productCategory: string;
 }
+
+/** Título de Contas a Receber */
+export interface AccountsReceivable {
+  id: string;
+  companyId: string;
+  saleId?: string | null;
+  amount: number;
+  receivedAmount: number;
+  remainingAmount: number;
+  customerName?: string | null;
+  description?: string | null;
+  referenceNumber?: string | null;
+  notes?: string | null;
+  dueDate: string;
+  receivedDate?: string | null;
+  paymentStatus: PaymentStatus;
+  paymentMethod?: PaymentMethod | null;
+  source: string;
+  receivableGroupId?: string | null;
+  installmentIndex?: number | null;
+  installmentOf?: number | null;
+  userId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AccountsReceivablePayment {
+  id: string;
+  amount: number;
+  paymentDate: string;
+  paymentMethod?: string | null;
+  notes?: string | null;
+  createdAt?: string;
+}
+
+export interface ReceivablesSummary {
+  openTotal: number;
+  overdueTotal: number;
+  next7Total: number;
+}
