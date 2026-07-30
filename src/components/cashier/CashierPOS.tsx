@@ -608,9 +608,9 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       {/* Payment Modal */}
       {showPayment && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-t-3xl md:rounded-2xl w-full md:max-w-2xl max-h-[90vh] overflow-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-t-3xl md:rounded-2xl w-full md:max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             {/* Header */}
-            <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 md:p-6 flex items-center justify-between">
+            <div className="shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 md:p-6 flex items-center justify-between">
               <h3 className="text-lg md:text-xl font-black text-gray-900 dark:text-white">Finalizar Venda</h3>
               <button
                 onClick={() => setShowPayment(false)}
@@ -621,7 +621,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               </button>
             </div>
 
-            <div className="p-4 md:p-6 space-y-6">
+            <div className="p-4 md:p-6 space-y-6 overflow-y-auto flex-1 min-h-0">
               {/* Total */}
               <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white text-center">
                 <p className="text-sm opacity-90 font-bold mb-1">Total da Venda</p>
@@ -629,18 +629,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 <p className="text-sm opacity-75 mt-2">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</p>
               </div>
 
-              <CustomerPicker
-                value={selectedCustomer}
-                onChange={setSelectedCustomer}
-                required={customerRequired}
-                hint={
-                  customerRequired
-                    ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
-                    : 'Recomendado para vincular a venda e o cupom'
-                }
-              />
-
-              {/* Payment + document */}
+              {/* Payment + document (documento no topo do SaleCheckoutFields) */}
               <SaleCheckoutFields
                 paymentMethod={paymentMethod}
                 onPaymentMethodChange={setPaymentMethod}
@@ -652,6 +641,17 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 fiscalReason={fiscal.reasons[0]}
                 fiscalReasons={fiscal.reasons}
               >
+              <CustomerPicker
+                value={selectedCustomer}
+                onChange={setSelectedCustomer}
+                required={customerRequired}
+                hint={
+                  customerRequired
+                    ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
+                    : 'Recomendado para vincular a venda e o cupom'
+                }
+              />
+
               {/* Cash Input */}
               {paymentMethod === 'money' && (
                 <div className="space-y-3">
@@ -729,9 +729,10 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 </div>
               )}
               </SaleCheckoutFields>
+            </div>
 
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 pt-4">
+              {/* Action Buttons — sempre visíveis */}
+              <div className="shrink-0 flex flex-col sm:flex-row gap-3 p-4 md:p-6 pt-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
                 <button
                   onClick={() => setShowPayment(false)}
                   disabled={isProcessing}
@@ -757,12 +758,11 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   ) : (
                     <>
                       <CheckCircle2 className="w-5 h-5" />
-                      Confirmar Venda
+                      Finalizar Venda
                     </>
                   )}
                 </button>
               </div>
-            </div>
           </div>
         </div>
       )}
@@ -793,8 +793,8 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
             </div>
           </div>
 
-          {/* Products Grid — só o painel rola; botão Continuar fica fixo */}
-          <div className="flex-1 overflow-auto p-3 md:p-4 pb-28 lg:pb-4">
+          {/* Products Grid — só o painel rola; Continuar fica fixo abaixo */}
+          <div className="flex-1 overflow-auto p-3 md:p-4 pb-4">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-2 md:gap-3">
               {visibleProducts.map((product) => (
                 <button
@@ -859,6 +859,30 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               </div>
             )}
           </div>
+
+          {/* Continuar fixo no painel de produtos — não exige rolar a lista */}
+          {cart.length > 0 && !showPayment && (
+            <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 md:p-4 lg:hidden">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-gray-500 font-medium truncate">
+                    {cart.length} {cart.length === 1 ? 'item' : 'itens'} · Continuar sem rolar
+                  </p>
+                  <p className="text-xl font-black text-gray-900 dark:text-white tabular-nums">
+                    {formatCurrency(getTotal())}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openCheckout}
+                  className="shrink-0 px-5 py-3.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-bold flex items-center gap-2 shadow-lg"
+                >
+                  Continuar
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right: Cart */}
@@ -960,9 +984,9 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
             )}
           </div>
 
-          {/* Cart Footer — sticky no painel do carrinho (desktop) */}
+          {/* Cart Footer — sticky no painel do carrinho */}
           {cart.length > 0 && (
-            <div className="hidden lg:block p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 space-y-3 shrink-0">
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 space-y-3 shrink-0">
               <div className="flex items-center justify-between">
                 <span className="text-lg font-bold text-gray-700 dark:text-gray-300">Total</span>
                 <span className="text-3xl font-black text-blue-600 dark:text-blue-400 tabular-nums">
@@ -982,30 +1006,6 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
           )}
         </div>
       </div>
-
-      {/* Barra fixa — sempre visível no mobile / tablet (não exige rolar catálogo) */}
-      {cart.length > 0 && !showPayment && (
-        <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.12)]">
-          <div className="flex items-center gap-3 max-w-3xl mx-auto">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs text-gray-500 font-medium truncate">
-                {cart.length} {cart.length === 1 ? 'item' : 'itens'} no carrinho
-              </p>
-              <p className="text-xl font-black text-gray-900 dark:text-white tabular-nums">
-                {formatCurrency(getTotal())}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={openCheckout}
-              className="shrink-0 px-5 py-3.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-bold flex items-center gap-2 shadow-lg"
-            >
-              Continuar
-              <ArrowRight className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

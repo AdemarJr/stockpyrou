@@ -811,8 +811,8 @@ function MainApp() {
         <main
           className={
             currentPage === 'pos' || currentPage === 'cashier'
-              ? 'flex-1 min-h-0 overflow-hidden p-0 flex flex-col'
-              : 'flex-1 p-4 md:p-6 overflow-auto'
+              ? 'flex-1 min-h-0 overflow-hidden p-0 flex flex-col pb-16 md:pb-0'
+              : 'flex-1 p-4 md:p-6 overflow-auto pb-16 md:pb-0'
           }
         >
           {currentPage === 'dashboard' && <Dashboard products={products} movements={movements} recipes={[]} />}

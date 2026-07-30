@@ -893,9 +893,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           </div>
         </div>
 
-      {/* Barra fixa mobile — Continuar sempre visível com itens no carrinho */}
+      {/* Barra fixa mobile — Continuar acima do menu inferior */}
       {isMobile && !showCart && cart.length > 0 && !isConfirmOpen && (
-        <div className="fixed bottom-0 inset-x-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.12)]">
+        <div className="fixed bottom-16 inset-x-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur-md p-3 shadow-[0_-8px_30px_rgba(0,0,0,0.12)] md:bottom-0 md:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -933,7 +933,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       {isConfirmOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
               <h3 className="text-xl font-bold text-gray-900">Confirmar venda</h3>
               <button 
                 onClick={() => !isProcessing && setIsConfirmOpen(false)}
@@ -943,24 +943,13 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+            <div className="p-6 overflow-y-auto flex-1 min-h-0 space-y-5">
               <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
                 <span className="text-blue-800 font-medium">Total</span>
                 <span className="font-bold text-blue-900 text-xl">
                   {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalAmount)}
                 </span>
               </div>
-
-              <CustomerPicker
-                value={selectedCustomer}
-                onChange={setSelectedCustomer}
-                required={customerRequired}
-                hint={
-                  customerRequired
-                    ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
-                    : 'Recomendado para vincular a venda e o cupom'
-                }
-              />
 
               <SaleCheckoutFields
                 paymentMethod={paymentMethod}
@@ -974,6 +963,17 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                 fiscalReasons={fiscal.reasons}
                 onOpenFiscalConfig={onOpenIntegrations}
               >
+                <CustomerPicker
+                  value={selectedCustomer}
+                  onChange={setSelectedCustomer}
+                  required={customerRequired}
+                  hint={
+                    customerRequired
+                      ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
+                      : 'Recomendado para vincular a venda e o cupom'
+                  }
+                />
+
                 {paymentMethod === 'money' && (
                   <div className="space-y-2">
                     <label className="block text-sm font-bold text-gray-700">Valor recebido (opcional)</label>
@@ -1030,7 +1030,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               </div>
             </div>
             
-            <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
+            <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3 shrink-0">
               <button
                 onClick={() => setIsConfirmOpen(false)}
                 className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
@@ -1055,7 +1055,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                   </>
                 ) : (
                   <>
-                    Confirmar venda
+                    Finalizar Venda
                     <ArrowRight className="w-5 h-5" />
                   </>
                 )}

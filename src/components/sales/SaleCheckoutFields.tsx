@@ -48,7 +48,8 @@ interface SaleCheckoutFieldsProps {
 }
 
 /**
- * Passo comum de checkout: forma de pagamento + tipo de documento.
+ * Passo comum de checkout: documento (cupom / NFC-e) + forma de pagamento.
+ * Documento fica no topo para não exigir rolagem.
  */
 export function SaleCheckoutFields({
   paymentMethod,
@@ -71,44 +72,6 @@ export function SaleCheckoutFields({
     <div className="space-y-5">
       <div>
         <p className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-          Forma de pagamento
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {SALE_PAYMENT_OPTIONS.map((opt) => {
-            const selected = paymentMethod === opt.value;
-            const Icon = opt.icon;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onPaymentMethodChange(opt.value)}
-                className={`p-3 rounded-xl border-2 text-left transition-all ${
-                  selected
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <Icon
-                  className={`w-5 h-5 mb-1 ${selected ? 'text-blue-600' : 'text-gray-400'}`}
-                />
-                <p
-                  className={`text-sm font-bold ${
-                    selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'
-                  }`}
-                >
-                  {opt.label}
-                </p>
-                <p className="text-[11px] text-gray-500">{opt.hint}</p>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {children}
-
-      <div>
-        <p className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
           Documento da venda
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -123,7 +86,7 @@ export function SaleCheckoutFields({
           >
             <FileText
               className={`w-5 h-5 mb-1 ${
-                documentType === 'non_fiscal' ? 'text-slate-700' : 'text-gray-400'
+                documentType === 'non_fiscal' ? 'text-slate-700 dark:text-slate-200' : 'text-gray-400'
               }`}
             />
             <p className="text-sm font-bold text-gray-800 dark:text-gray-200">Cupom não fiscal</p>
@@ -145,12 +108,14 @@ export function SaleCheckoutFields({
                 documentType === 'nfce' ? 'text-emerald-600' : 'text-gray-400'
               }`}
             />
-            <p className="text-sm font-bold text-gray-800 dark:text-gray-200">NFC-e (nota fiscal)</p>
+            <p className="text-sm font-bold text-gray-800 dark:text-gray-200">
+              NFC-e / cupom fiscal
+            </p>
             <p className="text-[11px] text-gray-500">
               {fiscalLoading
                 ? 'Verificando módulo fiscal…'
                 : fiscalReady
-                  ? 'Módulo ativo — solicita NFC-e após a venda'
+                  ? 'Emite nota fiscal eletrônica (NFC-e) após a venda'
                   : fiscalReason || 'Ative o módulo fiscal em Integrações → Fiscal'}
             </p>
             {!fiscalReady && !fiscalLoading && onOpenFiscalConfig && (
@@ -195,6 +160,44 @@ export function SaleCheckoutFields({
           </div>
         )}
       </div>
+
+      <div>
+        <p className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+          Forma de pagamento
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {SALE_PAYMENT_OPTIONS.map((opt) => {
+            const selected = paymentMethod === opt.value;
+            const Icon = opt.icon;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onPaymentMethodChange(opt.value)}
+                className={`p-3 rounded-xl border-2 text-left transition-all ${
+                  selected
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Icon
+                  className={`w-5 h-5 mb-1 ${selected ? 'text-blue-600' : 'text-gray-400'}`}
+                />
+                <p
+                  className={`text-sm font-bold ${
+                    selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'
+                  }`}
+                >
+                  {opt.label}
+                </p>
+                <p className="text-[11px] text-gray-500">{opt.hint}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {children}
     </div>
   );
 }
