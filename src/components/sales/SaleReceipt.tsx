@@ -18,9 +18,27 @@ interface SaleReceiptProps {
   total: number;
   saleDate: Date;
   onClose: () => void;
+  paymentMethod?: string;
+  customerName?: string;
 }
 
-export function SaleReceipt({ items, total, saleDate, onClose }: SaleReceiptProps) {
+const PAYMENT_LABELS: Record<string, string> = {
+  money: 'Dinheiro (à vista)',
+  pix: 'PIX',
+  credit: 'Cartão de crédito',
+  debit: 'Cartão de débito',
+  fiado: 'A prazo (fiado)',
+  boleto: 'Boleto',
+};
+
+export function SaleReceipt({
+  items,
+  total,
+  saleDate,
+  onClose,
+  paymentMethod,
+  customerName,
+}: SaleReceiptProps) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -79,6 +97,10 @@ export function SaleReceipt({ items, total, saleDate, onClose }: SaleReceiptProp
       `Cupom Fiscal: ${receiptNumber}`,
       `Data: ${formatDateTime(saleDate)}`,
       `Operador: ${user?.fullName || 'Sistema'}`,
+      ...(customerName ? [`Cliente: ${customerName}`] : []),
+      ...(paymentMethod
+        ? [`Pagamento: ${PAYMENT_LABELS[paymentMethod] || paymentMethod}`]
+        : []),
       '========================================',
       'PRODUTOS',
       '========================================',
@@ -165,6 +187,18 @@ export function SaleReceipt({ items, total, saleDate, onClose }: SaleReceiptProp
               <span className="font-medium">Operador:</span>
               <span>{user?.fullName || 'Sistema'}</span>
             </div>
+            {customerName && (
+              <div className="flex justify-between dark:text-gray-300 print:text-black">
+                <span className="font-medium">Cliente:</span>
+                <span>{customerName}</span>
+              </div>
+            )}
+            {paymentMethod && (
+              <div className="flex justify-between dark:text-gray-300 print:text-black">
+                <span className="font-medium">Pagamento:</span>
+                <span>{PAYMENT_LABELS[paymentMethod] || paymentMethod}</span>
+              </div>
+            )}
           </div>
 
           {/* Divider */}

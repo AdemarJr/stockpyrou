@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package, Plug } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package, Plug, Banknote, Smartphone, CreditCard, Receipt } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
 import { useCompany } from '../../contexts/CompanyContext';
@@ -28,6 +28,24 @@ interface CartItem {
   quantity: number;
 }
 
+type ManualPaymentMethod = 'money' | 'pix' | 'credit' | 'debit' | 'fiado' | 'boleto';
+
+const PAYMENT_OPTIONS: { value: ManualPaymentMethod; label: string; hint: string }[] = [
+  { value: 'money', label: 'À vista (Dinheiro)', hint: 'Entra no caixa' },
+  { value: 'pix', label: 'PIX', hint: 'Entra no caixa' },
+  { value: 'debit', label: 'Débito', hint: 'Cartão débito' },
+  { value: 'credit', label: 'Crédito', hint: 'Cartão crédito' },
+  { value: 'fiado', label: 'A prazo (Fiado)', hint: 'Contas a receber' },
+  { value: 'boleto', label: 'Boleto', hint: 'Contas a receber' },
+];
+
+function defaultDueDateYmd(days = 30): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: POSProps) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
@@ -38,10 +56,21 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
-  const [lastSale, setLastSale] = useState<{ items: any[], total: number, date: Date } | null>(null);
+  const [lastSale, setLastSale] = useState<{
+    items: any[];
+    total: number;
+    date: Date;
+    paymentMethod?: ManualPaymentMethod;
+    customerName?: string;
+  } | null>(null);
   const [posTab, setPosTab] = useState<'manual' | 'zig'>('manual');
   /** Integrações → ZIG: quando true, não entra na aba ZIG / Baixa (localStorage). */
   const [zigBaixaAccessDisabled, setZigBaixaAccessDisabled] = useState(false);
+
+  const [paymentMethod, setPaymentMethod] = useState<ManualPaymentMethod>('money');
+  const [customerName, setCustomerName] = useState('');
+  const [dueDate, setDueDate] = useState(defaultDueDateYmd);
+  const [cashReceived, setCashReceived] = useState('');
 
   // Scanner State
   const [isScanning, setIsScanning] = useState(false);
@@ -329,8 +358,34 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
   const totalAmount = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
+  const isReceivable = paymentMethod === 'fiado' || paymentMethod === 'boleto';
+  const cashChange =
+    paymentMethod === 'money' && cashReceived
+      ? parseFloat(cashReceived) - totalAmount
+      : 0;
+
+  const resetCheckoutForm = () => {
+    setPaymentMethod('money');
+    setCustomerName('');
+    setDueDate(defaultDueDateYmd());
+    setCashReceived('');
+  };
+
   const handleCheckout = async () => {
     if (cart.length === 0 || !currentCompany) return;
+
+    if (!customerName.trim()) {
+      toast.error('Informe o cliente da venda');
+      return;
+    }
+    if (isReceivable && !dueDate.trim()) {
+      toast.error('Informe a data de vencimento');
+      return;
+    }
+    if (paymentMethod === 'money' && cashReceived && cashChange < 0) {
+      toast.error('Valor recebido insuficiente');
+      return;
+    }
 
     setIsProcessing(true);
     const toastId = toast.loading('Processando venda e baixando estoque...');
@@ -381,6 +436,19 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         }
 
         if (registerId) {
+          const paymentDetails: Record<string, unknown> = {
+            customerName: customerName.trim(),
+          };
+          if (paymentMethod === 'money') {
+            paymentDetails.cashReceived = cashReceived
+              ? parseFloat(cashReceived)
+              : totalAmount;
+            paymentDetails.change = cashReceived ? cashChange : 0;
+          }
+          if (isReceivable) {
+            paymentDetails.dueDate = dueDate.trim();
+          }
+
           const salePayload = {
             registerId,
             clientRequestId: checkoutId,
@@ -391,8 +459,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               quantity: item.quantity,
             })),
             total: totalAmount,
-            paymentMethod: 'money',
-            paymentDetails: {},
+            paymentMethod,
+            paymentDetails,
           };
 
           const saleRes = await fetch(
@@ -422,6 +490,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         return;
       }
 
+      const customerNote = customerName.trim() ? ` · Cliente: ${customerName.trim()}` : '';
+
       // Processa cada item do carrinho sequencialmente
       for (const item of cart) {
         if (item.type === 'product') {
@@ -434,10 +504,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               const qtyToDeduct = (Number(b.quantity) || 0) * item.quantity;
               if (!b.productId || qtyToDeduct <= 0) continue;
 
-              const p2 = products.find((p) => p.id === b.productId);
-
               const source = `sale:${saleId ?? checkoutId}:${b.productId}:combo`;
-              const notes = `Venda Combo: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
+              const notes = `Venda Combo: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}${customerNote}`;
               await StockRepository.deductStockOnce({
                 companyId: currentCompany.id,
                 productId: b.productId,
@@ -450,7 +518,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           } else {
             // Venda direta de produto
             const source = `sale:${saleId ?? checkoutId}:${item.id}:direct`;
-            const notes = `Venda Manual: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
+            const notes = `Venda Manual: ${item.quantity}x ${item.name}${saleId ? ` · Ref. venda ${saleId}` : ''}${customerNote}`;
             await StockRepository.deductStockOnce({
               companyId: currentCompany.id,
               productId: item.id,
@@ -466,11 +534,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           if (recipe && recipe.ingredients) {
             for (const ingredient of recipe.ingredients) {
               const qtyToDeduct = ingredient.quantity * item.quantity;
-              
-              const p2 = products.find((p) => p.id === ingredient.productId);
 
               const source = `sale:${saleId ?? checkoutId}:${ingredient.productId}:recipe`;
-              const notes = `Venda Receita: ${item.quantity}x ${recipe.name}${saleId ? ` · Ref. venda ${saleId}` : ''}`;
+              const notes = `Venda Receita: ${item.quantity}x ${recipe.name}${saleId ? ` · Ref. venda ${saleId}` : ''}${customerNote}`;
               await StockRepository.deductStockOnce({
                 companyId: currentCompany.id,
                 productId: ingredient.productId,
@@ -485,10 +551,6 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       }
 
       toast.success('Venda registrada com sucesso!', { id: toastId });
-      setCart([]);
-      setIsConfirmOpen(false); // Fecha o modal
-      
-      // Salva a última venda para o recibo
       setLastSale({
         items: cart.map(item => ({
           name: item.name,
@@ -497,8 +559,13 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           total: item.price * item.quantity
         })),
         total: totalAmount,
-        date: new Date()
+        date: new Date(),
+        paymentMethod,
+        customerName: customerName.trim(),
       });
+      setCart([]);
+      setIsConfirmOpen(false);
+      resetCheckoutForm();
       setShowReceipt(true);
       
       // Atualiza os dados se a função callback foi fornecida
@@ -768,7 +835,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                 disabled={cart.length === 0 || isProcessing}
                 className="w-full bg-blue-600 text-white py-3 md:py-4 rounded-xl font-bold text-base md:text-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"
               >
-                Confirmar Baixa
+                Finalizar venda
                 <ArrowRight className="w-5 h-5" />
               </button>
             </div>
@@ -793,38 +860,126 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="text-xl font-bold text-gray-900">Confirmar Baixa de Estoque</h3>
+              <h3 className="text-xl font-bold text-gray-900">Confirmar venda</h3>
               <button 
-                onClick={() => setIsConfirmOpen(false)}
+                onClick={() => !isProcessing && setIsConfirmOpen(false)}
                 className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-200 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1">
-              <p className="text-gray-600 mb-4 text-sm">
-                Confira abaixo os itens que serão deduzidos do estoque físico.
-                <br />
-                <span className="text-xs text-gray-500">* Receitas foram convertidas em ingredientes.</span>
-              </p>
-              
-              <div className="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200 mb-6">
-                {calculateStockImpact().map((item) => (
-                  <div key={item.id} className="p-3 flex justify-between items-center hover:bg-gray-100 transition-colors">
-                    <span className="font-medium text-gray-800 text-sm">{item.name}</span>
-                    <span className="text-sm font-bold text-red-600 bg-red-50 px-2 py-1 rounded border border-red-100">
-                      -{Number(item.quantity).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {item.unit}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
               <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
-                <span className="text-blue-800 font-medium">Valor Total da Venda</span>
+                <span className="text-blue-800 font-medium">Total</span>
                 <span className="font-bold text-blue-900 text-xl">
                   {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalAmount)}
                 </span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">
+                  Cliente <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Nome do cliente"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Forma de pagamento
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {PAYMENT_OPTIONS.map((opt) => {
+                    const selected = paymentMethod === opt.value;
+                    const Icon =
+                      opt.value === 'money'
+                        ? Banknote
+                        : opt.value === 'pix'
+                          ? Smartphone
+                          : opt.value === 'credit' || opt.value === 'debit'
+                            ? CreditCard
+                            : Receipt;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setPaymentMethod(opt.value)}
+                        className={`p-3 rounded-xl border-2 text-left transition-all ${
+                          selected
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <Icon className={`w-5 h-5 mb-1 ${selected ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <p className={`text-sm font-bold ${selected ? 'text-blue-700' : 'text-gray-700'}`}>
+                          {opt.label}
+                        </p>
+                        <p className="text-[11px] text-gray-500">{opt.hint}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {paymentMethod === 'money' && (
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-gray-700">Valor recebido (opcional)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                    placeholder={totalAmount.toFixed(2)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
+                  />
+                  {cashReceived !== '' && (
+                    <p className={`text-sm font-semibold ${cashChange < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                      {cashChange < 0 ? 'Faltam' : 'Troco'}:{' '}
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                        Math.abs(cashChange),
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {isReceivable && (
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-bold text-slate-800">
+                    {paymentMethod === 'boleto' ? 'Boleto — contas a receber' : 'A prazo — contas a receber'}
+                  </p>
+                  <label className="block text-xs font-bold text-gray-500 uppercase">Vencimento</label>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Gera título em Contas a receber (não entra no caixa agora).
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <p className="text-gray-600 mb-2 text-sm font-medium">Itens a baixar do estoque</p>
+                <div className="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200 max-h-40 overflow-y-auto">
+                  {calculateStockImpact().map((item) => (
+                    <div key={item.id} className="p-3 flex justify-between items-center">
+                      <span className="font-medium text-gray-800 text-sm">{item.name}</span>
+                      <span className="text-sm font-bold text-red-600 bg-red-50 px-2 py-1 rounded border border-red-100">
+                        -{Number(item.quantity).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {item.unit}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
             
@@ -838,8 +993,13 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               </button>
               <button
                 onClick={handleCheckout}
-                disabled={isProcessing}
-                className="flex-1 px-4 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-sm"
+                disabled={
+                  isProcessing ||
+                  !customerName.trim() ||
+                  (isReceivable && !dueDate.trim()) ||
+                  (paymentMethod === 'money' && cashReceived !== '' && cashChange < 0)
+                }
+                className="flex-1 px-4 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
               >
                 {isProcessing ? (
                   <>
@@ -848,7 +1008,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                   </>
                 ) : (
                   <>
-                    Confirmar e Baixar
+                    Confirmar venda
                     <ArrowRight className="w-5 h-5" />
                   </>
                 )}
@@ -864,6 +1024,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           items={lastSale.items}
           total={lastSale.total}
           saleDate={lastSale.date}
+          paymentMethod={lastSale.paymentMethod}
+          customerName={lastSale.customerName}
           onClose={() => setShowReceipt(false)}
         />
       )}
