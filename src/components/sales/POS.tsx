@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package, Plug, Banknote, Smartphone, CreditCard, Receipt } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package, Plug } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
 import { useCompany } from '../../contexts/CompanyContext';
@@ -12,8 +12,11 @@ import { useIsMobile } from '../ui/use-mobile';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
 import { getBackendUrl } from '../../lib/backendUrl';
 import { useFiscalReadiness } from '../../hooks/useFiscalReadiness';
-import { Checkbox } from '../ui/checkbox';
-import { Label } from '../ui/label';
+import {
+  SaleCheckoutFields,
+  type SaleDocumentType,
+  type SalePaymentMethod,
+} from './SaleCheckoutFields';
 
 interface POSProps {
   products: Product[];
@@ -31,16 +34,7 @@ interface CartItem {
   quantity: number;
 }
 
-type ManualPaymentMethod = 'money' | 'pix' | 'credit' | 'debit' | 'fiado' | 'boleto';
-
-const PAYMENT_OPTIONS: { value: ManualPaymentMethod; label: string; hint: string }[] = [
-  { value: 'money', label: 'À vista (Dinheiro)', hint: 'Entra no caixa' },
-  { value: 'pix', label: 'PIX', hint: 'Entra no caixa' },
-  { value: 'debit', label: 'Débito', hint: 'Cartão débito' },
-  { value: 'credit', label: 'Crédito', hint: 'Cartão crédito' },
-  { value: 'fiado', label: 'A prazo (Fiado)', hint: 'Contas a receber' },
-  { value: 'boleto', label: 'Boleto', hint: 'Contas a receber' },
-];
+type ManualPaymentMethod = SalePaymentMethod;
 
 function defaultDueDateYmd(days = 30): string {
   const d = new Date();
@@ -74,12 +68,13 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [customerName, setCustomerName] = useState('');
   const [dueDate, setDueDate] = useState(defaultDueDateYmd);
   const [cashReceived, setCashReceived] = useState('');
-  const [emitNfce, setEmitNfce] = useState(false);
+  const [documentType, setDocumentType] = useState<SaleDocumentType>('non_fiscal');
   const fiscal = useFiscalReadiness();
+  const emitNfce = documentType === 'nfce';
 
   useEffect(() => {
-    if (!fiscal.ready && emitNfce) setEmitNfce(false);
-  }, [fiscal.ready, emitNfce]);
+    if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
+  }, [fiscal.ready, documentType]);
 
   // Scanner State
   const [isScanning, setIsScanning] = useState(false);
@@ -378,7 +373,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     setCustomerName('');
     setDueDate(defaultDueDateYmd());
     setCashReceived('');
-    setEmitNfce(false);
+    setDocumentType('non_fiscal');
   };
 
   const handleCheckout = async () => {
@@ -907,135 +902,56 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Forma de pagamento
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {PAYMENT_OPTIONS.map((opt) => {
-                    const selected = paymentMethod === opt.value;
-                    const Icon =
-                      opt.value === 'money'
-                        ? Banknote
-                        : opt.value === 'pix'
-                          ? Smartphone
-                          : opt.value === 'credit' || opt.value === 'debit'
-                            ? CreditCard
-                            : Receipt;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setPaymentMethod(opt.value)}
-                        className={`p-3 rounded-xl border-2 text-left transition-all ${
-                          selected
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <Icon className={`w-5 h-5 mb-1 ${selected ? 'text-blue-600' : 'text-gray-400'}`} />
-                        <p className={`text-sm font-bold ${selected ? 'text-blue-700' : 'text-gray-700'}`}>
-                          {opt.label}
-                        </p>
-                        <p className="text-[11px] text-gray-500">{opt.hint}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {paymentMethod === 'money' && (
-                <div className="space-y-2">
-                  <label className="block text-sm font-bold text-gray-700">Valor recebido (opcional)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={cashReceived}
-                    onChange={(e) => setCashReceived(e.target.value)}
-                    placeholder={totalAmount.toFixed(2)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
-                  />
-                  {cashReceived !== '' && (
-                    <p className={`text-sm font-semibold ${cashChange < 0 ? 'text-red-600' : 'text-green-700'}`}>
-                      {cashChange < 0 ? 'Faltam' : 'Troco'}:{' '}
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
-                        Math.abs(cashChange),
-                      )}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {isReceivable && (
-                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-bold text-slate-800">
-                    {paymentMethod === 'boleto' ? 'Boleto — contas a receber' : 'A prazo — contas a receber'}
-                  </p>
-                  <label className="block text-xs font-bold text-gray-500 uppercase">Vencimento</label>
-                  <input
-                    type="date"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
-                  />
-                  <p className="text-xs text-gray-500">
-                    Gera título em Contas a receber (não entra no caixa agora).
-                  </p>
-                </div>
-              )}
-
-              <div
-                className={`rounded-xl border p-4 space-y-2 ${
-                  fiscal.ready
-                    ? 'border-emerald-200 bg-emerald-50'
-                    : 'border-gray-200 bg-gray-50'
-                }`}
+              <SaleCheckoutFields
+                paymentMethod={paymentMethod}
+                onPaymentMethodChange={setPaymentMethod}
+                documentType={documentType}
+                onDocumentTypeChange={setDocumentType}
+                fiscalReady={fiscal.ready}
+                fiscalLoading={fiscal.loading}
+                fiscalReason={fiscal.reasons[0]}
+                onOpenFiscalConfig={onOpenIntegrations}
               >
-                <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="emit-nfce-pos"
-                    checked={emitNfce}
-                    disabled={!fiscal.ready || fiscal.loading}
-                    onCheckedChange={(v) => setEmitNfce(v === true)}
-                    className="mt-0.5"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <Label
-                      htmlFor="emit-nfce-pos"
-                      className={`text-sm font-bold ${
-                        fiscal.ready ? 'text-emerald-900 cursor-pointer' : 'text-gray-500'
-                      }`}
-                    >
-                      Emitir NFC-e
-                    </Label>
-                    {fiscal.loading ? (
-                      <p className="text-xs text-gray-500 mt-0.5">Verificando módulo fiscal…</p>
-                    ) : fiscal.ready ? (
-                      <p className="text-xs text-emerald-800 mt-0.5">
-                        {fiscal.emissionAvailable
-                          ? 'Nota fiscal de consumidor será gerada após a venda.'
-                          : 'Configuração OK. A autorização SEFAZ entra nas próximas etapas — a preferência será gravada na venda.'}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {fiscal.reasons[0] || 'Configure o módulo fiscal em Integrações → Fiscal.'}
-                        {onOpenIntegrations && (
-                          <>
-                            {' '}
-                            <button
-                              type="button"
-                              className="text-blue-600 underline font-medium"
-                              onClick={() => onOpenIntegrations()}
-                            >
-                              Abrir configuração
-                            </button>
-                          </>
+                {paymentMethod === 'money' && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-bold text-gray-700">Valor recebido (opcional)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={cashReceived}
+                      onChange={(e) => setCashReceived(e.target.value)}
+                      placeholder={totalAmount.toFixed(2)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                    {cashReceived !== '' && (
+                      <p className={`text-sm font-semibold ${cashChange < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                        {cashChange < 0 ? 'Faltam' : 'Troco'}:{' '}
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                          Math.abs(cashChange),
                         )}
                       </p>
                     )}
                   </div>
-                </div>
-              </div>
+                )}
+
+                {isReceivable && (
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-bold text-slate-800">
+                      {paymentMethod === 'boleto' ? 'Boleto — contas a receber' : 'A prazo — contas a receber'}
+                    </p>
+                    <label className="block text-xs font-bold text-gray-500 uppercase">Vencimento</label>
+                    <input
+                      type="date"
+                      value={dueDate}
+                      onChange={(e) => setDueDate(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Gera título em Contas a receber (não entra no caixa agora).
+                    </p>
+                  </div>
+                )}
+              </SaleCheckoutFields>
 
               <div>
                 <p className="text-gray-600 mb-2 text-sm font-medium">Itens a baixar do estoque</p>

@@ -7,16 +7,11 @@ import {
   Minus,
   Camera,
   X,
-  DollarSign,
-  CreditCard,
-  Smartphone,
-  Banknote,
-  ArrowRight,
   Package,
   AlertTriangle,
   CheckCircle2,
   Zap,
-  Receipt,
+  ArrowRight,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
@@ -28,8 +23,11 @@ import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency, formatQuantity } from '../../utils/calculations';
 import { useFiscalReadiness } from '../../hooks/useFiscalReadiness';
-import { Checkbox } from '../ui/checkbox';
-import { Label } from '../ui/label';
+import {
+  SaleCheckoutFields,
+  type SaleDocumentType,
+  type SalePaymentMethod,
+} from '../sales/SaleCheckoutFields';
 
 interface CashierPOSProps {
   register: { id: string; companyId?: string; [key: string]: unknown };
@@ -58,7 +56,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
   // Payment state
-  const [paymentMethod, setPaymentMethod] = useState<'money' | 'pix' | 'credit' | 'debit' | 'fiado' | 'boleto'>('money');
+  const [paymentMethod, setPaymentMethod] = useState<SalePaymentMethod>('money');
   const [cashReceived, setCashReceived] = useState('');
   const [fiadoDueDate, setFiadoDueDate] = useState<string>(() => {
     const d = new Date();
@@ -66,12 +64,13 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
     return d.toISOString().slice(0, 10);
   });
   const [fiadoCustomerName, setFiadoCustomerName] = useState('');
-  const [emitNfce, setEmitNfce] = useState(false);
+  const [documentType, setDocumentType] = useState<SaleDocumentType>('non_fiscal');
   const fiscal = useFiscalReadiness();
+  const emitNfce = documentType === 'nfce';
 
   useEffect(() => {
-    if (!fiscal.ready && emitNfce) setEmitNfce(false);
-  }, [fiscal.ready, emitNfce]);
+    if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
+  }, [fiscal.ready, documentType]);
 
   useEffect(() => {
     loadProducts();
@@ -487,7 +486,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       setCashReceived('');
       setPaymentMethod('money');
       setFiadoCustomerName('');
-      setEmitNfce(false);
+      setDocumentType('non_fiscal');
       
       // Reload products (lista local do caixa)
       console.log('🔄 Reloading products...');
@@ -599,42 +598,16 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 <p className="text-sm opacity-75 mt-2">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</p>
               </div>
 
-              {/* Payment Methods */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">
-                  Forma de Pagamento
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { value: 'money', label: 'Dinheiro', icon: Banknote, color: 'green' },
-                    { value: 'pix', label: 'PIX', icon: Smartphone, color: 'blue' },
-                    { value: 'credit', label: 'Crédito', icon: CreditCard, color: 'purple' },
-                    { value: 'debit', label: 'Débito', icon: CreditCard, color: 'orange' },
-                    { value: 'fiado', label: 'Fiado', icon: Receipt, color: 'slate' },
-                    { value: 'boleto', label: 'Boleto', icon: Receipt, color: 'slate' },
-                  ].map((method) => {
-                    const Icon = method.icon;
-                    const isSelected = paymentMethod === method.value;
-                    return (
-                      <button
-                        key={method.value}
-                        onClick={() => setPaymentMethod(method.value as any)}
-                        className={`p-4 rounded-xl border-2 transition-all ${
-                          isSelected
-                            ? `border-${method.color}-500 bg-${method.color}-50 dark:bg-${method.color}-900/20`
-                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                        }`}
-                      >
-                        <Icon className={`w-6 h-6 mx-auto mb-2 ${isSelected ? `text-${method.color}-600` : 'text-gray-400'}`} />
-                        <p className={`text-sm font-bold ${isSelected ? `text-${method.color}-600` : 'text-gray-600 dark:text-gray-400'}`}>
-                          {method.label}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
+              {/* Payment + document */}
+              <SaleCheckoutFields
+                paymentMethod={paymentMethod}
+                onPaymentMethodChange={setPaymentMethod}
+                documentType={documentType}
+                onDocumentTypeChange={setDocumentType}
+                fiscalReady={fiscal.ready}
+                fiscalLoading={fiscal.loading}
+                fiscalReason={fiscal.reasons[0]}
+              >
               {/* Cash Input */}
               {paymentMethod === 'money' && (
                 <div className="space-y-3">
@@ -656,6 +629,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                     {[20, 50, 100, 200].map((amount) => (
                       <button
                         key={amount}
+                        type="button"
                         onClick={() => setCashReceived(amount.toString())}
                         className="px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-bold text-gray-700 dark:text-gray-300 transition-colors"
                       >
@@ -663,6 +637,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                       </button>
                     ))}
                     <button
+                      type="button"
                       onClick={() => setCashReceived(getTotal().toFixed(2))}
                       className="px-3 py-2 bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded-lg text-sm font-bold text-blue-700 dark:text-blue-400 transition-colors"
                     >
@@ -721,50 +696,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   </div>
                 </div>
               )}
-
-              <div
-                className={`rounded-xl border p-4 space-y-2 ${
-                  fiscal.ready
-                    ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
-                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="emit-nfce-cashier"
-                    checked={emitNfce}
-                    disabled={!fiscal.ready || fiscal.loading}
-                    onCheckedChange={(v) => setEmitNfce(v === true)}
-                    className="mt-0.5"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <Label
-                      htmlFor="emit-nfce-cashier"
-                      className={`text-sm font-bold ${
-                        fiscal.ready
-                          ? 'text-emerald-900 dark:text-emerald-200 cursor-pointer'
-                          : 'text-gray-500'
-                      }`}
-                    >
-                      Emitir NFC-e
-                    </Label>
-                    {fiscal.loading ? (
-                      <p className="text-xs text-gray-500 mt-0.5">Verificando módulo fiscal…</p>
-                    ) : fiscal.ready ? (
-                      <p className="text-xs text-emerald-800 dark:text-emerald-300 mt-0.5">
-                        {fiscal.emissionAvailable
-                          ? 'Nota fiscal de consumidor será gerada após a venda.'
-                          : 'Configuração OK. Autorização SEFAZ nas próximas etapas — preferência gravada na venda.'}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        {fiscal.reasons[0] ||
-                          'Configure o módulo fiscal em Integrações → Fiscal (NFC-e).'}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
+              </SaleCheckoutFields>
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-3 pt-4">

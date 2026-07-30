@@ -904,6 +904,7 @@ function MainApp() {
             <SupplierManagement suppliers={suppliers} onSave={handleSaveSupplier} onUpdate={handleUpdateSupplier} onDelete={handleDeleteSupplier} />
           )}
           {currentPage === 'pos' && (
+             <ErrorBoundary title="Erro no Ponto de Venda">
              <POS
                products={products}
                recipes={[]}
@@ -912,6 +913,7 @@ function MainApp() {
                }}
                onOpenIntegrations={() => setCurrentPage('integrations')}
              />
+             </ErrorBoundary>
           )}
           {currentPage === 'integrations' && user.permissions.canManageStock && (
             <IntegrationsPage
@@ -921,11 +923,13 @@ function MainApp() {
             />
           )}
           {currentPage === 'cashier' && (
+             <ErrorBoundary title="Erro no Caixa / PDV">
              <CashRegister
                onInventoryChanged={async () => {
                  await refreshData({ silent: true });
                }}
              />
+             </ErrorBoundary>
           )}
           {currentPage === 'reports' && user.permissions.canViewReports && (
              <Reports

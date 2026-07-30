@@ -25,11 +25,15 @@ interface SaleReceiptProps {
       price: number;
     }>;
     total: number;
-    paymentMethod: 'money' | 'pix' | 'credit' | 'debit';
+    paymentMethod: 'money' | 'pix' | 'credit' | 'debit' | 'fiado' | 'boleto' | string;
     paymentDetails?: {
       cashReceived?: number;
       change?: number;
+      emitNfce?: boolean;
+      customerName?: string;
+      dueDate?: string;
     };
+    emitNfce?: boolean;
     timestamp: string;
   };
   cashierName: string;
@@ -51,21 +55,30 @@ export function SaleReceipt({
   const [whatsappNumber, setWhatsappNumber] = useState('');
   const [emailAddress, setEmailAddress] = useState('');
 
-  const paymentMethodIcons = {
+  const paymentMethodIcons: Record<string, typeof Banknote> = {
     money: Banknote,
     pix: Smartphone,
     credit: CreditCard,
     debit: CreditCard,
+    fiado: ReceiptIcon,
+    boleto: ReceiptIcon,
   };
 
-  const paymentMethodLabels = {
-    money: 'Dinheiro',
+  const paymentMethodLabels: Record<string, string> = {
+    money: 'Dinheiro (à vista)',
     pix: 'PIX',
-    credit: 'Crédito',
-    debit: 'Débito',
+    credit: 'Cartão de crédito',
+    debit: 'Cartão de débito',
+    fiado: 'A prazo (fiado)',
+    boleto: 'Boleto',
   };
 
-  const PaymentIcon = paymentMethodIcons[sale.paymentMethod];
+  const method = String(sale.paymentMethod || 'money');
+  const PaymentIcon = paymentMethodIcons[method] || ReceiptIcon;
+  const paymentLabel = paymentMethodLabels[method] || method;
+  const isNfce =
+    sale.emitNfce === true ||
+    sale.paymentDetails?.emitNfce === true;
 
   const handlePrint = () => {
     window.print();
@@ -146,9 +159,10 @@ export function SaleReceipt({
     lines.push(`───────────────────────────────────`);
     lines.push(`TOTAL: R$ ${sale.total.toFixed(2)}`);
     lines.push(`───────────────────────────────────`);
-    lines.push(`Pagamento: ${paymentMethodLabels[sale.paymentMethod]}`);
+    lines.push(`Pagamento: ${paymentLabel}`);
+    lines.push(`Documento: ${isNfce ? 'NFC-e (solicitada)' : 'Cupom não fiscal'}`);
 
-    if (sale.paymentMethod === 'money' && sale.paymentDetails) {
+    if (method === 'money' && sale.paymentDetails) {
       lines.push(`Recebido: R$ ${sale.paymentDetails.cashReceived?.toFixed(2)}`);
       lines.push(`Troco: R$ ${sale.paymentDetails.change?.toFixed(2)}`);
     }
@@ -280,12 +294,19 @@ export function SaleReceipt({
               <div className="flex items-center gap-2 text-sm">
                 <PaymentIcon className="w-4 h-4 text-blue-600" />
                 <span className="font-bold text-gray-700">
-                  Pagamento: {paymentMethodLabels[sale.paymentMethod]}
+                  Pagamento: {paymentLabel}
+                </span>
+              </div>
+
+              <div className="text-sm text-gray-600 mt-1">
+                Documento:{' '}
+                <span className="font-semibold text-gray-900">
+                  {isNfce ? 'NFC-e (solicitada)' : 'Cupom não fiscal'}
                 </span>
               </div>
 
               {/* Cash Details */}
-              {sale.paymentMethod === 'money' && sale.paymentDetails && (
+              {method === 'money' && sale.paymentDetails && (
                 <div className="mt-3 pt-3 border-t border-blue-200 space-y-1">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Recebido:</span>
