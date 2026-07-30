@@ -11,6 +11,9 @@ import { ZigSalesBaixa } from './ZigSalesBaixa';
 import { useIsMobile } from '../ui/use-mobile';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
 import { getBackendUrl } from '../../lib/backendUrl';
+import { useFiscalReadiness } from '../../hooks/useFiscalReadiness';
+import { Checkbox } from '../ui/checkbox';
+import { Label } from '../ui/label';
 
 interface POSProps {
   products: Product[];
@@ -71,6 +74,12 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [customerName, setCustomerName] = useState('');
   const [dueDate, setDueDate] = useState(defaultDueDateYmd);
   const [cashReceived, setCashReceived] = useState('');
+  const [emitNfce, setEmitNfce] = useState(false);
+  const fiscal = useFiscalReadiness();
+
+  useEffect(() => {
+    if (!fiscal.ready && emitNfce) setEmitNfce(false);
+  }, [fiscal.ready, emitNfce]);
 
   // Scanner State
   const [isScanning, setIsScanning] = useState(false);
@@ -369,6 +378,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     setCustomerName('');
     setDueDate(defaultDueDateYmd());
     setCashReceived('');
+    setEmitNfce(false);
   };
 
   const handleCheckout = async () => {
@@ -438,6 +448,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         if (registerId) {
           const paymentDetails: Record<string, unknown> = {
             customerName: customerName.trim(),
+            emitNfce: !!emitNfce,
           };
           if (paymentMethod === 'money') {
             paymentDetails.cashReceived = cashReceived
@@ -550,7 +561,12 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         }
       }
 
-      toast.success('Venda registrada com sucesso!', { id: toastId });
+      toast.success(
+        emitNfce
+          ? 'Venda registrada — NFC-e solicitada (emissão SEFAZ nas próximas etapas)'
+          : 'Venda registrada com sucesso!',
+        { id: toastId },
+      );
       setLastSale({
         items: cart.map(item => ({
           name: item.name,
@@ -967,6 +983,59 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                   </p>
                 </div>
               )}
+
+              <div
+                className={`rounded-xl border p-4 space-y-2 ${
+                  fiscal.ready
+                    ? 'border-emerald-200 bg-emerald-50'
+                    : 'border-gray-200 bg-gray-50'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="emit-nfce-pos"
+                    checked={emitNfce}
+                    disabled={!fiscal.ready || fiscal.loading}
+                    onCheckedChange={(v) => setEmitNfce(v === true)}
+                    className="mt-0.5"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <Label
+                      htmlFor="emit-nfce-pos"
+                      className={`text-sm font-bold ${
+                        fiscal.ready ? 'text-emerald-900 cursor-pointer' : 'text-gray-500'
+                      }`}
+                    >
+                      Emitir NFC-e
+                    </Label>
+                    {fiscal.loading ? (
+                      <p className="text-xs text-gray-500 mt-0.5">Verificando módulo fiscal…</p>
+                    ) : fiscal.ready ? (
+                      <p className="text-xs text-emerald-800 mt-0.5">
+                        {fiscal.emissionAvailable
+                          ? 'Nota fiscal de consumidor será gerada após a venda.'
+                          : 'Configuração OK. A autorização SEFAZ entra nas próximas etapas — a preferência será gravada na venda.'}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {fiscal.reasons[0] || 'Configure o módulo fiscal em Integrações → Fiscal.'}
+                        {onOpenIntegrations && (
+                          <>
+                            {' '}
+                            <button
+                              type="button"
+                              className="text-blue-600 underline font-medium"
+                              onClick={() => onOpenIntegrations()}
+                            >
+                              Abrir configuração
+                            </button>
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div>
                 <p className="text-gray-600 mb-2 text-sm font-medium">Itens a baixar do estoque</p>

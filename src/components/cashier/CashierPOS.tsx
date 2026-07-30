@@ -15,7 +15,8 @@ import {
   Package,
   AlertTriangle,
   CheckCircle2,
-  Zap
+  Zap,
+  Receipt,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
@@ -26,6 +27,9 @@ import { ProductService } from '../../services/ProductService';
 import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
 import { formatCurrency, formatQuantity } from '../../utils/calculations';
+import { useFiscalReadiness } from '../../hooks/useFiscalReadiness';
+import { Checkbox } from '../ui/checkbox';
+import { Label } from '../ui/label';
 
 interface CashierPOSProps {
   register: { id: string; companyId?: string; [key: string]: unknown };
@@ -62,6 +66,12 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
     return d.toISOString().slice(0, 10);
   });
   const [fiadoCustomerName, setFiadoCustomerName] = useState('');
+  const [emitNfce, setEmitNfce] = useState(false);
+  const fiscal = useFiscalReadiness();
+
+  useEffect(() => {
+    if (!fiscal.ready && emitNfce) setEmitNfce(false);
+  }, [fiscal.ready, emitNfce]);
 
   useEffect(() => {
     loadProducts();
@@ -355,13 +365,15 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
             ? {
                 cashReceived: parseFloat(cashReceived),
                 change: calculateChange(),
+                emitNfce: !!emitNfce,
               }
             : paymentMethod === 'fiado' || paymentMethod === 'boleto'
               ? {
                   dueDate: fiadoDueDate.trim(),
                   customerName: fiadoCustomerName.trim() || undefined,
+                  emitNfce: !!emitNfce,
                 }
-              : {},
+              : { emitNfce: !!emitNfce },
       };
       
       console.log('📤 Sending sale to server:', salePayload);
@@ -446,7 +458,11 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
 
       // Success!
       console.log('🎉 Sale finalized successfully!');
-      toast.success('Venda finalizada com sucesso!')
+      toast.success(
+        emitNfce
+          ? 'Venda finalizada — NFC-e solicitada (emissão SEFAZ nas próximas etapas)'
+          : 'Venda finalizada com sucesso!',
+      );
       
       // Prepare completed sale data with full info
       const completedSaleData = {
@@ -459,6 +475,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         total: saleData.sale.total,
         paymentMethod: saleData.sale.paymentMethod,
         paymentDetails: saleData.sale.paymentDetails,
+        emitNfce: !!emitNfce,
         timestamp: saleData.sale.timestamp,
       };
       
@@ -470,6 +487,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       setCashReceived('');
       setPaymentMethod('money');
       setFiadoCustomerName('');
+      setEmitNfce(false);
       
       // Reload products (lista local do caixa)
       console.log('🔄 Reloading products...');
@@ -703,6 +721,50 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   </div>
                 </div>
               )}
+
+              <div
+                className={`rounded-xl border p-4 space-y-2 ${
+                  fiscal.ready
+                    ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="emit-nfce-cashier"
+                    checked={emitNfce}
+                    disabled={!fiscal.ready || fiscal.loading}
+                    onCheckedChange={(v) => setEmitNfce(v === true)}
+                    className="mt-0.5"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <Label
+                      htmlFor="emit-nfce-cashier"
+                      className={`text-sm font-bold ${
+                        fiscal.ready
+                          ? 'text-emerald-900 dark:text-emerald-200 cursor-pointer'
+                          : 'text-gray-500'
+                      }`}
+                    >
+                      Emitir NFC-e
+                    </Label>
+                    {fiscal.loading ? (
+                      <p className="text-xs text-gray-500 mt-0.5">Verificando módulo fiscal…</p>
+                    ) : fiscal.ready ? (
+                      <p className="text-xs text-emerald-800 dark:text-emerald-300 mt-0.5">
+                        {fiscal.emissionAvailable
+                          ? 'Nota fiscal de consumidor será gerada após a venda.'
+                          : 'Configuração OK. Autorização SEFAZ nas próximas etapas — preferência gravada na venda.'}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {fiscal.reasons[0] ||
+                          'Configure o módulo fiscal em Integrações → Fiscal (NFC-e).'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-3 pt-4">

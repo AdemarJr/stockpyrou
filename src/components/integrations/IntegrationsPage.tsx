@@ -1,6 +1,7 @@
 import React from 'react';
 import { Plug } from 'lucide-react';
 import { ZigIntegrationSettings } from '../sales/ZigIntegrationSettings';
+import { FiscalSettings } from '../fiscal/FiscalSettings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 
 interface IntegrationsPageProps {
@@ -20,6 +21,13 @@ export function IntegrationsPage({ onSyncComplete }: IntegrationsPageProps) {
           <strong className="font-medium text-foreground">Ponto de Venda</strong> (aba ZIG / Baixa).
         </p>
       </div>
+
+      <section aria-labelledby="fiscal-heading" className="space-y-3">
+        <h2 id="fiscal-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          Fiscal (NFC-e)
+        </h2>
+        <FiscalSettings />
+      </section>
 
       <section aria-labelledby="zig-heading" className="space-y-3">
         <h2 id="zig-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
