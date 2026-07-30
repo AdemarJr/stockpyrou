@@ -17,6 +17,10 @@ import {
   type SaleDocumentType,
   type SalePaymentMethod,
 } from './SaleCheckoutFields';
+import {
+  CustomerPicker,
+  type SelectedCustomer,
+} from '../customers/CustomerPicker';
 
 interface POSProps {
   products: Product[];
@@ -65,13 +69,15 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [zigBaixaAccessDisabled, setZigBaixaAccessDisabled] = useState(false);
 
   const [paymentMethod, setPaymentMethod] = useState<ManualPaymentMethod>('money');
-  const [customerName, setCustomerName] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
   const [dueDate, setDueDate] = useState(defaultDueDateYmd);
   const [cashReceived, setCashReceived] = useState('');
   const [documentType, setDocumentType] = useState<SaleDocumentType>('non_fiscal');
   const [productLimit, setProductLimit] = useState(48);
   const fiscal = useFiscalReadiness({ refreshKey: isConfirmOpen });
   const emitNfce = documentType === 'nfce';
+  const customerRequired =
+    paymentMethod === 'fiado' || paymentMethod === 'boleto' || emitNfce;
 
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
@@ -378,7 +384,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
   const resetCheckoutForm = () => {
     setPaymentMethod('money');
-    setCustomerName('');
+    setSelectedCustomer(null);
     setDueDate(defaultDueDateYmd());
     setCashReceived('');
     setDocumentType('non_fiscal');
@@ -387,8 +393,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const handleCheckout = async () => {
     if (cart.length === 0 || !currentCompany) return;
 
-    if (!customerName.trim()) {
-      toast.error('Informe o cliente da venda');
+    if (customerRequired && !selectedCustomer) {
+      toast.error('Selecione ou cadastre o cliente (nome + CPF/CNPJ)');
       return;
     }
     if (isReceivable && !dueDate.trim()) {
@@ -450,9 +456,14 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
         if (registerId) {
           const paymentDetails: Record<string, unknown> = {
-            customerName: customerName.trim(),
             emitNfce: !!emitNfce,
           };
+          if (selectedCustomer) {
+            paymentDetails.customerId = selectedCustomer.id;
+            paymentDetails.customerName = selectedCustomer.name;
+            paymentDetails.customerDocument = selectedCustomer.documentDigits;
+            paymentDetails.customerDocumentType = selectedCustomer.documentType;
+          }
           if (paymentMethod === 'money') {
             paymentDetails.cashReceived = cashReceived
               ? parseFloat(cashReceived)
@@ -504,7 +515,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         return;
       }
 
-      const customerNote = customerName.trim() ? ` · Cliente: ${customerName.trim()}` : '';
+      const customerNote = selectedCustomer
+        ? ` · Cliente: ${selectedCustomer.name} (${selectedCustomer.documentFormatted})`
+        : '';
 
       // Processa cada item do carrinho sequencialmente
       for (const item of cart) {
@@ -580,7 +593,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         total: totalAmount,
         date: new Date(),
         paymentMethod,
-        customerName: customerName.trim(),
+        customerName: selectedCustomer?.name,
       });
       setCart([]);
       setIsConfirmOpen(false);
@@ -934,19 +947,16 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                 </span>
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">
-                  Cliente <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Nome do cliente"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
-                  autoFocus
-                />
-              </div>
+              <CustomerPicker
+                value={selectedCustomer}
+                onChange={setSelectedCustomer}
+                required={customerRequired}
+                hint={
+                  customerRequired
+                    ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
+                    : 'Recomendado para vincular a venda e o cupom'
+                }
+              />
 
               <SaleCheckoutFields
                 paymentMethod={paymentMethod}
@@ -1028,7 +1038,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                 onClick={handleCheckout}
                 disabled={
                   isProcessing ||
-                  !customerName.trim() ||
+                  (customerRequired && !selectedCustomer) ||
                   (isReceivable && !dueDate.trim()) ||
                   (paymentMethod === 'money' && cashReceived !== '' && cashChange < 0)
                 }

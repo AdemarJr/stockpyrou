@@ -28,6 +28,10 @@ import {
   type SaleDocumentType,
   type SalePaymentMethod,
 } from '../sales/SaleCheckoutFields';
+import {
+  CustomerPicker,
+  type SelectedCustomer,
+} from '../customers/CustomerPicker';
 
 interface CashierPOSProps {
   register: { id: string; companyId?: string; [key: string]: unknown };
@@ -63,11 +67,13 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
     d.setDate(d.getDate() + 30);
     return d.toISOString().slice(0, 10);
   });
-  const [fiadoCustomerName, setFiadoCustomerName] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
   const [documentType, setDocumentType] = useState<SaleDocumentType>('non_fiscal');
   const [productLimit, setProductLimit] = useState(48);
   const fiscal = useFiscalReadiness({ refreshKey: showPayment });
   const emitNfce = documentType === 'nfce';
+  const customerRequired =
+    paymentMethod === 'fiado' || paymentMethod === 'boleto' || emitNfce;
 
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
@@ -335,6 +341,10 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       toast.error('Informe a data de vencimento');
       return;
     }
+    if (customerRequired && !selectedCustomer) {
+      toast.error('Selecione ou cadastre o cliente (nome + CPF/CNPJ)');
+      return;
+    }
 
     setIsProcessing(true);
 
@@ -354,6 +364,15 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         headers['X-Company-Id'] = currentCompany.id;
       }
 
+      const customerPayload = selectedCustomer
+        ? {
+            customerId: selectedCustomer.id,
+            customerName: selectedCustomer.name,
+            customerDocument: selectedCustomer.documentDigits,
+            customerDocumentType: selectedCustomer.documentType,
+          }
+        : {};
+
       const salePayload = {
         registerId: register.id,
         items: cart.map(item => ({
@@ -370,14 +389,15 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 cashReceived: parseFloat(cashReceived),
                 change: calculateChange(),
                 emitNfce: !!emitNfce,
+                ...customerPayload,
               }
             : paymentMethod === 'fiado' || paymentMethod === 'boleto'
               ? {
                   dueDate: fiadoDueDate.trim(),
-                  customerName: fiadoCustomerName.trim() || undefined,
                   emitNfce: !!emitNfce,
+                  ...customerPayload,
                 }
-              : { emitNfce: !!emitNfce },
+              : { emitNfce: !!emitNfce, ...customerPayload },
       };
       
       console.log('📤 Sending sale to server:', salePayload);
@@ -490,7 +510,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       setShowPayment(false);
       setCashReceived('');
       setPaymentMethod('money');
-      setFiadoCustomerName('');
+      setSelectedCustomer(null);
       setDocumentType('non_fiscal');
       
       // Reload products (lista local do caixa)
@@ -609,6 +629,17 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 <p className="text-sm opacity-75 mt-2">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</p>
               </div>
 
+              <CustomerPicker
+                value={selectedCustomer}
+                onChange={setSelectedCustomer}
+                required={customerRequired}
+                hint={
+                  customerRequired
+                    ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
+                    : 'Recomendado para vincular a venda e o cupom'
+                }
+              />
+
               {/* Payment + document */}
               <SaleCheckoutFields
                 paymentMethod={paymentMethod}
@@ -683,29 +714,17 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
                     {paymentMethod === 'boleto' ? 'Boleto (a receber)' : 'Fiado (a receber)'}
                   </label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-500 uppercase">Cliente (opcional)</label>
-                      <input
-                        type="text"
-                        value={fiadoCustomerName}
-                        onChange={(e) => setFiadoCustomerName(e.target.value)}
-                        placeholder="Nome do cliente"
-                        className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-500 uppercase">Vencimento</label>
-                      <input
-                        type="date"
-                        value={fiadoDueDate}
-                        onChange={(e) => setFiadoDueDate(e.target.value)}
-                        className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                      />
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Gera título em <strong>Contas a receber</strong> (não entra no caixa agora).
-                      </p>
-                    </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-500 uppercase">Vencimento</label>
+                    <input
+                      type="date"
+                      value={fiadoDueDate}
+                      onChange={(e) => setFiadoDueDate(e.target.value)}
+                      className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Gera título em <strong>Contas a receber</strong> vinculado ao cliente (não entra no caixa agora).
+                    </p>
                   </div>
                 </div>
               )}
@@ -724,6 +743,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   onClick={handleCompleteSale}
                   disabled={
                     isProcessing ||
+                    (customerRequired && !selectedCustomer) ||
                     (paymentMethod === 'money' && getChange() < 0) ||
                     ((paymentMethod === 'fiado' || paymentMethod === 'boleto') && !fiadoDueDate.trim())
                   }
