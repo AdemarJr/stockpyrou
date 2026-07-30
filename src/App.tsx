@@ -30,7 +30,8 @@ import { AdminSaaS } from './components/admin/AdminSaaS';
 import { QuickSearch } from './components/QuickSearch';
 import { PWAUpdateNotifier } from './components/PWAUpdateNotifier';
 import { CostDashboard } from './components/costs/CostDashboard';
-import { IntegrationsPage } from './components/integrations/IntegrationsPage';
+import { SettingsPage } from './components/settings/SettingsPage';
+import { NfceManagement } from './components/fiscal/NfceManagement';
 import { CustomerManagement } from './components/customers/CustomerManagement';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -52,7 +53,8 @@ import {
   Sun,
   Building,
   DollarSign,
-  Plug
+  Settings,
+  Receipt,
 } from 'lucide-react';
 
 // Services and Types
@@ -67,7 +69,22 @@ import { useIsMobile } from './components/ui/use-mobile';
 import logoImg from './public/logo.svg';
 import { APP_NAME, APP_ORIGIN, APP_SITE_URL } from './config/branding';
 
-type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'integrations' | 'users' | 'admin' | 'costs' | 'customers';
+type Page =
+  | 'dashboard'
+  | 'products'
+  | 'stock-entry'
+  | 'stock-balance'
+  | 'pos'
+  | 'cashier'
+  | 'reports'
+  | 'suppliers'
+  | 'integrations'
+  | 'settings'
+  | 'nfce'
+  | 'users'
+  | 'admin'
+  | 'costs'
+  | 'customers';
 
 const PAGE_IDS = new Set<Page>([
   'dashboard',
@@ -79,6 +96,8 @@ const PAGE_IDS = new Set<Page>([
   'reports',
   'suppliers',
   'integrations',
+  'settings',
+  'nfce',
   'users',
   'admin',
   'costs',
@@ -88,6 +107,8 @@ const PAGE_IDS = new Set<Page>([
 function parsePageParam(raw: string | null | undefined): Page | null {
   if (!raw || typeof raw !== 'string') return null;
   const t = raw.trim();
+  // Compat: antiga página Integrações → Configurações
+  if (t === 'integrations') return 'settings';
   return PAGE_IDS.has(t as Page) ? (t as Page) : null;
 }
 
@@ -689,7 +710,8 @@ function MainApp() {
       nav.push({ id: 'cashier', name: 'PDV', icon: DollarSign });
       nav.push({ id: 'suppliers', name: 'Fornecedores', icon: Truck });
       nav.push({ id: 'customers', name: 'Clientes', icon: UserRound });
-      nav.push({ id: 'integrations', name: 'Integrações', icon: Plug });
+      nav.push({ id: 'nfce', name: 'Notas fiscais', icon: Receipt });
+      nav.push({ id: 'settings', name: 'Configurações', icon: Settings });
     }
     if (user.permissions.canViewReports) {
       nav.push({ id: 'reports', name: 'Relatórios', icon: FileText });
@@ -924,12 +946,17 @@ function MainApp() {
                onSaleComplete={async () => {
                  await refreshData({ silent: true });
                }}
-               onOpenIntegrations={() => setCurrentPage('integrations')}
+               onOpenIntegrations={() => setCurrentPage('settings')}
              />
              </ErrorBoundary>
           )}
-          {currentPage === 'integrations' && user.permissions.canManageStock && (
-            <IntegrationsPage
+          {currentPage === 'nfce' && user.permissions.canManageStock && (
+            <NfceManagement />
+          )}
+          {(currentPage === 'settings' || currentPage === 'integrations') &&
+            user.permissions.canManageStock && (
+            <SettingsPage
+              initialTab={currentPage === 'integrations' ? 'integracoes' : 'empresa'}
               onSyncComplete={async () => {
                 await refreshData({ silent: true });
               }}

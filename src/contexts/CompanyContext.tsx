@@ -131,6 +131,15 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         const stillHasAccess = data.find(c => c.id === currentCompany.id);
         if (!stillHasAccess) {
           setCurrentCompany(null);
+        } else {
+          // Atualiza nome/CNPJ se a empresa foi editada em Configurações
+          setCurrentCompany((prev) => {
+            if (!prev || prev.id !== stillHasAccess.id) return prev;
+            if (prev.name === stillHasAccess.name && prev.cnpj === stillHasAccess.cnpj) {
+              return prev;
+            }
+            return stillHasAccess;
+          });
         }
       } else if (data.length > 0) {
         const savedCompanyId = readLastCompanyId();

@@ -63,7 +63,7 @@ export function CompanySelection() {
                 <h3 className="text-lg font-medium text-gray-900">
                   {user?.role === 'superadmin' ? 'Todas as Empresas do Sistema' : 'Suas Empresas'}
                 </h3>
-                {(user?.role === 'admin' || user?.role === 'superadmin') && (
+                {(user?.role === 'superadmin') && (
                   <button
                     onClick={() => setIsCreating(true)}
                     className="text-sm text-blue-600 hover:text-blue-500 font-medium flex items-center gap-1"
@@ -112,7 +112,7 @@ export function CompanySelection() {
                   <Building2 className="mx-auto h-12 w-12 text-gray-400" />
                   <h3 className="mt-2 text-sm font-medium text-gray-900">Nenhuma empresa encontrada</h3>
                   
-                  {(user?.role === 'admin' || user?.role === 'superadmin') ? (
+                  {user?.role === 'superadmin' ? (
                     <>
                       <p className="mt-1 text-sm text-gray-500">Comece criando sua primeira organização.</p>
                       <div className="mt-6">
@@ -128,7 +128,8 @@ export function CompanySelection() {
                     </>
                   ) : (
                     <p className="mt-1 text-sm text-gray-500">
-                      Você ainda não foi vinculado a nenhuma empresa. Entre em contato com o administrador.
+                      Nenhuma empresa vinculada. Somente o Super Admin pode criar organizações —
+                      solicite o cadastro à equipe responsável.
                     </p>
                   )}
                 </div>

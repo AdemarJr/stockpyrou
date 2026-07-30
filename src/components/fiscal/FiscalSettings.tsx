@@ -75,13 +75,22 @@ const emptyForm = (): FiscalConfigForm => ({
   cscTokenMasked: null,
 });
 
-export function FiscalSettings() {
+type FiscalSettingsSection = 'full' | 'company' | 'technical';
+
+interface FiscalSettingsProps {
+  /** full = tudo; company = dados da empresa; technical = CSC/certificado/ambiente */
+  section?: FiscalSettingsSection;
+}
+
+export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
   const canEdit =
     !!user?.permissions?.canManageSettings ||
     user?.role === 'admin' ||
     user?.role === 'superadmin';
+  const showCompany = section === 'full' || section === 'company';
+  const showTechnical = section === 'full' || section === 'technical';
 
   const [form, setForm] = useState<FiscalConfigForm>(emptyForm);
   const [certificate, setCertificate] = useState<CertificateStatus | null>(null);
@@ -285,14 +294,18 @@ export function FiscalSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-emerald-600" />
-            NFC-e SEFAZ-AM
+            {section === 'company' ? 'Dados da empresa' : 'NFC-e SEFAZ-AM'}
           </CardTitle>
           <CardDescription>
-            Configuração fiscal da empresa (modelo 65). Certificado e CSC ficam só no servidor —
-            nunca no navegador após o envio. Emissão SOAP em homologação nas próximas etapas.
+            {section === 'company'
+              ? 'Nome, CNPJ, endereço e contato usados no cupom / DANFE e na emissão fiscal.'
+              : section === 'technical'
+                ? 'Ambiente SEFAZ, numeração, CSC e certificado digital A1.'
+                : 'Configuração fiscal da empresa (modelo 65). Certificado e CSC ficam só no servidor.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {showTechnical && (
           <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div>
               <p className="font-medium text-sm">Habilitar módulo fiscal</p>
@@ -351,8 +364,11 @@ export function FiscalSettings() {
               }}
             />
           </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {showTechnical && (
+            <>
             <div className="space-y-1.5">
               <Label>Ambiente</Label>
               <select
@@ -379,6 +395,10 @@ export function FiscalSettings() {
                 <option value={3}>3 — Regime Normal</option>
               </select>
             </div>
+            </>
+            )}
+            {showCompany && (
+            <>
             <div className="space-y-1.5">
               <Label>CNPJ</Label>
               <Input
@@ -412,8 +432,12 @@ export function FiscalSettings() {
                 onChange={(e) => setField('nomeFantasia', e.target.value)}
               />
             </div>
+            </>
+            )}
           </div>
 
+          {showCompany && (
+          <>
           <div>
             <p className="text-sm font-semibold mb-3">Endereço do estabelecimento</p>
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
@@ -558,7 +582,10 @@ export function FiscalSettings() {
               </div>
             </div>
           </div>
+          </>
+          )}
 
+          {showTechnical && (
           <div>
             <p className="text-sm font-semibold mb-3">Numeração NFC-e / CSC</p>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -612,6 +639,7 @@ export function FiscalSettings() {
               </p>
             )}
           </div>
+          )}
 
           {canEdit && (
             <Button onClick={handleSave} disabled={saving} className="gap-2">
@@ -627,6 +655,7 @@ export function FiscalSettings() {
         </CardContent>
       </Card>
 
+      {showTechnical && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -708,6 +737,7 @@ export function FiscalSettings() {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
