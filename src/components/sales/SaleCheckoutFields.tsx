@@ -36,17 +36,19 @@ interface SaleCheckoutFieldsProps {
   onPaymentMethodChange: (method: SalePaymentMethod) => void;
   documentType: SaleDocumentType;
   onDocumentTypeChange: (type: SaleDocumentType) => void;
+  /** Módulo fiscal ativado — libera seleção NFC-e */
   fiscalReady: boolean;
+  /** Cadastro completo (CSC, cert, etc.) */
+  fiscalConfigComplete?: boolean;
   fiscalLoading?: boolean;
   fiscalReason?: string;
+  fiscalReasons?: string[];
   onOpenFiscalConfig?: () => void;
-  /** Extra fields (cliente, troco, vencimento) rendered by parent below payments */
   children?: React.ReactNode;
 }
 
 /**
  * Passo comum de checkout: forma de pagamento + tipo de documento.
- * Sem Radix Checkbox (evita crash no modal do PDV).
  */
 export function SaleCheckoutFields({
   paymentMethod,
@@ -54,11 +56,17 @@ export function SaleCheckoutFields({
   documentType,
   onDocumentTypeChange,
   fiscalReady,
+  fiscalConfigComplete,
   fiscalLoading,
   fiscalReason,
+  fiscalReasons,
   onOpenFiscalConfig,
   children,
 }: SaleCheckoutFieldsProps) {
+  const pendingReasons = (fiscalReasons || []).filter(Boolean);
+  const showPending =
+    fiscalReady && fiscalConfigComplete === false && pendingReasons.length > 0;
+
   return (
     <div className="space-y-5">
       <div>
@@ -142,8 +150,8 @@ export function SaleCheckoutFields({
               {fiscalLoading
                 ? 'Verificando módulo fiscal…'
                 : fiscalReady
-                  ? 'Solicita emissão de NFC-e após a venda'
-                  : fiscalReason || 'Configure o fiscal em Integrações'}
+                  ? 'Módulo ativo — solicita NFC-e após a venda'
+                  : fiscalReason || 'Ative o módulo fiscal em Integrações → Fiscal'}
             </p>
             {!fiscalReady && !fiscalLoading && onOpenFiscalConfig && (
               <span
@@ -166,6 +174,26 @@ export function SaleCheckoutFields({
             )}
           </button>
         </div>
+
+        {showPending && (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-200">
+            <p className="font-semibold mb-1">NFC-e liberada, mas cadastro incompleto:</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              {pendingReasons.slice(0, 4).map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+            {onOpenFiscalConfig && (
+              <button
+                type="button"
+                className="mt-1 text-blue-600 underline font-medium"
+                onClick={onOpenFiscalConfig}
+              >
+                Completar em Integrações
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

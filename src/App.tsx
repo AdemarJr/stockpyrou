@@ -709,9 +709,9 @@ function MainApp() {
   }
   
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col md:flex-row">
+    <div className="h-screen overflow-hidden bg-gray-50 dark:bg-gray-900 flex flex-col md:flex-row">
       {/* Sidebar for Desktop */}
-      <aside className={`bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 ${sidebarOpen ? 'w-64' : 'w-0 md:w-20'} hidden md:flex flex-col overflow-hidden`}>
+      <aside className={`bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 ${sidebarOpen ? 'w-64' : 'w-0 md:w-20'} hidden md:flex flex-col overflow-hidden shrink-0`}>
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           {sidebarOpen ? (
             <>
@@ -789,7 +789,7 @@ function MainApp() {
       </header>
       
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 pb-20 md:pb-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 pb-20 md:pb-0 overflow-hidden">
         {/* Desktop Header */}
         <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 hidden md:flex items-center justify-between sticky top-0 z-10">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
@@ -804,7 +804,13 @@ function MainApp() {
           </div>
         </header>
         
-        <main className="flex-1 p-4 md:p-6 overflow-auto">
+        <main
+          className={
+            currentPage === 'pos' || currentPage === 'cashier'
+              ? 'flex-1 min-h-0 overflow-hidden p-0 flex flex-col'
+              : 'flex-1 p-4 md:p-6 overflow-auto'
+          }
+        >
           {currentPage === 'dashboard' && <Dashboard products={products} movements={movements} recipes={[]} />}
           {currentPage === 'products' && user.permissions.canManageProducts && (
             <>

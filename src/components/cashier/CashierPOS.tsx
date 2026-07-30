@@ -65,12 +65,17 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   });
   const [fiadoCustomerName, setFiadoCustomerName] = useState('');
   const [documentType, setDocumentType] = useState<SaleDocumentType>('non_fiscal');
-  const fiscal = useFiscalReadiness();
+  const [productLimit, setProductLimit] = useState(48);
+  const fiscal = useFiscalReadiness({ refreshKey: showPayment });
   const emitNfce = documentType === 'nfce';
 
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
   }, [fiscal.ready, documentType]);
+
+  useEffect(() => {
+    setProductLimit(48);
+  }, [searchTerm, currentCompany?.id]);
 
   useEffect(() => {
     loadProducts();
@@ -522,14 +527,20 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const handleSetQuantityDirect = (itemId: string, value: string) => setQuantityDirect(itemId, value);
   const handleClearCart = () => clearCart();
   const getFilteredProducts = () => filteredProducts;
+  const visibleProducts = filteredProducts.slice(0, productLimit);
+  const hasMoreProducts = filteredProducts.length > productLimit;
   const getTotal = () => calculateTotal();
   const getChange = () => calculateChange();
   const handleCompleteSale = () => handleFinalizeSale();
+  const openCheckout = () => {
+    fiscal.refresh();
+    setShowPayment(true);
+  };
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="h-full min-h-0 flex flex-col bg-gray-50 dark:bg-gray-900">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 md:p-4">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 md:p-4 shrink-0">
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1">
             <h2 className="text-base md:text-lg font-black text-gray-900 dark:text-white">PDV - Ponto de Venda</h2>
@@ -605,8 +616,10 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 documentType={documentType}
                 onDocumentTypeChange={setDocumentType}
                 fiscalReady={fiscal.ready}
+                fiscalConfigComplete={fiscal.configComplete}
                 fiscalLoading={fiscal.loading}
                 fiscalReason={fiscal.reasons[0]}
+                fiscalReasons={fiscal.reasons}
               >
               {/* Cash Input */}
               {paymentMethod === 'money' && (
@@ -735,11 +748,11 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       )}
 
       {/* Main Content - 2 Column Layout on Desktop */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
         {/* Left: Product Search & List */}
-        <div className="flex-1 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700 overflow-hidden">
           {/* Search Bar */}
-          <div className="p-3 md:p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          <div className="p-3 md:p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -760,10 +773,10 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
             </div>
           </div>
 
-          {/* Products Grid */}
-          <div className="flex-1 overflow-auto p-3 md:p-4">
+          {/* Products Grid — só o painel rola; botão Continuar fica fixo */}
+          <div className="flex-1 overflow-auto p-3 md:p-4 pb-28 lg:pb-4">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-2 md:gap-3">
-              {getFilteredProducts().map((product) => (
+              {visibleProducts.map((product) => (
                 <button
                   key={product.id}
                   onClick={() => handleAddToCart(product)}
@@ -802,21 +815,36 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               ))}
             </div>
 
+            {hasMoreProducts && (
+              <div className="flex justify-center py-4">
+                <button
+                  type="button"
+                  onClick={() => setProductLimit((n) => n + 48)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  Carregar mais produtos ({filteredProducts.length - productLimit} restantes)
+                </button>
+              </div>
+            )}
+
             {getFilteredProducts().length === 0 && (
               <div className="text-center py-12">
                 <Package className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
                 <p className="text-gray-500 dark:text-gray-400 font-bold">
                   {searchTerm ? 'Nenhum produto encontrado' : 'Nenhum produto disponível'}
                 </p>
+                {searchTerm && (
+                  <p className="text-xs text-gray-400 mt-1">Use a busca para achar entre milhares de itens</p>
+                )}
               </div>
             )}
           </div>
         </div>
 
         {/* Right: Cart */}
-        <div className="w-full lg:w-96 xl:w-[28rem] flex flex-col bg-white dark:bg-gray-800">
+        <div className="w-full lg:w-96 xl:w-[28rem] flex flex-col bg-white dark:bg-gray-800 min-h-0 max-h-[42vh] lg:max-h-none shrink-0 lg:shrink">
           {/* Cart Header */}
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="w-5 h-5 text-blue-600" />
@@ -837,9 +865,9 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
           </div>
 
           {/* Cart Items */}
-          <div className="flex-1 overflow-auto p-4 space-y-2">
+          <div className="flex-1 overflow-auto p-4 space-y-2 min-h-0">
             {cart.length === 0 ? (
-              <div className="text-center py-12">
+              <div className="text-center py-8 lg:py-12">
                 <ShoppingCart className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
                 <p className="text-gray-500 dark:text-gray-400 font-bold">Carrinho vazio</p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -912,9 +940,9 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
             )}
           </div>
 
-          {/* Cart Footer */}
+          {/* Cart Footer — sticky no painel do carrinho (desktop) */}
           {cart.length > 0 && (
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 space-y-3">
+            <div className="hidden lg:block p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 space-y-3 shrink-0">
               <div className="flex items-center justify-between">
                 <span className="text-lg font-bold text-gray-700 dark:text-gray-300">Total</span>
                 <span className="text-3xl font-black text-blue-600 dark:text-blue-400 tabular-nums">
@@ -923,17 +951,41 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               </div>
 
               <button
-                onClick={() => setShowPayment(true)}
+                onClick={openCheckout}
                 className="w-full py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
               >
                 <Zap className="w-5 h-5" />
-                Finalizar Venda
+                Continuar
                 <ArrowRight className="w-5 h-5" />
               </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* Barra fixa — sempre visível no mobile / tablet (não exige rolar catálogo) */}
+      {cart.length > 0 && !showPayment && (
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.12)]">
+          <div className="flex items-center gap-3 max-w-3xl mx-auto">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-gray-500 font-medium truncate">
+                {cart.length} {cart.length === 1 ? 'item' : 'itens'} no carrinho
+              </p>
+              <p className="text-xl font-black text-gray-900 dark:text-white tabular-nums">
+                {formatCurrency(getTotal())}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openCheckout}
+              className="shrink-0 px-5 py-3.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-bold flex items-center gap-2 shadow-lg"
+            >
+              Continuar
+              <ArrowRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

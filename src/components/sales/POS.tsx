@@ -69,12 +69,17 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [dueDate, setDueDate] = useState(defaultDueDateYmd);
   const [cashReceived, setCashReceived] = useState('');
   const [documentType, setDocumentType] = useState<SaleDocumentType>('non_fiscal');
-  const fiscal = useFiscalReadiness();
+  const [productLimit, setProductLimit] = useState(48);
+  const fiscal = useFiscalReadiness({ refreshKey: isConfirmOpen });
   const emitNfce = documentType === 'nfce';
 
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
   }, [fiscal.ready, documentType]);
+
+  useEffect(() => {
+    setProductLimit(48);
+  }, [searchTerm]);
 
   // Scanner State
   const [isScanning, setIsScanning] = useState(false);
@@ -301,6 +306,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const visibleItems = filteredItems.slice(0, productLimit);
+  const hasMoreItems = filteredItems.length > productLimit;
 
   const addToCart = (item: any) => {
     setCart(prev => {
@@ -593,9 +601,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 -m-4 md:-m-6 pb-16 md:pb-0">
+    <div className="flex flex-col h-full min-h-0 bg-gray-50 pb-0">
       {/* Header da Página */}
-      <div className="bg-white border-b px-4 md:px-6 py-3 md:py-4 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center sticky top-0 z-30">
+      <div className="bg-white border-b px-4 md:px-6 py-3 md:py-4 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center shrink-0 z-30">
         <h1 className="text-lg md:text-2xl font-bold text-gray-800 shrink-0">Ponto de Venda</h1>
         <div className="flex flex-wrap items-center gap-2 justify-end">
           <div
@@ -663,9 +671,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         </div>
       ) : (
       <>
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
           {/* Coluna da Esquerda: Catálogo */}
-          <div className={`flex-1 p-4 md:p-6 overflow-y-auto ${showCart && isMobile ? 'hidden' : 'block'}`}>
+          <div className={`flex-1 min-h-0 p-4 md:p-6 overflow-y-auto pb-28 md:pb-6 ${showCart && isMobile ? 'hidden' : 'block'}`}>
             <div className="mb-4 md:mb-6 sticky top-0 bg-gray-50 pb-2 z-10 space-y-3">
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -727,7 +735,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             </div>
 
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-              {filteredItems.map((item) => (
+              {visibleItems.map((item) => (
                 <button
                   key={`${item.type}-${item.id}`}
                   onClick={() => addToCart(item)}
@@ -751,11 +759,23 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                 </button>
               ))}
             </div>
+
+            {hasMoreItems && (
+              <div className="flex justify-center py-4">
+                <button
+                  type="button"
+                  onClick={() => setProductLimit((n) => n + 48)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-sm font-bold text-gray-700 hover:bg-gray-100"
+                >
+                  Carregar mais ({filteredItems.length - productLimit} restantes)
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Coluna da Direita: Carrinho */}
-          <div className={`${isMobile ? (showCart ? 'fixed inset-0 bg-white z-50 flex flex-col' : 'hidden') : 'w-80 lg:w-96 bg-white border-l border-gray-200 flex flex-col shadow-xl z-20'}`}>
-            <div className="p-4 md:p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+          <div className={`${isMobile ? (showCart ? 'fixed inset-0 bg-white z-50 flex flex-col' : 'hidden') : 'w-80 lg:w-96 bg-white border-l border-gray-200 flex flex-col shadow-xl z-20 min-h-0'}`}>
+            <div className="p-4 md:p-6 border-b border-gray-100 flex items-center justify-between shrink-0 bg-white z-10">
               <h2 className="font-bold text-lg flex items-center gap-2">
                 {isMobile && (
                    <button onClick={() => setShowCart(false)} className="p-1 -ml-1 hover:bg-gray-100 rounded-full mr-1">
@@ -833,7 +853,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               )}
             </div>
 
-            <div className="p-4 md:p-6 bg-gray-50 border-t border-gray-200 sticky bottom-0">
+            <div className="p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0">
               <div className="flex justify-between items-end mb-4">
                 <span className="text-gray-500 text-sm font-medium">Total</span>
                 <span className="text-xl md:text-2xl font-bold text-gray-900">
@@ -842,28 +862,54 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
               </div>
 
               <button
-                onClick={() => setIsConfirmOpen(true)}
+                onClick={() => {
+                  fiscal.refresh();
+                  setIsConfirmOpen(true);
+                }}
                 disabled={cart.length === 0 || isProcessing}
                 className="w-full bg-blue-600 text-white py-3 md:py-4 rounded-xl font-bold text-base md:text-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"
               >
-                Finalizar venda
+                Continuar
                 <ArrowRight className="w-5 h-5" />
               </button>
             </div>
           </div>
         </div>
 
-      {/* Floating Cart Button for Mobile */}
-      {isMobile && !showCart && cart.length > 0 && (
-        <button
-          onClick={() => setShowCart(true)}
-          className="fixed bottom-20 right-4 bg-blue-600 text-white p-4 rounded-full shadow-2xl z-40 flex items-center gap-2 animate-bounce shadow-blue-300"
-        >
-          <ShoppingCart className="w-6 h-6" />
-          <span className="bg-white text-blue-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold">
-            {cart.length}
-          </span>
-        </button>
+      {/* Barra fixa mobile — Continuar sempre visível com itens no carrinho */}
+      {isMobile && !showCart && cart.length > 0 && !isConfirmOpen && (
+        <div className="fixed bottom-0 inset-x-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.12)]">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowCart(true)}
+              className="shrink-0 w-12 h-12 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center relative"
+              aria-label="Abrir carrinho"
+            >
+              <ShoppingCart className="w-5 h-5" />
+              <span className="absolute -top-1 -right-1 bg-blue-600 text-white w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center">
+                {cart.length}
+              </span>
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-gray-500 truncate">{cart.length} itens</p>
+              <p className="text-lg font-black text-gray-900 tabular-nums">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalAmount)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                fiscal.refresh();
+                setIsConfirmOpen(true);
+              }}
+              className="shrink-0 px-5 py-3.5 bg-blue-600 text-white rounded-xl font-bold flex items-center gap-2"
+            >
+              Continuar
+              <ArrowRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Modal de Confirmação */}
@@ -908,8 +954,10 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                 documentType={documentType}
                 onDocumentTypeChange={setDocumentType}
                 fiscalReady={fiscal.ready}
+                fiscalConfigComplete={fiscal.configComplete}
                 fiscalLoading={fiscal.loading}
                 fiscalReason={fiscal.reasons[0]}
+                fiscalReasons={fiscal.reasons}
                 onOpenFiscalConfig={onOpenIntegrations}
               >
                 {paymentMethod === 'money' && (

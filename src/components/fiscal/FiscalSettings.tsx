@@ -4,6 +4,7 @@ import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { apiClient, ApiClientError } from '../../lib/apiClient';
+import { notifyFiscalConfigUpdated } from '../../hooks/useFiscalReadiness';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
@@ -169,8 +170,13 @@ export function FiscalSettings() {
         payload.cscToken = form.cscToken.trim();
       }
       await apiClient.put('/fiscal/config', payload);
-      toast.success('Configuração fiscal salva');
+      toast.success(
+        form.enabled
+          ? 'Fiscal ativado — NFC-e liberada no PDV e Venda Manual'
+          : 'Configuração fiscal salva',
+      );
       setForm((prev) => ({ ...prev, cscToken: '' }));
+      notifyFiscalConfigUpdated();
       await load();
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : 'Erro ao salvar';
@@ -217,6 +223,7 @@ export function FiscalSettings() {
       setCertPassword('');
       setCertBase64(null);
       setCertFileName(null);
+      notifyFiscalConfigUpdated();
       await load();
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : 'Erro no upload';
@@ -232,6 +239,7 @@ export function FiscalSettings() {
     try {
       await apiClient.delete('/fiscal/certificate');
       toast.success('Certificado removido');
+      notifyFiscalConfigUpdated();
       await load();
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : 'Erro ao remover';
@@ -283,7 +291,49 @@ export function FiscalSettings() {
             <Switch
               checked={form.enabled}
               disabled={!canEdit}
-              onCheckedChange={(v) => setField('enabled', v)}
+              onCheckedChange={async (v) => {
+                setField('enabled', v);
+                if (!canEdit) return;
+                // Persistência imediata do toggle — libera NFC-e no PDV sem depender só do “Salvar”
+                try {
+                  if (!form.cnpj.trim() || !form.ie.trim() || !form.razaoSocial.trim()) {
+                    toast.message(
+                      v
+                        ? 'Módulo marcado. Preencha CNPJ, IE e razão social e clique em Salvar.'
+                        : 'Desative e salve para gravar.',
+                    );
+                    return;
+                  }
+                  await apiClient.put('/fiscal/config', {
+                    cnpj: form.cnpj,
+                    ie: form.ie,
+                    razaoSocial: form.razaoSocial,
+                    nomeFantasia: form.nomeFantasia || null,
+                    logradouro: form.logradouro,
+                    numero: form.numero,
+                    complemento: form.complemento || null,
+                    bairro: form.bairro,
+                    municipio: form.municipio,
+                    codigoMunicipio: form.codigoMunicipio,
+                    uf: form.uf,
+                    cep: form.cep,
+                    crt: form.crt,
+                    ambiente: form.ambiente,
+                    serieNfce: form.serieNfce,
+                    numeroNfce: form.numeroNfce,
+                    cscId: form.cscId || null,
+                    enabled: v,
+                  });
+                  toast.success(
+                    v ? 'NFC-e ativada no PDV e Venda Manual' : 'Módulo fiscal desativado',
+                  );
+                  notifyFiscalConfigUpdated();
+                } catch (err) {
+                  setField('enabled', !v);
+                  const msg = err instanceof ApiClientError ? err.message : 'Erro ao salvar';
+                  toast.error(msg);
+                }
+              }}
             />
           </div>
 

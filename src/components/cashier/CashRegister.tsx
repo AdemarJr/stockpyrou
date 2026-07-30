@@ -305,19 +305,19 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
 
   // If register is open, show POS or close view
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-full min-h-0 flex flex-col bg-gray-50">
       {/* Top Bar */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
+      <div className="bg-white border-b border-gray-200 shrink-0 z-40 shadow-sm">
+        <div className="px-3 md:px-4 py-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-3 md:gap-4 min-w-0">
+              <div className="flex items-center gap-2 shrink-0">
                 <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
                   <DollarSign className="w-5 h-5 text-green-600" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs text-gray-500 font-bold">Caixa Aberto</p>
-                  <p className="text-sm font-black text-gray-900">{user?.fullName}</p>
+                  <p className="text-sm font-black text-gray-900 truncate">{user?.fullName}</p>
                 </div>
               </div>
               
@@ -336,58 +336,58 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 md:gap-2 overflow-x-auto">
               <button
                 onClick={() => setActiveView('pos')}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                className={`px-3 md:px-4 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                   activeView === 'pos'
                     ? 'bg-blue-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <Receipt className="w-4 h-4 inline mr-2" />
+                <Receipt className="w-4 h-4 inline mr-1 md:mr-2" />
                 Vendas
               </button>
               <button
                 onClick={() => setActiveView('sales')}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                className={`px-3 md:px-4 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                   activeView === 'sales'
                     ? 'bg-green-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <ShoppingBag className="w-4 h-4 inline mr-2" />
-                Histórico de Vendas
+                <ShoppingBag className="w-4 h-4 inline mr-1 md:mr-2" />
+                Histórico
               </button>
               <button
                 onClick={() => setActiveView('close')}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                className={`px-3 md:px-4 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                   activeView === 'close'
                     ? 'bg-red-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <LogOut className="w-4 h-4 inline mr-2" />
-                Fechar Caixa
+                <LogOut className="w-4 h-4 inline mr-1 md:mr-2" />
+                Fechar
               </button>
               <button
                 onClick={() => setActiveView('history')}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                className={`hidden sm:inline-flex px-3 md:px-4 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                   activeView === 'history'
                     ? 'bg-purple-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                <TrendingUp className="w-4 h-4 inline mr-2" />
-                Histórico
+                <TrendingUp className="w-4 h-4 inline mr-1 md:mr-2" />
+                Caixas
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto">
+      {/* Content — ocupa o restante da viewport; scroll interno nos painéis */}
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {activeView === 'pos' && (
           <CashierPOS 
             register={currentRegister} 
@@ -395,19 +395,25 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
           />
         )}
         {activeView === 'sales' && (
+          <div className="flex-1 min-h-0 overflow-auto">
           <CashierSales 
             register={currentRegister} 
             onSaleComplete={handleSaleComplete}
           />
+          </div>
         )}
         {activeView === 'close' && (
+          <div className="flex-1 min-h-0 overflow-auto">
           <CashierClose 
             register={currentRegister}
             onClose={handleRegisterClosed}
           />
+          </div>
         )}
         {activeView === 'history' && (
+          <div className="flex-1 min-h-0 overflow-auto">
           <CashierHistory />
+          </div>
         )}
       </div>
 
