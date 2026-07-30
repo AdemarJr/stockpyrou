@@ -26,6 +26,9 @@ interface FiscalConfigForm {
   codigoMunicipio: string;
   uf: string;
   cep: string;
+  telefone: string;
+  email: string;
+  logoUrl: string;
   crt: number;
   ambiente: FiscalAmbiente;
   serieNfce: number;
@@ -58,6 +61,9 @@ const emptyForm = (): FiscalConfigForm => ({
   codigoMunicipio: '',
   uf: 'AM',
   cep: '',
+  telefone: '',
+  email: '',
+  logoUrl: '',
   crt: 1,
   ambiente: 'homologation',
   serieNfce: 1,
@@ -109,6 +115,9 @@ export function FiscalSettings() {
           codigoMunicipio: String(c.codigoMunicipio || ''),
           uf: String(c.uf || 'AM'),
           cep: String(c.cep || ''),
+          telefone: String(c.telefone || ''),
+          email: String(c.email || ''),
+          logoUrl: String(c.logoUrl || ''),
           crt: Number(c.crt) || 1,
           ambiente: (c.ambiente as FiscalAmbiente) || 'homologation',
           serieNfce: Number(c.serieNfce) || 1,
@@ -159,6 +168,9 @@ export function FiscalSettings() {
         codigoMunicipio: form.codigoMunicipio,
         uf: form.uf,
         cep: form.cep,
+        telefone: form.telefone || null,
+        email: form.email || null,
+        logoUrl: form.logoUrl || null,
         crt: form.crt,
         ambiente: form.ambiente,
         serieNfce: form.serieNfce,
@@ -317,6 +329,9 @@ export function FiscalSettings() {
                     codigoMunicipio: form.codigoMunicipio,
                     uf: form.uf,
                     cep: form.cep,
+                    telefone: form.telefone || null,
+                    email: form.email || null,
+                    logoUrl: form.logoUrl || null,
                     crt: form.crt,
                     ambiente: form.ambiente,
                     serieNfce: form.serieNfce,
@@ -466,6 +481,80 @@ export function FiscalSettings() {
                   value={form.cep}
                   onChange={(e) => setField('cep', e.target.value)}
                 />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold mb-3">Contato e logo (impressos no cupom / DANFE)</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Telefone / WhatsApp</Label>
+                <Input
+                  disabled={!canEdit}
+                  value={form.telefone}
+                  onChange={(e) => setField('telefone', e.target.value)}
+                  placeholder="(92) 90000-0000"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>E-mail</Label>
+                <Input
+                  disabled={!canEdit}
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setField('email', e.target.value)}
+                  placeholder="contato@empresa.com.br"
+                />
+              </div>
+              <div className="md:col-span-2 space-y-1.5">
+                <Label>Logo (URL ou upload)</Label>
+                <Input
+                  disabled={!canEdit}
+                  value={form.logoUrl}
+                  onChange={(e) => setField('logoUrl', e.target.value)}
+                  placeholder="https://... ou envie um arquivo abaixo"
+                />
+                {canEdit && (
+                  <Input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 400_000) {
+                        toast.error('Logo muito grande (máx. ~400 KB). Use PNG/JPG compacto.');
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        setField('logoUrl', String(reader.result || ''));
+                        toast.success('Logo carregada — clique em Salvar');
+                      };
+                      reader.onerror = () => toast.error('Falha ao ler a logo');
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                )}
+                {form.logoUrl && (
+                  <div className="mt-2 flex items-center gap-3">
+                    <img
+                      src={form.logoUrl}
+                      alt="Prévia da logo"
+                      className="h-14 max-w-[160px] object-contain rounded border border-gray-200 dark:border-gray-700 bg-white p-1"
+                    />
+                    {canEdit && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setField('logoUrl', '')}
+                      >
+                        Remover logo
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
