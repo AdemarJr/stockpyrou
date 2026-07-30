@@ -484,7 +484,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       console.log('🎉 Sale finalized successfully!');
       toast.success(
         emitNfce
-          ? 'Venda finalizada — NFC-e solicitada (emissão SEFAZ nas próximas etapas)'
+          ? 'Venda finalizada — autorizando NFC-e...'
           : 'Venda finalizada com sucesso!',
       );
       

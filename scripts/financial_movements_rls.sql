@@ -10,7 +10,7 @@
 --   (user_id = auth.uid()).
 --
 -- Como aplicar:
--- - Supabase SQL Editor → New query → colar → Run
+-- - EasyPanel Postgres (stock-pyrou): pgAdmin Query Tool ou psql
 -- =============================================================================
 
 -- 1) Garantir que RLS está ligado

@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Stockpyrou — operational_expenses: colunas usadas por Custos / Despesas
--- Rode no Supabase: SQL Editor → New query → colar → Run
+-- Rode no Postgres EasyPanel (database stock-pyrou): psql ou pgAdmin → Query Tool
 -- Seguro para rodar mais de uma vez (IF NOT EXISTS / DROP IF EXISTS onde aplicável)
 -- =============================================================================
 

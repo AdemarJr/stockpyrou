@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Stockpyrou — Verificações de duplicidade (baixas)
--- Rode no Supabase SQL Editor após aplicar:
+-- Rode no Postgres EasyPanel (stock-pyrou) após aplicar:
 -- - scripts/stock_movements_idempotency.sql
 -- - scripts/finance_ledger.sql (atualizado com índice único)
 -- - scripts/sales_idempotency.sql

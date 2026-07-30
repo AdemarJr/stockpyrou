@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner@2.0.3';
 import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
 import { APP_NAME } from '../../config/branding';
+import { NfceSaleActions } from '../fiscal/NfceSaleActions';
 
 interface SaleReceiptItem {
   name: string;
@@ -20,6 +21,8 @@ interface SaleReceiptProps {
   onClose: () => void;
   paymentMethod?: string;
   customerName?: string;
+  saleId?: string | null;
+  emitNfce?: boolean;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -38,6 +41,8 @@ export function SaleReceipt({
   onClose,
   paymentMethod,
   customerName,
+  saleId,
+  emitNfce,
 }: SaleReceiptProps) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
@@ -247,6 +252,8 @@ export function SaleReceipt({
 
         {/* Action Buttons - Hidden on print */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-3 print:hidden">
+          {emitNfce && saleId && <NfceSaleActions saleId={saleId} autoEmit />}
+
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={handlePrint}

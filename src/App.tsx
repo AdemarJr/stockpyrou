@@ -31,6 +31,7 @@ import { QuickSearch } from './components/QuickSearch';
 import { PWAUpdateNotifier } from './components/PWAUpdateNotifier';
 import { CostDashboard } from './components/costs/CostDashboard';
 import { IntegrationsPage } from './components/integrations/IntegrationsPage';
+import { CustomerManagement } from './components/customers/CustomerManagement';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Icons
@@ -43,6 +44,7 @@ import {
   FileText, 
   Users, 
   Truck,
+  UserRound,
   LogOut,
   Menu,
   X,
@@ -65,7 +67,7 @@ import { useIsMobile } from './components/ui/use-mobile';
 import logoImg from './public/logo.svg';
 import { APP_NAME, APP_ORIGIN, APP_SITE_URL } from './config/branding';
 
-type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'integrations' | 'users' | 'admin' | 'costs';
+type Page = 'dashboard' | 'products' | 'stock-entry' | 'stock-balance' | 'pos' | 'cashier' | 'reports' | 'suppliers' | 'integrations' | 'users' | 'admin' | 'costs' | 'customers';
 
 const PAGE_IDS = new Set<Page>([
   'dashboard',
@@ -80,6 +82,7 @@ const PAGE_IDS = new Set<Page>([
   'users',
   'admin',
   'costs',
+  'customers',
 ]);
 
 function parsePageParam(raw: string | null | undefined): Page | null {
@@ -685,6 +688,7 @@ function MainApp() {
       nav.push({ id: 'pos', name: 'Venda / Baixa', icon: ShoppingCart });
       nav.push({ id: 'cashier', name: 'PDV', icon: DollarSign });
       nav.push({ id: 'suppliers', name: 'Fornecedores', icon: Truck });
+      nav.push({ id: 'customers', name: 'Clientes', icon: UserRound });
       nav.push({ id: 'integrations', name: 'Integrações', icon: Plug });
     }
     if (user.permissions.canViewReports) {
@@ -908,6 +912,9 @@ function MainApp() {
           )}
           {currentPage === 'suppliers' && user.permissions.canManageStock && (
             <SupplierManagement suppliers={suppliers} onSave={handleSaveSupplier} onUpdate={handleUpdateSupplier} onDelete={handleDeleteSupplier} />
+          )}
+          {currentPage === 'customers' && user.permissions.canManageStock && (
+            <CustomerManagement />
           )}
           {currentPage === 'pos' && (
              <ErrorBoundary title="Erro no Ponto de Venda">

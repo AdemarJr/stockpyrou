@@ -58,6 +58,7 @@ export function CustomerPicker({
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDoc, setNewDoc] = useState('');
+  const [newPhone, setNewPhone] = useState('');
 
   useEffect(() => {
     if (!currentCompany?.id) return;
@@ -92,7 +93,7 @@ export function CustomerPicker({
     setCreating(true);
     try {
       const customer = await CustomerApi.create(
-        { name, document: doc },
+        { name, document: doc, phone: newPhone.trim() || undefined },
         currentCompany.id,
       );
       onChange({
@@ -105,6 +106,7 @@ export function CustomerPicker({
       setShowCreate(false);
       setNewName('');
       setNewDoc('');
+      setNewPhone('');
       setQuery('');
       toast.success('Cliente cadastrado');
     } catch (err) {
@@ -222,6 +224,13 @@ export function CustomerPicker({
             onChange={(e) => setNewDoc(formatDocInput(e.target.value))}
             placeholder="CPF ou CNPJ *"
             inputMode="numeric"
+            className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+          />
+          <input
+            type="text"
+            value={newPhone}
+            onChange={(e) => setNewPhone(e.target.value)}
+            placeholder="Telefone (opcional)"
             className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
           />
           <div className="flex gap-2">

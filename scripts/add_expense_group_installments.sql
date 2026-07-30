@@ -1,5 +1,5 @@
 -- Parcelas de uma mesma NF: mesmo expense_group_id; installment_index / installment_of para exibição.
--- Execute no SQL Editor do Supabase (projeto Stockpyrou).
+-- Execute no Postgres EasyPanel (database stock-pyrou).
 
 ALTER TABLE public.operational_expenses
   ADD COLUMN IF NOT EXISTS expense_group_id uuid,

@@ -1,6 +1,6 @@
 # Arquitetura: backend próprio (stockpyrou-api) + Postgres (EasyPanel)
 
-O Supabase foi **removido** do frontend. Todo acesso a dados passa pela API própria em **`stockpyrou-api`** (repo separado), que fala com um Postgres hospedado no EasyPanel.
+Todo acesso a dados passa pela API própria em **`stockpyrou-api`**, que fala com o Postgres hospedado no **EasyPanel** (database `stock-pyrou`).
 
 Repo API: https://github.com/AdemarJr/stockpyrou-api
 
@@ -11,8 +11,8 @@ Frontend (src/)  →  stockpyrou-api (Node + Hono + pg)  →  PostgreSQL (EasyPa
 ```
 
 - O frontend chama exclusivamente `getApiBaseUrl()` (`src/lib/apiConfig.ts`), configurável via `VITE_API_URL`.
-- Autenticação usa apenas o token custom (`Authorization: Bearer <token>` + `X-Custom-Token: <token>`) contra `/api/auth/*`. Não há mais `supabase.auth`, `publicAnonKey` nem `onAuthStateChange`.
-- Não existe mais modo dual (`useOwnApi()` foi removido); os repositórios (`ProductRepository`, `StockRepository`, `SupplierRepository`, `PriceHistoryRepository`, `CompanyRepository`, `CostRepository`, etc.) chamam diretamente as respectivas classes `*Api`.
+- Autenticação usa apenas o token custom (`Authorization: Bearer <token>` + `X-Custom-Token: <token>`) contra `/api/auth/*`.
+- Os repositórios (`ProductRepository`, `StockRepository`, `SupplierRepository`, `PriceHistoryRepository`, `CompanyRepository`, `CostRepository`, etc.) chamam diretamente as respectivas classes `*Api`.
 
 ## Módulos
 

@@ -1,3 +1,6 @@
+> **Atualização:** a integração ZIG roda na **stockpyrou-api** (Railway) → Postgres **EasyPanel** (`stock-pyrou`).
+> Rotas: `/api/zig/*`. Este guia pode ter detalhes de UI antigos; use o código atual como fonte da verdade.
+
 # 🔥 Guia de Integração ZIG - FUEGO BAR E COZINHA
 
 ## 📋 Informações da Empresa
@@ -16,10 +19,10 @@ Sistema:         PyrouStock v2.1.3
 ```
 Token: 58e415ba224c896515f7a6aec1e5a5b6d52cafbb64030e666a7afee436cb8d52
 Status: ✅ Configurado como FALLBACK_TOKEN no backend
-Local:  /supabase/functions/server/zig_service.tsx (linha 12)
+API: stockpyrou-api `src/services/zig-service.ts` / rotas `/api/zig/*`
 ```
 
-**Nota:** Este token está funcionando como fallback. Se precisar maior segurança, configure-o como variável de ambiente `ZIG_API_KEY` no Supabase.
+**Nota:** Este token está funcionando como fallback. Se precisar maior segurança, configure-o como variável de ambiente `ZIG_API_KEY` no Railway (stockpyrou-api).
 
 ---
 
@@ -266,7 +269,7 @@ Value: true
 
 ---
 
-### **Banco de Dados (Supabase)**
+### **Banco de Dados (Postgres EasyPanel — stock-pyrou)**
 
 **Tabela: `stock_movements`**
 ```sql
@@ -429,7 +432,7 @@ Para sincronização contínua:
 
 **Onde ver:**
 ```
-Supabase Dashboard → Edge Functions → Logs
+Railway → stockpyrou-api → Logs
 ```
 
 **O que procurar:**
@@ -468,7 +471,7 @@ Chrome/Edge: F12 → Console
 
 1. **Token em Variável de Ambiente (Produção)**
    ```
-   Supabase Dashboard → Settings → Environment Variables
+   Railway → stockpyrou-api → Variables
    Nome: ZIG_API_KEY
    Valor: 58e415ba224c896515f7a6aec1e5a5b6d52cafbb64030e666a7afee436cb8d52
    ```
@@ -519,7 +522,7 @@ Chrome/Edge: F12 → Console
 ```
 Contato: [Seu email de suporte]
 Documentação: /README.md
-Logs: Supabase Dashboard → Edge Functions
+Logs: Railway → stockpyrou-api
 ```
 
 ### **ZIG (Sistema PDV)**

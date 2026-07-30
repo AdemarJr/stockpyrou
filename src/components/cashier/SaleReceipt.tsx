@@ -5,7 +5,6 @@ import {
   Share2,
   Mail,
   CheckCircle2,
-  Clock,
   Receipt as ReceiptIcon,
   CreditCard,
   Smartphone,
@@ -15,6 +14,7 @@ import {
   Send
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { NfceSaleActions } from '../fiscal/NfceSaleActions';
 
 interface SaleReceiptProps {
   sale: {
@@ -160,7 +160,7 @@ export function SaleReceipt({
     lines.push(`TOTAL: R$ ${sale.total.toFixed(2)}`);
     lines.push(`───────────────────────────────────`);
     lines.push(`Pagamento: ${paymentLabel}`);
-    lines.push(`Documento: ${isNfce ? 'NFC-e (solicitada)' : 'Cupom não fiscal'}`);
+    lines.push(`Documento: ${isNfce ? 'NFC-e' : 'Cupom não fiscal'}`);
 
     if (method === 'money' && sale.paymentDetails) {
       lines.push(`Recebido: R$ ${sale.paymentDetails.cashReceived?.toFixed(2)}`);
@@ -301,7 +301,7 @@ export function SaleReceipt({
               <div className="text-sm text-gray-600 mt-1">
                 Documento:{' '}
                 <span className="font-semibold text-gray-900">
-                  {isNfce ? 'NFC-e (solicitada)' : 'Cupom não fiscal'}
+                  {isNfce ? 'NFC-e' : 'Cupom não fiscal'}
                 </span>
               </div>
 
@@ -323,6 +323,12 @@ export function SaleReceipt({
                 </div>
               )}
             </div>
+
+            {isNfce && sale.id && (
+              <div className="print:hidden">
+                <NfceSaleActions saleId={sale.id} autoEmit />
+              </div>
+            )}
 
             {/* Actions - Don't print */}
             <div className="space-y-3 print:hidden">

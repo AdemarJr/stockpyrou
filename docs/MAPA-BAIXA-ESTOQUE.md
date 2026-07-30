@@ -15,7 +15,7 @@ Assim, o **Estoque atual** na lista de produtos e a linha no **Relatório → Sa
 
 Implementação no app: [`StockRepository.deductStockOnce`](src/repositories/StockRepository.ts) — usada por baixa manual, PDV manual, PDV Caixa e (no servidor) ZIG.
 
-**Pré-requisito:** migration [`supabase/migrations/20260501120000_deduct_stock_once.sql`](supabase/migrations/20260501120000_deduct_stock_once.sql) aplicada no Supabase.
+**Pré-requisito:** função `deduct_stock_once` no Postgres EasyPanel (`stock-pyrou`) — ver `scripts/fix_manual_sale_500.sql`.
 
 ---
 
@@ -136,7 +136,7 @@ Filtros da aba:
 
 **Não.** Recebimento grava `stock_entries` + movimento `entrada` e **aumenta** estoque. Aparece em **Relatórios → Entradas** e no histórico de recebimento.
 
-### Como conferir no Supabase (exemplo)
+### Como conferir no Postgres EasyPanel (exemplo)
 
 ```sql
 SELECT movement_type, quantity, movement_date, notes
@@ -163,4 +163,4 @@ SELECT name, current_stock FROM products WHERE id = '<uuid-produto>';
 | PDV manual | `src/components/sales/POS.tsx` (`deduct_stock_once`) |
 | Caixa | `src/components/cashier/CashierPOS.tsx` |
 | Balanço | `src/services/StockService.ts` (`setStockBalance`) |
-| RPC idempotente | `supabase/migrations/20260501120000_deduct_stock_once.sql` |
+| RPC idempotente | `scripts/fix_manual_sale_500.sql` (`deduct_stock_once`) |

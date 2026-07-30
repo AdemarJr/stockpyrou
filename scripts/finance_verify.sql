@@ -1,5 +1,5 @@
 -- Verificações rápidas do Financeiro (ledger)
--- Rode no Supabase SQL Editor.
+-- Rode no Postgres EasyPanel (database stock-pyrou).
 
 -- 1) Tabela existe?
 select

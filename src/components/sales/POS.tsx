@@ -63,6 +63,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     date: Date;
     paymentMethod?: ManualPaymentMethod;
     customerName?: string;
+    saleId?: string | null;
+    emitNfce?: boolean;
   } | null>(null);
   const [posTab, setPosTab] = useState<'manual' | 'zig'>('manual');
   /** Integrações → ZIG: quando true, não entra na aba ZIG / Baixa (localStorage). */
@@ -579,7 +581,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
       toast.success(
         emitNfce
-          ? 'Venda registrada — NFC-e solicitada (emissão SEFAZ nas próximas etapas)'
+          ? 'Venda registrada — autorizando NFC-e...'
           : 'Venda registrada com sucesso!',
         { id: toastId },
       );
@@ -594,6 +596,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         date: new Date(),
         paymentMethod,
         customerName: selectedCustomer?.name,
+        saleId,
+        emitNfce: !!emitNfce,
       });
       setCart([]);
       setIsConfirmOpen(false);
@@ -1069,6 +1073,8 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           saleDate={lastSale.date}
           paymentMethod={lastSale.paymentMethod}
           customerName={lastSale.customerName}
+          saleId={lastSale.saleId}
+          emitNfce={lastSale.emitNfce}
           onClose={() => setShowReceipt(false)}
         />
       )}

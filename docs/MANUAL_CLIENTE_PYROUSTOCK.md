@@ -121,7 +121,7 @@ Se você integra **ZIG** (vendas de outro sistema), a configuração fica em **V
 |----------|-----------------|
 | Não vejo o menu **Custos** ou **Relatórios** | Permissão do usuário; falar com o administrador. |
 | Erro ao baixar estoque ZIG | Produto não cadastrado ou SKU diferente; usar mapeamento na integração e conferir limites de data da API ZIG. |
-| **Pagamento parcial** de despesa com erro | Colunas do banco no Supabase precisam estar criadas (script SQL fornecido pela equipe técnica). |
+| **Pagamento parcial** de despesa com erro | Colunas do banco no Postgres EasyPanel precisam estar criadas (script SQL fornecido pela equipe técnica). |
 
 ---
 

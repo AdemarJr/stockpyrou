@@ -1,5 +1,5 @@
 -- Liga uma despesa operacional a uma entrada de estoque (compra), para rastreio financeiro × estoque.
--- Execute no SQL Editor do Supabase.
+-- Execute no Postgres EasyPanel (database stock-pyrou).
 
 ALTER TABLE public.operational_expenses
 ADD COLUMN IF NOT EXISTS stock_entry_id uuid;

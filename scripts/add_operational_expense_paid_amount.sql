@@ -1,5 +1,5 @@
 -- Valor já liquidado (acumulado). Saldo em aberto = amount - paid_amount.
--- Execute no SQL Editor do Supabase (ou psql) antes de usar pagamentos parciais no app.
+-- Execute no Postgres EasyPanel (database stock-pyrou) via psql/pgAdmin antes de usar pagamentos parciais no app.
 
 ALTER TABLE public.operational_expenses
 ADD COLUMN IF NOT EXISTS paid_amount numeric NOT NULL DEFAULT 0;

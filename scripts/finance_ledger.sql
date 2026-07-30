@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Stockpyrou — Finance Ledger (financial_movements) + Views (DRE / Centro de Custo)
--- Rode no Supabase: SQL Editor → New query → colar → Run
+-- Rode no Postgres EasyPanel (database stock-pyrou): psql ou pgAdmin → Query Tool
 --
 -- Objetivo:
 -- - Ter um "livro caixa" (realizado) e um "contas a pagar/receber" (previsto)
