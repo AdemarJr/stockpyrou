@@ -377,10 +377,17 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
                 onChange={(e) => setField('ambiente', e.target.value as FiscalAmbiente)}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="development">Development (experimental SEFAZ)</option>
-                <option value="homologation">Homologação oficial</option>
+                <option value="development">Development (sandbox SEFAZ-AM)</option>
+                <option value="homologation">Homologação oficial (recomendado)</option>
                 <option value="production">Produção (bloqueada até testes)</option>
               </select>
+              {form.ambiente === 'development' && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Sandbox experimental (nfce-services-nac). O sistema usa automaticamente o CSC de
+                  teste ID 000001 / 0123456789. Para empresa credenciada no AM, use Homologação
+                  oficial com o CSC do portal da SEFAZ.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>CRT</Label>
@@ -634,8 +641,8 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
             </div>
             {form.ambiente === 'development' && (
               <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
-                Ambiente experimental: CSC de teste da SEFAZ-AM é ID 000001 / token 0123456789.
-                Não use em homologação oficial nem produção.
+                Em Development o CSC salvo é ignorado — a API aplica o CSC experimental
+                000001 / 0123456789 na emissão.
               </p>
             )}
           </div>
