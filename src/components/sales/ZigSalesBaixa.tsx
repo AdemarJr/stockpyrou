@@ -377,14 +377,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
             : null,
         );
 
-        // Por padrão, só seleciona tudo quando estiver em modo "pendentes".
-        // Em modo "total (inclui baixadas)", é só consulta (evita risco de baixar duplicado).
-        if (!includeProcessed) {
-          const allLineIds = data.sales.map((s: PendingSale) => s.transactionId);
-          setSelectedSales(allLineIds);
-        } else {
-          setSelectedSales([]);
-        }
+        // Não pré-seleciona nada: só dá baixa nos produtos que o usuário marcar na lista.
+        setSelectedSales([]);
         
         // Expandir todas as datas por padrão
         setExpandedDates(Object.keys(data.salesByDate));
@@ -420,9 +414,13 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
       return;
     }
 
-    const txIds = Array.isArray(transactionIdsOverride) ? transactionIdsOverride : selectedSales;
+    // Sempre restringe à seleção atual (override só pode ser subconjunto dos marcados).
+    const selectedSet = new Set(selectedSales);
+    const txIds = (
+      Array.isArray(transactionIdsOverride) ? transactionIdsOverride : selectedSales
+    ).filter((id) => selectedSet.has(id));
     if (txIds.length === 0) {
-      toast.error('Selecione pelo menos uma venda para processar.');
+      toast.error('Selecione pelo menos um produto na lista para dar baixa.');
       return;
     }
 
@@ -443,19 +441,21 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
         }));
 
       if (lineItems.length === 0) {
-        toast.error('Não há linhas do preview para baixar. Feche e busque as vendas novamente.');
+        toast.error('Nenhum item selecionado encontrado no preview. Busque as vendas novamente.');
         setConfirming(false);
         return;
       }
 
       const confirmBody = JSON.stringify({
         companyId: currentCompany.id,
+        // API só baixa estes IDs — itens não marcados são ignorados.
         transactionIds: txIds,
         startDate: previewRange?.start,
         endDate: previewRange?.end,
         lineItems,
         ...(previewSessionId ? { previewSessionId } : {}),
         fromPreview: true,
+        onlySelected: true,
       });
 
       const confirmHeaders = {
@@ -500,12 +500,14 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
   const handleConfirmSalesForDate = async (date: string) => {
     const dateGroups = groupedSalesByDate[date] || [];
-    const dateTransactionIds = dateGroups.flatMap(g => g.transactionIds);
-    if (dateTransactionIds.length === 0) {
-      toast.error('Não há itens selecionáveis neste dia.');
+    const dateTransactionIds = dateGroups.flatMap((g) => g.transactionIds);
+    // Só os marcados na lista — nunca o dia inteiro sem seleção.
+    const selectedForDate = dateTransactionIds.filter((id) => selectedSales.includes(id));
+    if (selectedForDate.length === 0) {
+      toast.error('Selecione pelo menos um produto deste dia para dar baixa.');
       return;
     }
-    await handleConfirmSales(dateTransactionIds);
+    await handleConfirmSales(selectedForDate);
   };
 
   const exportBaixaExcel = async () => {
@@ -712,7 +714,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
           <div>
             <h2 className="text-xl font-bold text-gray-900">Vendas ZIG — baixa no estoque</h2>
             <p className="text-sm text-gray-500">
-              Buscar vendas na ZIG, conferir o preview e confirmar a baixa no {APP_NAME} (a confirmação não refaz o GET na ZIG).
+              Busque as vendas, marque só os produtos desejados e confirme a baixa no {APP_NAME}.
+              Itens não selecionados não são baixados.
             </p>
           </div>
         </div>
@@ -851,6 +854,9 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
                   {filteredGroupsCount} de {totalGroups} produtos • {selectedGroupCount} selecionados
+                  <span className="block text-xs text-indigo-700 mt-0.5">
+                    Marque os produtos — a baixa só ocorre nos itens selecionados.
+                  </span>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -954,11 +960,15 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                                 e.stopPropagation();
                                 void handleConfirmSalesForDate(date);
                               }}
-                              disabled={confirming || zigBaixaUiDisabled || !hasAny}
+                              disabled={
+                                confirming ||
+                                zigBaixaUiDisabled ||
+                                !dateTransactionIds.some((id) => selectedSales.includes(id))
+                              }
                               className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="Processa a baixa deste dia (em lote)"
+                              title="Processa só os produtos marcados deste dia"
                             >
-                              Processar dia
+                              Processar selecionados do dia
                             </button>
                             {isExpanded ? (
                               <ChevronUp className="w-5 h-5 text-gray-400" />

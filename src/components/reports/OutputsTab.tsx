@@ -8,6 +8,7 @@ import {
   isAnyStockOutput,
   isExitConsumption,
   lineCostAtMovement,
+  movementDateYmdLocal,
   normalizedStockMovementType,
 } from '../../utils/stockMovementFilters';
 import { ZigSaidaComparisonCard } from './ZigSaidaComparisonCard';
@@ -37,11 +38,60 @@ type OutputKindFilter =
 const FILTER_LABELS: Record<OutputKindFilter, string> = {
   all: 'Todos os tipos',
   consumo: 'Consumo (saída + venda PDV)',
-  saida: 'Saída manual',
+  saida: 'Saída / baixa (manual + ZIG)',
   venda: 'Venda PDV',
   desperdicio: 'Desperdício',
   ajuste: 'Balanço / ajuste (baixa)',
 };
+
+function isZigStockMovement(m: StockMovement): boolean {
+  const text = `${m.reason || ''} ${m.notes || ''}`.toLowerCase();
+  return (
+    text.includes('integração automática zig') ||
+    text.includes('integracao automatica zig') ||
+    text.includes('venda zig') ||
+    text.includes('baixa zig')
+  );
+}
+
+/**
+ * Consolida baixas ZIG do mesmo produto no mesmo dia em 1 linha (qtd somada).
+ * PDV e baixas manuais permanecem linha a linha.
+ */
+function consolidateZigOutputsForReport(
+  movements: StockMovement[],
+  products: Product[],
+): StockMovement[] {
+  const zigLots = new Map<string, StockMovement>();
+  const others: StockMovement[] = [];
+
+  for (const m of movements) {
+    if (!isZigStockMovement(m)) {
+      others.push(m);
+      continue;
+    }
+    const ymd = movementDateYmdLocal(m);
+    const key = `${ymd}|${m.productId}|${normalizedStockMovementType(m)}`;
+    const prev = zigLots.get(key);
+    if (!prev) {
+      zigLots.set(key, { ...m });
+      continue;
+    }
+    const qty = (Number(prev.quantity) || 0) + (Number(m.quantity) || 0);
+    const cost = lineCostAtMovement(prev, products) + lineCostAtMovement(m, products);
+    const name = productName(products, m.productId) || 'Produto';
+    zigLots.set(key, {
+      ...prev,
+      quantity: qty,
+      cost,
+      reason: `Baixa ZIG (lote) — ${name} — qtd ${qty.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}`,
+      notes: prev.notes || m.notes,
+      type: prev.type === 'saida' || m.type === 'saida' ? 'saida' : prev.type,
+    });
+  }
+
+  return [...others, ...zigLots.values()];
+}
 
 function productName(products: Product[], id: string): string {
   return products.find((p) => p.id === id)?.name ?? '';
@@ -115,11 +165,11 @@ export function OutputsTab({
   }, [sortResetKey, kindFilter]);
 
   function movementSourceLabel(m: StockMovement): string {
-    const text = `${m.reason || ''} ${m.notes || ''}`.toLowerCase();
-
-    if (text.includes('integração automática zig') || text.includes('integracao automatica zig') || text.includes('venda zig')) {
-      return 'Integração (ZIG)';
+    if (isZigStockMovement(m)) {
+      return 'Baixa ZIG (lote)';
     }
+
+    const text = `${m.reason || ''} ${m.notes || ''}`.toLowerCase();
 
     if (text.includes('venda pdv (caixa)') || text.includes('pdv (caixa)')) {
       return 'PDV (Caixa)';
@@ -141,8 +191,8 @@ export function OutputsTab({
   }
 
   const baseOutputs = useMemo(
-    () => movements.filter(isAnyStockOutput),
-    [movements],
+    () => consolidateZigOutputsForReport(movements.filter(isAnyStockOutput), products),
+    [movements, products],
   );
 
   const outputMovements = useMemo(() => {
