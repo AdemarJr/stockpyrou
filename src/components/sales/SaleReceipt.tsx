@@ -3,9 +3,10 @@ import { X, Download, Share2, Mail, MessageCircle, Printer } from 'lucide-react'
 import { useCompany } from '../../contexts/CompanyContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner@2.0.3';
-import logoImg from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
+import fallbackLogo from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
 import { APP_NAME } from '../../config/branding';
 import { NfceSaleActions } from '../fiscal/NfceSaleActions';
+import { useCompanyLogo } from '../../hooks/useCompanyLogo';
 
 interface SaleReceiptItem {
   name: string;
@@ -46,7 +47,9 @@ export function SaleReceipt({
 }: SaleReceiptProps) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
+  const companyLogo = useCompanyLogo();
   const receiptRef = useRef<HTMLDivElement>(null);
+  const logoSrc = companyLogo || fallbackLogo;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -149,7 +152,9 @@ export function SaleReceipt({
               <Printer className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-bold dark:text-white">Cupom Fiscal</h2>
+              <h2 className="text-lg font-bold dark:text-white">
+                {emitNfce ? 'Cupom Fiscal' : 'Cupom Não Fiscal'}
+              </h2>
               <p className="text-xs text-gray-500 dark:text-gray-400">#{receiptNumber}</p>
             </div>
           </div>
@@ -165,7 +170,7 @@ export function SaleReceipt({
         <div ref={receiptRef} className="p-6 print:p-8">
           {/* Company Logo & Info */}
           <div className="text-center mb-6">
-            <img src={logoImg} alt="Logo" className="w-16 h-16 mx-auto mb-3 rounded-xl object-contain" />
+            <img src={logoSrc} alt="Logo da empresa" className="w-16 h-16 mx-auto mb-3 rounded-xl object-contain" />
             <h1 className="text-xl font-bold dark:text-white print:text-black">{currentCompany?.name.toUpperCase()}</h1>
             {currentCompany?.cnpj && (
               <p className="text-xs text-gray-600 dark:text-gray-400 print:text-gray-700">CNPJ: {currentCompany.cnpj}</p>
@@ -181,7 +186,7 @@ export function SaleReceipt({
           {/* Receipt Info */}
           <div className="space-y-1 mb-4 text-sm">
             <div className="flex justify-between dark:text-gray-300 print:text-black">
-              <span className="font-medium">Cupom Fiscal:</span>
+              <span className="font-medium">{emitNfce ? 'Cupom Fiscal:' : 'Cupom Não Fiscal:'}</span>
               <span className="font-mono">#{receiptNumber}</span>
             </div>
             <div className="flex justify-between dark:text-gray-300 print:text-black">

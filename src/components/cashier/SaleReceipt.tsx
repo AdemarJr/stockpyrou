@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { NfceSaleActions } from '../fiscal/NfceSaleActions';
+import { useCompanyLogo } from '../../hooks/useCompanyLogo';
+import fallbackLogo from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
 
 interface SaleReceiptProps {
   sale: {
@@ -54,6 +56,8 @@ export function SaleReceipt({
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [whatsappNumber, setWhatsappNumber] = useState('');
   const [emailAddress, setEmailAddress] = useState('');
+  const companyLogo = useCompanyLogo();
+  const logoSrc = companyLogo || fallbackLogo;
 
   const paymentMethodIcons: Record<string, typeof Banknote> = {
     money: Banknote,
@@ -200,12 +204,19 @@ export function SaleReceipt({
 
             {/* Receipt Header */}
             <div className="text-center print:text-black">
+              <img
+                src={logoSrc}
+                alt="Logo da empresa"
+                className="w-16 h-16 mx-auto mb-3 rounded-xl object-contain bg-white/90 p-1"
+              />
               <h3 className="text-xl font-black mb-2 print:text-2xl">
                 {companyName || 'MINHA EMPRESA'}
               </h3>
               <div className="flex items-center justify-center gap-2 text-sm text-green-100 print:text-gray-600">
                 <ReceiptIcon className="w-4 h-4" />
-                <span className="font-bold">RECIBO DE VENDA</span>
+                <span className="font-bold">
+                  {isNfce ? 'CUPOM FISCAL (NFC-e)' : 'CUPOM NÃO FISCAL'}
+                </span>
               </div>
             </div>
           </div>
