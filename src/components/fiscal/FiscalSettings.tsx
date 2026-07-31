@@ -615,16 +615,19 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>ID CSC</Label>
+                <Label>ID do CSC</Label>
                 <Input
                   disabled={!canEdit}
                   value={form.cscId}
                   onChange={(e) => setField('cscId', e.target.value)}
-                  placeholder="000001"
+                  placeholder="Ex.: 1 ou 000001"
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  Identificador numérico no portal (não é o token secreto).
+                </p>
               </div>
               <div className="space-y-1.5">
-                <Label>Token CSC</Label>
+                <Label>Token CSC (código secreto)</Label>
                 <Input
                   type="password"
                   disabled={!canEdit}
@@ -632,13 +635,20 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
                   onChange={(e) => setField('cscToken', e.target.value)}
                   placeholder={
                     form.hasCscToken
-                      ? `Salvo (${form.cscTokenMasked || '********'}) — deixe vazio p/ manter`
-                      : 'Token CSC'
+                      ? `Salvo (${form.cscTokenMasked || '********'}) — cole de novo p/ trocar`
+                      : 'Cole o CSC de homologação do portal SEFAZ-AM'
                   }
                   autoComplete="new-password"
                 />
               </div>
             </div>
+            {form.ambiente === 'homologation' && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
+                Homologação exige o CSC de homologação da sua empresa no portal SEFAZ-AM.
+                Não use 0123456789 (isso é só do sandbox Development). Se a SEFAZ retornar
+                rejeição 464 (hash do QR), recadastre ID + Token e salve novamente.
+              </p>
+            )}
             {form.ambiente === 'development' && (
               <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
                 Em Development o CSC salvo é ignorado — a API aplica o CSC experimental
