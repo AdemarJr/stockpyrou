@@ -68,6 +68,7 @@ import { toast } from 'sonner@2.0.3';
 import { useIsMobile } from './components/ui/use-mobile';
 import logoImg from './public/logo.svg';
 import { APP_NAME, APP_ORIGIN, APP_SITE_URL } from './config/branding';
+import { resolveUserPermissions } from './utils/permissions';
 
 type Page =
   | 'dashboard'
@@ -402,6 +403,58 @@ function MainApp() {
     };
   }, [companyId, refreshData]);
 
+  const perms = user ? resolveUserPermissions(user.role, user.permissions) : null;
+
+  // Redireciona se a página atual não for permitida ao perfil (ex.: operador → PDV)
+  // IMPORTANTE: este hook fica ANTES de qualquer return antecipado (Rules of Hooks).
+  useEffect(() => {
+    if (!user || !perms || loading || companyContextLoading || !currentCompany) return;
+    const allowed = new Set<Page>();
+    if (perms.canViewDashboard) allowed.add('dashboard');
+    if (perms.canManageProducts) allowed.add('products');
+    if (perms.canManageStock) {
+      allowed.add('stock-entry');
+      allowed.add('stock-balance');
+      allowed.add('pos');
+      allowed.add('suppliers');
+      allowed.add('customers');
+      allowed.add('nfce');
+    }
+    if (perms.canAccessCashier) allowed.add('cashier');
+    if (perms.canViewReports) {
+      allowed.add('reports');
+      allowed.add('costs');
+    }
+    if (perms.canManageUsers) allowed.add('users');
+    if (perms.canManageSettings) {
+      allowed.add('settings');
+      allowed.add('integrations');
+    }
+    if (allowed.has(currentPage)) return;
+    const fallback: Page = perms.canAccessCashier
+      ? 'cashier'
+      : perms.canViewDashboard
+        ? 'dashboard'
+        : perms.canManageProducts
+          ? 'products'
+          : 'dashboard';
+    setCurrentPage(fallback);
+  }, [
+    user?.id,
+    user?.role,
+    loading,
+    companyContextLoading,
+    currentCompany?.id,
+    currentPage,
+    perms?.canAccessCashier,
+    perms?.canViewDashboard,
+    perms?.canManageProducts,
+    perms?.canManageStock,
+    perms?.canManageSettings,
+    perms?.canManageUsers,
+    perms?.canViewReports,
+  ]);
+
   // Enquanto restaura empresa após F5, não mostrar seleção (evita “perder” a rota visualmente)
   if (companyContextLoading) {
     return (
@@ -698,14 +751,6 @@ function MainApp() {
     }
   };
   
-  const perms = user
-    ? {
-        ...user.permissions,
-        canAccessCashier: !!user.permissions.canAccessCashier,
-        canManageSettings: !!user.permissions.canManageSettings,
-      }
-    : null;
-
   const getNavigation = () => {
     if (!user || !perms) return [];
     const nav: Array<{ id: Page; name: string; icon: any }> = [];
@@ -735,35 +780,6 @@ function MainApp() {
   };
 
   const navigation = getNavigation();
-
-  // Redireciona se a página atual não for permitida ao perfil (ex.: operador → PDV)
-  useEffect(() => {
-    if (!user || !perms || loading) return;
-    const allowed = new Set(navigation.map((n) => n.id));
-    if (allowed.has(currentPage)) return;
-    const fallback: Page =
-      perms.canAccessCashier
-        ? 'cashier'
-        : perms.canViewDashboard
-          ? 'dashboard'
-          : perms.canManageProducts
-            ? 'products'
-            : 'dashboard';
-    setCurrentPage(fallback);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- só reage a página/perfil
-  }, [
-    user?.id,
-    user?.role,
-    loading,
-    currentPage,
-    perms?.canAccessCashier,
-    perms?.canViewDashboard,
-    perms?.canManageProducts,
-    perms?.canManageStock,
-    perms?.canManageSettings,
-    perms?.canManageUsers,
-    perms?.canViewReports,
-  ]);
 
   if (loading) {
     return (
@@ -880,7 +896,7 @@ function MainApp() {
           }
         >
           {currentPage === 'dashboard' && <Dashboard products={products} movements={movements} recipes={[]} />}
-          {currentPage === 'products' && user.permissions.canManageProducts && (
+          {currentPage === 'products' && perms?.canManageProducts && (
             <>
               <ProductList
                 products={products}
@@ -901,7 +917,7 @@ function MainApp() {
                   await refreshData({ silent: true });
                 }}
                 categories={categories}
-                canDelete={user.permissions.canDeleteProducts}
+                canDelete={!!perms?.canDeleteProducts}
               />
               {showProductForm && (
                 <ProductForm
@@ -927,7 +943,7 @@ function MainApp() {
               )}
             </>
           )}
-          {currentPage === 'stock-entry' && user.permissions.canManageStock && (
+          {currentPage === 'stock-entry' && perms?.canManageStock && (
             <ErrorBoundary title="Erro na tela de Recebimentos">
               <div className="space-y-8">
               {/* Show create form only if NOT editing, or inside modal? 
@@ -971,13 +987,13 @@ function MainApp() {
               </div>
             </ErrorBoundary>
           )}
-          {currentPage === 'stock-balance' && user.permissions.canManageStock && (
+          {currentPage === 'stock-balance' && perms?.canManageStock && (
             <StockBalance products={products} onBalanceComplete={() => void refreshData({ silent: true })} />
           )}
-          {currentPage === 'suppliers' && user.permissions.canManageStock && (
+          {currentPage === 'suppliers' && perms?.canManageStock && (
             <SupplierManagement suppliers={suppliers} onSave={handleSaveSupplier} onUpdate={handleUpdateSupplier} onDelete={handleDeleteSupplier} />
           )}
-          {currentPage === 'customers' && user.permissions.canManageStock && (
+          {currentPage === 'customers' && perms?.canManageStock && (
             <CustomerManagement />
           )}
           {currentPage === 'pos' && (
@@ -992,19 +1008,21 @@ function MainApp() {
              />
              </ErrorBoundary>
           )}
-          {currentPage === 'nfce' && user.permissions.canManageStock && (
+          {currentPage === 'nfce' && perms?.canManageStock && (
             <NfceManagement />
           )}
           {(currentPage === 'settings' || currentPage === 'integrations') &&
-            user.permissions.canManageSettings && (
+            perms?.canManageSettings && (
+            <ErrorBoundary title="Erro nas Configurações">
             <SettingsPage
               initialTab={currentPage === 'integrations' ? 'integracoes' : 'empresa'}
               onSyncComplete={async () => {
                 await refreshData({ silent: true });
               }}
             />
+            </ErrorBoundary>
           )}
-          {currentPage === 'cashier' && user.permissions.canAccessCashier && (
+          {currentPage === 'cashier' && perms?.canAccessCashier && (
              <ErrorBoundary title="Erro no Caixa / PDV">
              <CashRegister
                onInventoryChanged={async () => {
@@ -1013,7 +1031,7 @@ function MainApp() {
              />
              </ErrorBoundary>
           )}
-          {currentPage === 'reports' && user.permissions.canViewReports && (
+          {currentPage === 'reports' && perms?.canViewReports && (
              <Reports
                products={products}
                movements={movements}
@@ -1026,10 +1044,10 @@ function MainApp() {
                }}
              />
           )}
-          {currentPage === 'costs' && user.permissions.canViewReports && (
+          {currentPage === 'costs' && perms?.canViewReports && (
              <CostDashboard />
           )}
-          {currentPage === 'users' && user.permissions.canManageUsers && <UserManagement />}
+          {currentPage === 'users' && perms?.canManageUsers && <UserManagement />}
         </main>
       </div>
 
