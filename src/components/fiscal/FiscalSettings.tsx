@@ -11,7 +11,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 
-type FiscalAmbiente = 'development' | 'homologation' | 'production';
+type FiscalAmbiente = 'homologation' | 'production';
 
 interface FiscalConfigForm {
   cnpj: string;
@@ -142,7 +142,8 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
           email: String(c.email || ''),
           logoUrl: String(c.logoUrl || ''),
           crt: Number(c.crt) || 1,
-          ambiente: (c.ambiente as FiscalAmbiente) || 'homologation',
+          ambiente:
+            c.ambiente === 'production' ? 'production' : 'homologation',
           serieNfce: Number(c.serieNfce) || 1,
           numeroNfce: Number(c.numeroNfce) || 0,
           cscId: String(c.cscId || ''),
@@ -202,24 +203,56 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
         email: form.email || null,
         logoUrl: form.logoUrl || null,
         crt: form.crt,
-        ambiente: form.ambiente,
-        serieNfce: form.serieNfce,
-        numeroNfce: form.numeroNfce,
-        cscId: form.cscId || null,
         enabled: form.enabled,
-        respTecCnpj: form.respTecCnpj || null,
-        respTecContato: form.respTecContato || null,
-        respTecEmail: form.respTecEmail || null,
-        respTecFone: form.respTecFone || null,
-        respTecIdCsrt: form.respTecIdCsrt || null,
       };
-      if (form.cscToken.trim()) {
-        payload.cscToken = form.cscToken.trim();
+
+      // Só envia CSC/ambiente/responsável técnico na seção técnica —
+      // salvar só "empresa" não pode apagar esses campos.
+      if (showTechnical) {
+        payload.ambiente = form.ambiente;
+        payload.serieNfce = form.serieNfce;
+        payload.numeroNfce = form.numeroNfce;
+        payload.cscId = form.cscId || null;
+        if (form.cscToken.trim()) {
+          payload.cscToken = form.cscToken.trim();
+        }
+
+        const respTecCnpj = form.respTecCnpj.replace(/\D/g, '');
+        if (respTecCnpj && respTecCnpj.length !== 14) {
+          toast.error('CNPJ do responsável técnico deve ter 14 dígitos');
+          setSaving(false);
+          return;
+        }
+        if (!respTecCnpj || !form.respTecContato.trim() || !form.respTecEmail.trim() || !form.respTecFone.trim()) {
+          toast.error(
+            'Preencha responsável técnico: CNPJ, contato, e-mail e telefone (obrigatório na SEFAZ-AM)',
+          );
+          setSaving(false);
+          return;
+        }
+        payload.respTecCnpj = respTecCnpj;
+        payload.respTecContato = form.respTecContato.trim();
+        payload.respTecEmail = form.respTecEmail.trim();
+        payload.respTecFone = form.respTecFone.replace(/\D/g, '');
+        payload.respTecIdCsrt = form.respTecIdCsrt || null;
+        if (form.respTecCsrt.trim()) {
+          payload.respTecCsrt = form.respTecCsrt.trim();
+        }
       }
-      if (form.respTecCsrt.trim()) {
-        payload.respTecCsrt = form.respTecCsrt.trim();
+
+      const saved = await apiClient.put<{
+        success?: boolean;
+        config?: { respTecCnpj?: string | null };
+      }>('/fiscal/config', payload);
+
+      if (showTechnical && !saved.config?.respTecCnpj) {
+        toast.error(
+          'Responsável técnico não foi gravado no servidor. Faça deploy da API e salve novamente.',
+        );
+        await load();
+        return;
       }
-      await apiClient.put('/fiscal/config', payload);
+
       toast.success(
         form.enabled
           ? 'Fiscal ativado — NFC-e liberada no PDV e Venda Manual'
@@ -406,17 +439,9 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
                 onChange={(e) => setField('ambiente', e.target.value as FiscalAmbiente)}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="development">Development (sandbox SEFAZ-AM)</option>
-                <option value="homologation">Homologação oficial (recomendado)</option>
-                <option value="production">Produção (bloqueada até testes)</option>
+                <option value="homologation">Homologação</option>
+                <option value="production">Produção</option>
               </select>
-              {form.ambiente === 'development' && (
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  Sandbox experimental (nfce-services-nac). O sistema usa automaticamente o CSC de
-                  teste ID 000001 / 0123456789. Para empresa credenciada no AM, use Homologação
-                  oficial com o CSC do portal da SEFAZ.
-                </p>
-              )}
             </div>
             <div className="space-y-1.5">
               <Label>CRT</Label>
@@ -665,23 +690,25 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
                   placeholder={
                     form.hasCscToken
                       ? `Salvo (${form.cscTokenMasked || '********'}) — cole de novo p/ trocar`
-                      : 'Cole o CSC de homologação do portal SEFAZ-AM'
+                      : form.ambiente === 'production'
+                        ? 'Cole o CSC de produção do portal SEFAZ-AM'
+                        : 'Cole o CSC de homologação do portal SEFAZ-AM'
                   }
                   autoComplete="new-password"
                 />
               </div>
             </div>
             {form.ambiente === 'homologation' && (
-              <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
-                Homologação exige o CSC de homologação da sua empresa no portal SEFAZ-AM.
-                Não use 0123456789 (isso é só do sandbox Development). Se a SEFAZ retornar
-                rejeição 464 (hash do QR), recadastre ID + Token e salve novamente.
+              <p className="text-xs text-muted-foreground mt-2">
+                Use o CSC de homologação da sua empresa no portal SEFAZ-AM. Se retornar rejeição
+                464 (hash do QR), recadastre ID + Token e salve novamente.
               </p>
             )}
-            {form.ambiente === 'development' && (
-              <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
-                Em Development o CSC salvo é ignorado — a API aplica o CSC experimental
-                000001 / 0123456789 na emissão.
+            {form.ambiente === 'production' && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Use o CSC de produção da sua empresa no portal SEFAZ-AM. Homologação e produção
+                têm tokens diferentes — não misture. Se retornar rejeição 464, recadastre ID +
+                Token e salve novamente.
               </p>
             )}
 
