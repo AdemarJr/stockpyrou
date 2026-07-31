@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Lock, Mail, Package, Loader2, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { forceLogout } from '../../utils/auth-cleanup';
+import { forceAppRefresh, forceLogout } from '../../utils/auth-cleanup';
 import { toast } from 'sonner@2.0.3';
 import { cn } from '../ui/utils';
 import { nativeFieldInvalidClass } from '../../lib/formFieldValidation';
@@ -44,6 +44,23 @@ export function Login({ onBackToLanding }: LoginProps) {
       toast.success('Sessão limpa com sucesso! Faça login novamente.');
     } else {
       toast.error('Erro ao limpar sessão');
+    }
+  };
+
+  const handleForceAppRefresh = async () => {
+    setLoading(true);
+    try {
+      const ok = await forceAppRefresh();
+      if (ok) {
+        toast.success('Cache limpo. Recarregando…');
+        window.setTimeout(() => {
+          window.location.href = `${window.location.origin}/?v=${Date.now()}`;
+        }, 400);
+      } else {
+        toast.error('Não foi possível limpar o cache. Tente no navegador: limpar dados do site.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -213,15 +230,23 @@ export function Login({ onBackToLanding }: LoginProps) {
               Conexão segura e criptografada
             </p>
             
-            {/* Clear Session Button - for troubleshooting */}
+            <button
+              type="button"
+              onClick={() => void handleForceAppRefresh()}
+              className="mt-4 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors flex items-center justify-center gap-1 mx-auto"
+              disabled={loading}
+              title="Limpa cache do PWA e recarrega — use se o login der timeout ou tela branca"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Atualizar aplicativo (limpar cache)
+            </button>
             <button
               type="button"
               onClick={handleClearSession}
-              className="mt-4 text-xs text-gray-500 hover:text-blue-600 transition-colors flex items-center justify-center gap-1 mx-auto"
+              className="mt-2 text-xs text-gray-500 hover:text-blue-600 transition-colors flex items-center justify-center gap-1 mx-auto"
               disabled={loading}
               title="Use isso se estiver com problemas de login"
             >
-              <RefreshCw className="w-3 h-3" />
               Limpar sessão corrompida
             </button>
           </div>

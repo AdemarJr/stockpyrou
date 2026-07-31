@@ -61,3 +61,22 @@ export function forceLogout() {
     return false;
   }
 }
+
+/** Remove Service Worker + caches do PWA (corrige login/tela branca com JS antigo). */
+export async function forceAppRefresh(): Promise<boolean> {
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    forceLogout();
+    return true;
+  } catch (error) {
+    console.error('[Auth Cleanup] Error during force app refresh:', error);
+    return false;
+  }
+}

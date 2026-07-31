@@ -1,5 +1,5 @@
-// Service Worker StockPyrou PWA — offline first com auto-update
-const VERSION = '2.2.0'; // Incrementar a cada atualização
+// Service Worker StockPyrou PWA — network-first no HTML para não travar em versão antiga
+const VERSION = '2.3.1'; // Incrementar a cada atualização
 const CACHE_NAME = `stockpyrou-v${VERSION}`;
 const DATA_CACHE_NAME = `stockpyrou-data-v${VERSION}`;
 
@@ -7,13 +7,10 @@ function isAppCache(name) {
   return name.startsWith('pyroustock-') || name.startsWith('stockpyrou-');
 }
 
-// Recursos estáticos para cache imediato
-const STATIC_CACHE = [
-  '/',
-  '/styles/globals.css',
-];
+// Não pré-cachear '/' — senão o index.html fica preso e o app não atualiza.
+const STATIC_CACHE = [];
 
-// URLs de API que devem ser cacheadas
+// URLs de API que podem ter fallback de cache (somente GET de leitura)
 const API_URLS = [
   '/api/cashier/',
   '/api/products/',
@@ -22,252 +19,183 @@ const API_URLS = [
 
 console.log(`[SW] Service Worker versão ${VERSION} carregando...`);
 
-// ========================================
-// INSTALL - Cacheia recursos estáticos
-// ========================================
 self.addEventListener('install', (event) => {
   console.log(`[SW] Installing version ${VERSION}...`);
-  
   event.waitUntil(
-    caches.open(CACHE_NAME)
+    caches
+      .open(CACHE_NAME)
       .then((cache) => {
-        console.log('[SW] Caching static resources');
+        if (STATIC_CACHE.length === 0) return undefined;
         return cache.addAll(STATIC_CACHE);
       })
-      .then(() => {
-        console.log('[SW] Skip waiting to activate immediately');
-        return self.skipWaiting(); // Ativa imediatamente a nova versão
-      })
+      .then(() => self.skipWaiting())
       .catch((error) => {
         console.error('[SW] Install failed:', error);
-      })
+      }),
   );
 });
 
-// ========================================
-// ACTIVATE - Remove caches antigos
-// ========================================
 self.addEventListener('activate', (event) => {
   console.log(`[SW] Activating version ${VERSION}...`);
-  
   event.waitUntil(
-    caches.keys()
-      .then((cacheNames) => {
-        return Promise.all(
+    caches
+      .keys()
+      .then((cacheNames) =>
+        Promise.all(
           cacheNames.map((cacheName) => {
-            // Remove todos os caches que não são a versão atual
-            if (isAppCache(cacheName) && 
-                cacheName !== CACHE_NAME && 
-                cacheName !== DATA_CACHE_NAME) {
+            if (isAppCache(cacheName) && cacheName !== CACHE_NAME && cacheName !== DATA_CACHE_NAME) {
               console.log('[SW] Removing old cache:', cacheName);
               return caches.delete(cacheName);
             }
-          })
-        );
-      })
-      .then(() => {
-        console.log('[SW] Claiming clients for immediate control');
-        return self.clients.claim(); // Assume controle de todas as abas
-      })
-      .then(() => {
-        // Notifica todas as abas abertas sobre a nova versão
-        return self.clients.matchAll().then((clients) => {
+            return undefined;
+          }),
+        ),
+      )
+      .then(() => self.clients.claim())
+      .then(() =>
+        self.clients.matchAll().then((clients) => {
           clients.forEach((client) => {
-            client.postMessage({
-              type: 'SW_UPDATED',
-              version: VERSION
-            });
+            client.postMessage({ type: 'SW_UPDATED', version: VERSION });
           });
-        });
-      })
+        }),
+      ),
   );
 });
 
-// ========================================
-// FETCH - Estratégia de cache
-// ========================================
+function isApiRequest(url) {
+  return API_URLS.some((apiUrl) => url.pathname.includes(apiUrl));
+}
+
+function isNavigationRequest(request) {
+  return (
+    request.mode === 'navigate' ||
+    (request.method === 'GET' &&
+      request.headers.get('accept') &&
+      request.headers.get('accept').includes('text/html'))
+  );
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Ignora requisições que não são GET (POST, PUT, DELETE precisam passar sempre)
   if (request.method !== 'GET') {
     return;
   }
 
-  // Ignora requisições para outros domínios (exceto a API própria no Railway)
-  if (url.origin !== self.location.origin &&
-      !url.hostname.includes('railway.app')) {
+  // Login e auth nunca devem passar pelo SW
+  if (url.pathname.includes('/auth/')) {
     return;
   }
 
-  // ========================================
-  // Estratégia 1: API - Network First, Cache Fallback
-  // ========================================
-  if (isApiRequest(url)) {
+  if (url.origin !== self.location.origin && !url.hostname.includes('railway.app')) {
+    return;
+  }
+
+  // HTML / navegação: SEMPRE rede primeiro (evita tela branca e login antigo)
+  if (isNavigationRequest(request) || url.pathname === '/' || url.pathname.endsWith('.html')) {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // Se a resposta for válida, clona e cacheia
-          if (response && response.status === 200) {
-            const responseToCache = response.clone();
-            caches.open(DATA_CACHE_NAME)
-              .then((cache) => {
-                cache.put(request, responseToCache);
-              });
+          if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           }
           return response;
         })
-        .catch(() => {
-          // Se falhar, tenta buscar do cache
-          return caches.match(request)
-            .then((cachedResponse) => {
-              if (cachedResponse) {
-                console.log('[SW] Serving API from cache:', url.pathname);
-                return cachedResponse;
-              }
-              // Retorna resposta offline
-              return new Response(
-                JSON.stringify({ 
-                  error: 'Offline - Dados não disponíveis no cache',
-                  offline: true 
-                }), 
-                {
-                  status: 503,
-                  headers: { 'Content-Type': 'application/json' }
-                }
-              );
-            });
-        })
+        .catch(() =>
+          caches.match(request).then(
+            (cached) =>
+              cached ||
+              new Response('Offline', {
+                status: 503,
+                headers: { 'Content-Type': 'text/plain' },
+              }),
+          ),
+        ),
     );
     return;
   }
 
-  // ========================================
-  // Estratégia 2: Assets estáticos - Cache First
-  // ========================================
-  event.respondWith(
-    caches.match(request)
-      .then((cachedResponse) => {
-        if (cachedResponse) {
-          // Retorna do cache, mas atualiza em background
-          fetch(request)
-            .then((response) => {
-              if (response && response.status === 200) {
-                caches.open(CACHE_NAME)
-                  .then((cache) => {
-                    cache.put(request, response);
-                  });
-              }
-            })
-            .catch(() => {
-              // Silenciosamente falha se offline
-            });
-          
-          return cachedResponse;
-        }
-
-        // Se não está no cache, busca da rede e cacheia
-        return fetch(request)
-          .then((response) => {
-            if (!response || response.status !== 200) {
-              return response;
-            }
-
+  if (isApiRequest(url)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
             const responseToCache = response.clone();
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(request, responseToCache);
-              });
-
-            return response;
-          })
-          .catch(() => {
-            // Offline e não está no cache
-            return new Response('Offline - Recurso não disponível', {
-              status: 503,
-              statusText: 'Service Unavailable',
-              headers: new Headers({
-                'Content-Type': 'text/plain'
-              })
+            caches.open(DATA_CACHE_NAME).then((cache) => {
+              cache.put(request, responseToCache);
             });
-          });
-      })
+          }
+          return response;
+        })
+        .catch(() =>
+          caches.match(request).then((cachedResponse) => {
+            if (cachedResponse) return cachedResponse;
+            return new Response(
+              JSON.stringify({
+                error: 'Offline - Dados não disponíveis no cache',
+                offline: true,
+              }),
+              { status: 503, headers: { 'Content-Type': 'application/json' } },
+            );
+          }),
+        ),
+    );
+    return;
+  }
+
+  // Assets com hash: cache first + atualização em background
+  event.respondWith(
+    caches.match(request).then((cachedResponse) => {
+      const networkFetch = fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, responseToCache);
+            });
+          }
+          return response;
+        })
+        .catch(() => cachedResponse || new Response('Offline', { status: 503 }));
+
+      // JS/CSS: prefere rede se houver cache antigo sem hash conhecido — usa stale-while-revalidate
+      if (cachedResponse) {
+        void networkFetch;
+        return cachedResponse;
+      }
+      return networkFetch;
+    }),
   );
 });
 
-// ========================================
-// MENSAGENS - Comunicação com a aplicação
-// ========================================
 self.addEventListener('message', (event) => {
-  console.log('[SW] Message received:', event.data);
-  
   if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('[SW] Skipping waiting on message');
     self.skipWaiting();
   }
-  
+
   if (event.data && event.data.type === 'GET_VERSION') {
     event.ports[0].postMessage({ version: VERSION });
   }
 
   if (event.data && event.data.type === 'CLEAR_CACHE') {
     event.waitUntil(
-      caches.keys().then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((cacheName) => {
-            if (isAppCache(cacheName)) {
-              return caches.delete(cacheName);
-            }
-          })
-        );
-      }).then(() => {
-        event.ports[0].postMessage({ cleared: true });
-      })
+      caches
+        .keys()
+        .then((cacheNames) =>
+          Promise.all(
+            cacheNames.map((cacheName) => {
+              if (isAppCache(cacheName)) return caches.delete(cacheName);
+              return undefined;
+            }),
+          ),
+        )
+        .then(() => {
+          event.ports[0].postMessage({ cleared: true });
+        }),
     );
   }
-});
-
-// ========================================
-// SYNC - Background Sync (futuro)
-// ========================================
-self.addEventListener('sync', (event) => {
-  console.log('[SW] Background sync:', event.tag);
-  
-  if (event.tag === 'sync-sales') {
-    event.waitUntil(syncPendingSales());
-  }
-});
-
-// ========================================
-// Funções auxiliares
-// ========================================
-function isApiRequest(url) {
-  return API_URLS.some(apiUrl => url.pathname.includes(apiUrl));
-}
-
-function syncPendingSales() {
-  // Implementação futura para sincronizar vendas offline
-  return Promise.resolve();
-}
-
-// ========================================
-// PUSH NOTIFICATIONS (futuro)
-// ========================================
-self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : {};
-  
-  const title = data.title || 'StockPyrou';
-  const options = {
-    body: data.body || 'Nova notificação',
-    icon: '/icon-192.png',
-    badge: '/badge-72.png',
-    data: data
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(title, options)
-  );
 });
 
 console.log(`[SW] Service Worker versão ${VERSION} pronto!`);

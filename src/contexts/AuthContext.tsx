@@ -238,18 +238,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('🔐 Password length:', password?.length);
     console.log('🔐 Auth API:', authApiRoot());
 
-    const response = await fetchWithTimeout(`${authApiRoot()}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ email, password }),
-      timeoutMs: 25000
-    });
+    const loginUrl = `${authApiRoot()}/auth/login`;
+    const loginBody = JSON.stringify({ email, password });
+    const loginInit = {
+      method: 'POST' as const,
+      headers: { 'Content-Type': 'application/json' },
+      body: loginBody,
+      timeoutMs: 30000,
+    };
+
+    // Uma tentativa extra cobre cold start do Railway.
+    let response = await fetchWithTimeout(loginUrl, loginInit);
+    if (!response) {
+      console.warn('🔐 Login timeout/rede — retrying once...');
+      response = await fetchWithTimeout(loginUrl, loginInit);
+    }
 
     if (!response) {
       // Distingue API morta vs API viva com banco inacessível (login depende do Postgres).
       try {
+        const ready = await fetchWithTimeout(`${authApiRoot()}/ready`, { timeoutMs: 8000 });
+        if (ready?.ok) {
+          throw new Error(
+            'Servidor não respondeu a tempo no login. Atualize o app (limpar cache) e tente novamente.',
+          );
+        }
         const health = await fetchWithTimeout(`${authApiRoot()}/health`, { timeoutMs: 5000 });
         if (health?.ok) {
           throw new Error(
@@ -257,10 +270,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
         }
       } catch (e) {
-        if (e instanceof Error && /banco|EasyPanel|DATABASE_URL/i.test(e.message)) throw e;
+        if (
+          e instanceof Error &&
+          (/banco|EasyPanel|DATABASE_URL|não respondeu a tempo/i.test(e.message))
+        ) {
+          throw e;
+        }
       }
       throw new Error(
-        'API fora do ar (Railway). Confira https://stockpyrou-api-production.up.railway.app/api/health',
+        'Servidor não respondeu a tempo. Verifique sua internet, use "Atualizar aplicativo" na tela de login e tente novamente.',
       );
     }
 

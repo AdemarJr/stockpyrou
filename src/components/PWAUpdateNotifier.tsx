@@ -3,331 +3,130 @@ import { RefreshCw, Download, X } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { APP_NAME } from '../config/branding';
 
+/**
+ * Registra /sw.js do servidor (não Blob).
+ * Blob SW não atualiza com reg.update() e deixava o app preso em JS antigo.
+ */
 export function PWAUpdateNotifier() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
-    // Verifica se o navegador suporta Service Worker
-    if ('serviceWorker' in navigator) {
-      // Tenta registrar o Service Worker inline
-      registerInlineServiceWorker();
-    } else {
+    if (!('serviceWorker' in navigator)) {
       console.log('ℹ️ Service Worker not supported in this browser');
+      return;
     }
-  }, []);
 
-  const registerInlineServiceWorker = async () => {
-    try {
-      // Service Worker inline como Blob (evita problemas de MIME type)
-      const swCode = `
-// Service Worker StockPyrou PWA — versão inline
-const VERSION = '2.2.0';
-const CACHE_NAME = \`stockpyrou-v\${VERSION}\`;
-const DATA_CACHE_NAME = \`stockpyrou-data-v\${VERSION}\`;
+    let intervalId = 0;
+    let cancelled = false;
 
-const isAppCache = (name) =>
-  name.startsWith('pyroustock-') || name.startsWith('stockpyrou-');
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SW_UPDATED') {
+        setUpdateAvailable(true);
+        setShowBanner(true);
+      }
+    };
 
-const STATIC_CACHE = [
-  '/',
-  '/styles/globals.css',
-];
-
-const API_URLS = [
-  '/api/cashier/',
-  '/api/products/',
-  '/api/stock/',
-];
-
-console.log(\`[SW] Service Worker versão \${VERSION} carregando...\`);
-
-// INSTALL
-self.addEventListener('install', (event) => {
-  console.log(\`[SW] Installing version \${VERSION}...\`);
-  
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('[SW] Caching static resources');
-        return cache.addAll(STATIC_CACHE).catch(() => {
-          console.log('[SW] Some resources failed to cache, continuing...');
-        });
-      })
-      .then(() => {
-        console.log('[SW] Skip waiting to activate immediately');
-        return self.skipWaiting();
-      })
-      .catch((error) => {
-        console.error('[SW] Install failed:', error);
-      })
-  );
-});
-
-// ACTIVATE
-self.addEventListener('activate', (event) => {
-  console.log(\`[SW] Activating version \${VERSION}...\`);
-  
-  event.waitUntil(
-    caches.keys()
-      .then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((cacheName) => {
-            if (isAppCache(cacheName) && 
-                cacheName !== CACHE_NAME && 
-                cacheName !== DATA_CACHE_NAME) {
-              console.log('[SW] Removing old cache:', cacheName);
-              return caches.delete(cacheName);
-            }
-          })
-        );
-      })
-      .then(() => {
-        console.log('[SW] Claiming clients for immediate control');
-        return self.clients.claim();
-      })
-      .then(() => {
-        return self.clients.matchAll().then((clients) => {
-          clients.forEach((client) => {
-            client.postMessage({
-              type: 'SW_UPDATED',
-              version: VERSION
-            });
-          });
-        });
-      })
-  );
-});
-
-// FETCH
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
-
-  if (request.method !== 'GET') {
-    return;
-  }
-
-  if (url.origin !== self.location.origin &&
-      !url.hostname.includes('railway.app')) {
-    return;
-  }
-
-  const isApiRequest = (url) => {
-    return API_URLS.some(apiUrl => url.pathname.includes(apiUrl));
-  };
-
-  // API - Network First
-  if (isApiRequest(url)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const responseToCache = response.clone();
-            caches.open(DATA_CACHE_NAME)
-              .then((cache) => {
-                cache.put(request, responseToCache);
-              });
+    const run = async () => {
+      try {
+        // Remove registros Blob antigos (object URL) que travavam a atualização
+        const existing = await navigator.serviceWorker.getRegistrations();
+        for (const reg of existing) {
+          const scriptUrl =
+            reg.active?.scriptURL || reg.installing?.scriptURL || reg.waiting?.scriptURL || '';
+          if (scriptUrl.startsWith('blob:')) {
+            console.log('[SW] Unregistering legacy blob SW:', scriptUrl);
+            await reg.unregister();
           }
-          return response;
-        })
-        .catch(() => {
-          return caches.match(request)
-            .then((cachedResponse) => {
-              if (cachedResponse) {
-                console.log('[SW] Serving API from cache:', url.pathname);
-                return cachedResponse;
-              }
-              return new Response(
-                JSON.stringify({ 
-                  error: 'Offline - Dados não disponíveis no cache',
-                  offline: true 
-                }), 
-                {
-                  status: 503,
-                  headers: { 'Content-Type': 'application/json' }
-                }
-              );
-            });
-        })
-    );
-    return;
-  }
-
-  // Assets - Cache First
-  event.respondWith(
-    caches.match(request)
-      .then((cachedResponse) => {
-        if (cachedResponse) {
-          fetch(request)
-            .then((response) => {
-              if (response && response.status === 200) {
-                caches.open(CACHE_NAME)
-                  .then((cache) => {
-                    cache.put(request, response);
-                  });
-              }
-            })
-            .catch(() => {});
-          
-          return cachedResponse;
         }
 
-        return fetch(request)
-          .then((response) => {
-            if (!response || response.status !== 200) {
-              return response;
-            }
+        const reg = await navigator.serviceWorker.register('/sw.js', {
+          scope: '/',
+          updateViaCache: 'none',
+        });
+        if (cancelled) return;
 
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(request, responseToCache);
-              });
+        console.log('✅ Service Worker registered (/sw.js)');
+        setRegistration(reg);
+        void reg.update();
 
-            return response;
-          })
-          .catch(() => {
-            return new Response('Offline', {
-              status: 503,
-              statusText: 'Service Unavailable',
-              headers: new Headers({
-                'Content-Type': 'text/plain'
-              })
-            });
-          });
-      })
-  );
-});
+        intervalId = window.setInterval(() => {
+          void reg.update();
+        }, 60_000);
 
-// MESSAGES
-self.addEventListener('message', (event) => {
-  console.log('[SW] Message received:', event.data);
-  
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('[SW] Skipping waiting on message');
-    self.skipWaiting();
-  }
-  
-  if (event.data && event.data.type === 'GET_VERSION') {
-    event.ports[0].postMessage({ version: VERSION });
-  }
-
-  if (event.data && event.data.type === 'CLEAR_CACHE') {
-    event.waitUntil(
-      caches.keys().then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((cacheName) => {
-            if (isAppCache(cacheName)) {
-              return caches.delete(cacheName);
-            }
-          })
-        );
-      }).then(() => {
-        event.ports[0].postMessage({ cleared: true });
-      })
-    );
-  }
-});
-
-console.log(\`[SW] Service Worker versão \${VERSION} pronto!\`);
-      `;
-
-      // Cria um Blob com o código do Service Worker
-      const blob = new Blob([swCode], { type: 'application/javascript' });
-      const swUrl = URL.createObjectURL(blob);
-
-      // Registra o Service Worker
-      const reg = await navigator.serviceWorker.register(swUrl, {
-        scope: '/',
-        updateViaCache: 'none'
-      });
-
-      console.log('✅ Inline Service Worker registered successfully');
-      setRegistration(reg);
-
-      // Libera o objeto URL após o registro
-      URL.revokeObjectURL(swUrl);
-
-      // Verifica atualizações a cada 60 segundos
-      setInterval(() => {
-        console.log('🔄 Checking for updates...');
-        reg.update();
-      }, 60000);
-
-      // Listener para atualizações encontradas
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        console.log('🆕 New Service Worker found');
-
-        if (newWorker) {
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('✨ New version available!');
               setUpdateAvailable(true);
               setShowBanner(true);
-              
               toast.info('Nova versão disponível!', {
                 description: 'Clique para atualizar o aplicativo',
                 duration: Infinity,
                 action: {
                   label: 'Atualizar',
-                  onClick: () => handleUpdate()
-                }
+                  onClick: () => {
+                    if (reg.waiting) {
+                      navigator.serviceWorker.addEventListener(
+                        'controllerchange',
+                        () => window.location.reload(),
+                        { once: true },
+                      );
+                      reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    } else {
+                      window.location.reload();
+                    }
+                  },
+                },
               });
             }
           });
-        }
-      });
+        });
 
-      // Listener para mensagens do Service Worker
-      navigator.serviceWorker.addEventListener('message', (event) => {
-        console.log('📨 Message from SW:', event.data);
-        
-        if (event.data.type === 'SW_UPDATED') {
-          console.log('🎉 Service Worker updated to version:', event.data.version);
-          setUpdateAvailable(true);
-          setShowBanner(true);
-        }
-      });
+        navigator.serviceWorker.addEventListener('message', onMessage);
+      } catch (error) {
+        console.log('ℹ️ Service Worker registration skipped:', error);
+      }
+    };
 
-      // Não recarregar em todo controllerchange: isso apagava formulários ao ativar SW em segundo plano.
-      // O reload só ocorre quando o usuário clica em "Atualizar" (handleUpdate registra listener { once: true }).
+    void run();
 
-    } catch (error) {
-      console.log('ℹ️ Service Worker registration skipped:', error);
-      // Não mostra erro ao usuário, apenas registra no console
-    }
-  };
+    return () => {
+      cancelled = true;
+      if (intervalId) window.clearInterval(intervalId);
+      navigator.serviceWorker.removeEventListener('message', onMessage);
+    };
+  }, []);
 
   const handleUpdate = () => {
-    if (registration && registration.waiting) {
-      console.log('📤 Sending SKIP_WAITING message to SW');
-      const reloadOnce = () => {
-        window.location.reload();
-      };
-      navigator.serviceWorker.addEventListener('controllerchange', reloadOnce, { once: true });
+    if (registration?.waiting) {
+      navigator.serviceWorker.addEventListener(
+        'controllerchange',
+        () => window.location.reload(),
+        { once: true },
+      );
       registration.waiting.postMessage({ type: 'SKIP_WAITING' });
       setShowBanner(false);
+      return;
     }
+    window.location.reload();
   };
 
   const handleDismiss = () => {
     setShowBanner(false);
     toast.info('Atualização adiada', {
-      description: 'A página será atualizada no próximo carregamento'
+      description: 'A página será atualizada no próximo carregamento',
     });
   };
 
-  // Banner de atualização
   if (!showBanner || !updateAvailable) {
     return null;
   }
 
   return (
     <>
-      {/* Banner Mobile (Bottom) */}
       <div className="fixed bottom-0 left-0 right-0 md:hidden bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 shadow-2xl z-50 animate-slide-up">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 flex-1">
@@ -357,7 +156,6 @@ console.log(\`[SW] Service Worker versão \${VERSION} pronto!\`);
         </div>
       </div>
 
-      {/* Banner Desktop (Top Right) */}
       <div className="hidden md:block fixed top-4 right-4 bg-white rounded-2xl shadow-2xl border border-gray-200 p-5 z-50 max-w-md animate-slide-down">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
@@ -395,34 +193,15 @@ console.log(\`[SW] Service Worker versão \${VERSION} pronto!\`);
 
       <style>{`
         @keyframes slide-up {
-          from {
-            transform: translateY(100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
+          from { transform: translateY(100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
-
         @keyframes slide-down {
-          from {
-            transform: translateY(-100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
+          from { transform: translateY(-100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
-
-        .animate-slide-up {
-          animation: slide-up 0.3s ease-out;
-        }
-
-        .animate-slide-down {
-          animation: slide-down 0.3s ease-out;
-        }
+        .animate-slide-up { animation: slide-up 0.3s ease-out; }
+        .animate-slide-down { animation: slide-down 0.3s ease-out; }
       `}</style>
     </>
   );
