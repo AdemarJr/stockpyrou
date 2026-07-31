@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Package, Calendar, FileText, AlertCircle, Trash2, Edit2, Camera, X, RefreshCw, AlertTriangle, Upload } from 'lucide-react';
+import { Plus, Package, Calendar, FileText, AlertCircle, Trash2, Edit2, Camera, X, RefreshCw, AlertTriangle, Upload, CloudDownload } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { toast } from 'sonner@2.0.3';
 import type { MeasurementUnit, Product, Supplier, StockEntry } from '../../types';
@@ -14,6 +14,7 @@ import {
 } from '../../utils/calculations';
 import { resolveConversionFactorToBase, selectableUnitsForProduct } from '../../utils/measurementUnits';
 import { StockEntryImport } from './StockEntryImport';
+import { StockEntrySefazSync } from './StockEntrySefazSync';
 
 interface StockEntryFormProps {
   products: Product[];
@@ -69,6 +70,7 @@ export function StockEntryForm({
   const [isLoadingCamera, setIsLoadingCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [sefazSyncOpen, setSefazSyncOpen] = useState(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(() => {
@@ -425,7 +427,14 @@ export function StockEntryForm({
                 Registre a entrada de novos produtos no estoque
               </p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setSefazSyncOpen(true)}
+                className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-md bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                <CloudDownload className="w-5 h-5" /> Sincronizar SEFAZ
+              </button>
               <button
                 type="button"
                 onClick={() => setImportDialogOpen(true)}
@@ -767,7 +776,7 @@ export function StockEntryForm({
         </form>
       </div>
 
-      {/* Import Dialog */}
+      {/* Import Dialog (XML/CSV local — mantido) */}
       <StockEntryImport
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
@@ -775,6 +784,15 @@ export function StockEntryForm({
         suppliers={suppliers}
         selectedSupplier={formData.supplierId}
         onImport={handleImportItems}
+      />
+
+      {/* Sincronização SEFAZ DF-e (opção adicional) */}
+      <StockEntrySefazSync
+        open={sefazSyncOpen}
+        onOpenChange={setSefazSyncOpen}
+        products={products}
+        suppliers={suppliers}
+        onEntry={onSubmit}
       />
     </div>
   );
