@@ -38,6 +38,13 @@ interface FiscalConfigForm {
   enabled: boolean;
   hasCscToken: boolean;
   cscTokenMasked: string | null;
+  respTecCnpj: string;
+  respTecContato: string;
+  respTecEmail: string;
+  respTecFone: string;
+  respTecIdCsrt: string;
+  respTecCsrt: string;
+  hasRespTecCsrt: boolean;
 }
 
 interface CertificateStatus {
@@ -73,6 +80,13 @@ const emptyForm = (): FiscalConfigForm => ({
   enabled: false,
   hasCscToken: false,
   cscTokenMasked: null,
+  respTecCnpj: '',
+  respTecContato: '',
+  respTecEmail: '',
+  respTecFone: '',
+  respTecIdCsrt: '',
+  respTecCsrt: '',
+  hasRespTecCsrt: false,
 });
 
 type FiscalSettingsSection = 'full' | 'company' | 'technical';
@@ -136,6 +150,13 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
           enabled: !!c.enabled,
           hasCscToken: !!c.hasCscToken,
           cscTokenMasked: c.cscTokenMasked != null ? String(c.cscTokenMasked) : null,
+          respTecCnpj: String(c.respTecCnpj || ''),
+          respTecContato: String(c.respTecContato || ''),
+          respTecEmail: String(c.respTecEmail || ''),
+          respTecFone: String(c.respTecFone || ''),
+          respTecIdCsrt: String(c.respTecIdCsrt || ''),
+          respTecCsrt: '',
+          hasRespTecCsrt: !!c.hasRespTecCsrt,
         });
       } else {
         setForm(emptyForm());
@@ -186,9 +207,17 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
         numeroNfce: form.numeroNfce,
         cscId: form.cscId || null,
         enabled: form.enabled,
+        respTecCnpj: form.respTecCnpj || null,
+        respTecContato: form.respTecContato || null,
+        respTecEmail: form.respTecEmail || null,
+        respTecFone: form.respTecFone || null,
+        respTecIdCsrt: form.respTecIdCsrt || null,
       };
       if (form.cscToken.trim()) {
         payload.cscToken = form.cscToken.trim();
+      }
+      if (form.respTecCsrt.trim()) {
+        payload.respTecCsrt = form.respTecCsrt.trim();
       }
       await apiClient.put('/fiscal/config', payload);
       toast.success(
@@ -196,7 +225,7 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
           ? 'Fiscal ativado — NFC-e liberada no PDV e Venda Manual'
           : 'Configuração fiscal salva',
       );
-      setForm((prev) => ({ ...prev, cscToken: '' }));
+      setForm((prev) => ({ ...prev, cscToken: '', respTecCsrt: '' }));
       notifyFiscalConfigUpdated();
       await load();
     } catch (err) {
@@ -655,6 +684,75 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
                 000001 / 0123456789 na emissão.
               </p>
             )}
+
+            <p className="text-sm font-semibold mb-3 mt-6">Responsável técnico (software house)</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Obrigatório na SEFAZ-AM (rejeição 972). Informe os dados da empresa que desenvolve
+              o sistema — não da loja emitente.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>CNPJ do responsável técnico</Label>
+                <Input
+                  disabled={!canEdit}
+                  value={form.respTecCnpj}
+                  onChange={(e) => setField('respTecCnpj', e.target.value)}
+                  placeholder="14 dígitos"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Nome do contato</Label>
+                <Input
+                  disabled={!canEdit}
+                  value={form.respTecContato}
+                  onChange={(e) => setField('respTecContato', e.target.value)}
+                  placeholder="Ex.: Suporte Stockpyrou"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>E-mail</Label>
+                <Input
+                  disabled={!canEdit}
+                  type="email"
+                  value={form.respTecEmail}
+                  onChange={(e) => setField('respTecEmail', e.target.value)}
+                  placeholder="contato@software.com.br"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Telefone (com DDD)</Label>
+                <Input
+                  disabled={!canEdit}
+                  value={form.respTecFone}
+                  onChange={(e) => setField('respTecFone', e.target.value)}
+                  placeholder="92999999999"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>ID CSRT (opcional)</Label>
+                <Input
+                  disabled={!canEdit}
+                  value={form.respTecIdCsrt}
+                  onChange={(e) => setField('respTecIdCsrt', e.target.value)}
+                  placeholder="Ex.: 01"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Token CSRT (opcional)</Label>
+                <Input
+                  type="password"
+                  disabled={!canEdit}
+                  value={form.respTecCsrt}
+                  onChange={(e) => setField('respTecCsrt', e.target.value)}
+                  placeholder={
+                    form.hasRespTecCsrt
+                      ? 'Salvo — cole de novo para trocar'
+                      : 'Só se a SEFAZ exigir (rejeição 975)'
+                  }
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
           </div>
           )}
 

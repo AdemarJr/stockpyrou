@@ -157,7 +157,7 @@ export function NfceSaleActions({ saleId, autoEmit = false, compact = false }: N
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-800 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-xs font-bold"
             >
               <Printer className="w-3.5 h-3.5" />
-              Imprimir DANFE
+              Reimprimir
             </button>
             <button
               type="button"
