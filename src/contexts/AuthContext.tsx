@@ -237,6 +237,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (!response) {
+      // Distingue API morta vs API viva com banco inacessível (login depende do Postgres).
+      try {
+        const health = await fetchWithTimeout(`${authApiRoot()}/health`, { timeoutMs: 5000 });
+        if (health?.ok) {
+          throw new Error(
+            'API no ar, mas o banco (EasyPanel) não responde a partir do Railway. Confira DATABASE_URL e o firewall/porta 5432.',
+          );
+        }
+      } catch (e) {
+        if (e instanceof Error && /banco|EasyPanel|DATABASE_URL/i.test(e.message)) throw e;
+      }
       throw new Error(
         'API fora do ar (Railway). Confira https://stockpyrou-api-production.up.railway.app/api/health',
       );
