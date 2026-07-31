@@ -698,30 +698,72 @@ function MainApp() {
     }
   };
   
+  const perms = user
+    ? {
+        ...user.permissions,
+        canAccessCashier: !!user.permissions.canAccessCashier,
+        canManageSettings: !!user.permissions.canManageSettings,
+      }
+    : null;
+
   const getNavigation = () => {
-    if (!user) return [];
+    if (!user || !perms) return [];
     const nav: Array<{ id: Page; name: string; icon: any }> = [];
-    if (user.permissions.canViewDashboard) nav.push({ id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard });
-    if (user.permissions.canManageProducts) nav.push({ id: 'products', name: 'Produtos', icon: Package });
-    if (user.permissions.canManageStock) {
+    if (perms.canViewDashboard) nav.push({ id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard });
+    if (perms.canManageProducts) nav.push({ id: 'products', name: 'Produtos', icon: Package });
+    if (perms.canManageStock) {
       nav.push({ id: 'stock-entry', name: 'Recebimento', icon: TrendingUp });
       nav.push({ id: 'stock-balance', name: 'Balanço', icon: Barcode });
       nav.push({ id: 'pos', name: 'Venda / Baixa', icon: ShoppingCart });
-      nav.push({ id: 'cashier', name: 'PDV', icon: DollarSign });
       nav.push({ id: 'suppliers', name: 'Fornecedores', icon: Truck });
       nav.push({ id: 'customers', name: 'Clientes', icon: UserRound });
       nav.push({ id: 'nfce', name: 'Notas fiscais', icon: Receipt });
-      nav.push({ id: 'settings', name: 'Configurações', icon: Settings });
     }
-    if (user.permissions.canViewReports) {
+    if (perms.canAccessCashier) {
+      nav.push({ id: 'cashier', name: 'PDV', icon: DollarSign });
+    }
+    if (perms.canViewReports) {
       nav.push({ id: 'reports', name: 'Relatórios', icon: FileText });
       nav.push({ id: 'costs', name: 'Custos', icon: DollarSign });
     }
-    if (user.permissions.canManageUsers) nav.push({ id: 'users', name: 'Usuários', icon: Users });
+    if (perms.canManageUsers) nav.push({ id: 'users', name: 'Usuários', icon: Users });
+    // Configurações: somente admin / superadmin
+    if (perms.canManageSettings) {
+      nav.push({ id: 'settings', name: 'Configurações', icon: Settings });
+    }
     return nav;
   };
 
   const navigation = getNavigation();
+
+  // Redireciona se a página atual não for permitida ao perfil (ex.: operador → PDV)
+  useEffect(() => {
+    if (!user || !perms || loading) return;
+    const allowed = new Set(navigation.map((n) => n.id));
+    if (allowed.has(currentPage)) return;
+    const fallback: Page =
+      perms.canAccessCashier
+        ? 'cashier'
+        : perms.canViewDashboard
+          ? 'dashboard'
+          : perms.canManageProducts
+            ? 'products'
+            : 'dashboard';
+    setCurrentPage(fallback);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só reage a página/perfil
+  }, [
+    user?.id,
+    user?.role,
+    loading,
+    currentPage,
+    perms?.canAccessCashier,
+    perms?.canViewDashboard,
+    perms?.canManageProducts,
+    perms?.canManageStock,
+    perms?.canManageSettings,
+    perms?.canManageUsers,
+    perms?.canViewReports,
+  ]);
 
   if (loading) {
     return (
@@ -954,7 +996,7 @@ function MainApp() {
             <NfceManagement />
           )}
           {(currentPage === 'settings' || currentPage === 'integrations') &&
-            user.permissions.canManageStock && (
+            user.permissions.canManageSettings && (
             <SettingsPage
               initialTab={currentPage === 'integrations' ? 'integracoes' : 'empresa'}
               onSyncComplete={async () => {
@@ -962,7 +1004,7 @@ function MainApp() {
               }}
             />
           )}
-          {currentPage === 'cashier' && (
+          {currentPage === 'cashier' && user.permissions.canAccessCashier && (
              <ErrorBoundary title="Erro no Caixa / PDV">
              <CashRegister
                onInventoryChanged={async () => {

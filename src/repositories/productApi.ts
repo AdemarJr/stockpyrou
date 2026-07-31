@@ -18,6 +18,11 @@ interface ProductDto {
   barcode?: string;
   sellingPrice?: number;
   image?: string;
+  ncm?: string;
+  cfop?: string;
+  csosn?: string;
+  cst?: string;
+  origem?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -47,6 +52,11 @@ function mapProductToDto(
     shelfLife: product.shelfLife,
     bundleItems: product.bundleItems,
     image: product.image,
+    ncm: product.ncm,
+    cfop: product.cfop,
+    csosn: product.csosn,
+    cst: product.cst,
+    origem: product.origem,
   };
 }
 

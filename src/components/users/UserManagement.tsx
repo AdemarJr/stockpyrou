@@ -39,8 +39,8 @@ const API_URL = getBackendApiRoot();
 const roleLabels: Record<UserRole, string> = {
   superadmin: 'Super Administrador',
   admin: 'Administrador',
-  gerente: 'Gerente de Estoque',
-  operador: 'Operador de Cadastro',
+  gerente: 'Gerente',
+  operador: 'Operador de PDV',
   visualizacao: 'Somente Visualização',
 };
 
@@ -588,17 +588,22 @@ export function UserManagement() {
                   className="mt-2 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="visualizacao">Somente Visualização</option>
-                  <option value="operador">Operador de Cadastro</option>
+                  <option value="operador">Operador de PDV</option>
                   <option value="gerente">Gerente de Estoque</option>
                   <option value="admin">Administrador</option>
                   <option value="superadmin">Super Administrador</option>
                 </select>
                 <p className="mt-2 text-gray-600">
-                  {formData.role === 'admin' && 'Acesso total ao sistema, incluindo gestão de usuários'}
-                  {formData.role === 'gerente' && 'Acesso a todos os módulos, exceto gestão de usuários'}
-                  {formData.role === 'operador' && 'Apenas cadastro e edição de produtos'}
-                  {formData.role === 'visualizacao' && 'Apenas visualização de relatórios e estoque'}
-                  {formData.role === 'superadmin' && 'Acesso total ao sistema, incluindo gestão de usuários e configurações avançadas'}
+                  {formData.role === 'superadmin' &&
+                    'Acesso total: usuários, configurações, fiscal, estoque e PDV'}
+                  {formData.role === 'admin' &&
+                    'Acesso total da conta: usuários, configurações, estoque e PDV'}
+                  {formData.role === 'gerente' &&
+                    'Operação completa (estoque, PDV, relatórios). Sem usuários e sem configurações'}
+                  {formData.role === 'operador' &&
+                    'Somente PDV: abrir/fechar caixa, vender, sangria e suprimento/troco'}
+                  {formData.role === 'visualizacao' &&
+                    'Somente dashboard e relatórios (sem alterar dados)'}
                 </p>
               </div>
 

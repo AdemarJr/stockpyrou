@@ -1,9 +1,23 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { AuthUser, UserProfile } from '../types';
+import type { AuthUser, UserProfile, UserRole } from '../types';
 import { toast } from 'sonner@2.0.3';
 import { getBackendApiRoot } from '../lib/backendUrl';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 import { safeStorage } from '../utils/safeStorage';
+import { resolveUserPermissions } from '../utils/permissions';
+
+function toAuthUser(raw: Record<string, unknown>, accessToken: string): AuthUser {
+  const role = (String(raw.role || 'operador') as UserRole) || 'operador';
+  return {
+    id: String(raw.id),
+    email: String(raw.email || ''),
+    fullName: String(raw.fullName || raw.full_name || ''),
+    role,
+    companyId: raw.companyId != null ? String(raw.companyId) : undefined,
+    permissions: resolveUserPermissions(role, raw.permissions as AuthUser['permissions']),
+    accessToken,
+  };
+}
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -124,10 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const data = await res.json();
           console.log('📊 /auth/me response data:', { hasUser: !!data.user, error: data.error });
           if (data.user) {
-            setUser({
-              ...data.user,
-              accessToken: customToken
-            });
+            setUser(toAuthUser(data.user as Record<string, unknown>, customToken));
           } else {
             removeCustomToken();
             setUser(null);
@@ -280,10 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (response.ok && serverData.user && serverData.token) {
       setCustomToken(serverData.token);
-      setUser({
-        ...serverData.user,
-        accessToken: serverData.token
-      });
+      setUser(toAuthUser(serverData.user as Record<string, unknown>, serverData.token));
       broadcastAuthEvent('login');
       toast.success(`Bem-vindo, ${serverData.user.fullName}!`);
       return true;
@@ -323,10 +331,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!res?.ok) return;
       const data = await res.json();
       if (data.user) {
-        setUser({
-          ...data.user,
-          accessToken: token
-        });
+        setUser(toAuthUser(data.user as Record<string, unknown>, token));
       }
     } catch (err) {
       console.error('Error refreshing user:', err);

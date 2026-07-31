@@ -28,10 +28,21 @@ import {
   type SaleDocumentType,
   type SalePaymentMethod,
 } from '../sales/SaleCheckoutFields';
+import { MixedPaymentEditor } from '../sales/MixedPaymentEditor';
 import {
   CustomerPicker,
   type SelectedCustomer,
 } from '../customers/CustomerPicker';
+import {
+  buildPricedSaleItems,
+  cartFinalTotal,
+  lineNet,
+  moneyPortion,
+  newPaymentLineId,
+  paymentsSum,
+  roundMoney,
+  type PaymentSplitLine,
+} from '../../utils/salePricing';
 
 interface CashierPOSProps {
   register: { id: string; companyId?: string; [key: string]: unknown };
@@ -43,6 +54,8 @@ interface CartItem {
   name: string;
   price: number;
   quantity: number;
+  /** Desconto em R$ na linha. */
+  discount: number;
   product: Product;
 }
 
@@ -58,10 +71,17 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const [showPayment, setShowPayment] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Payment state
   const [paymentMethod, setPaymentMethod] = useState<SalePaymentMethod>('money');
   const [cashReceived, setCashReceived] = useState('');
+  const [mixedMode, setMixedMode] = useState(false);
+  const [paymentLines, setPaymentLines] = useState<PaymentSplitLine[]>([
+    { id: newPaymentLineId(), method: 'money', amount: 0 },
+  ]);
+  const [cartDiscountInput, setCartDiscountInput] = useState('');
+  const [cartDiscountType, setCartDiscountType] = useState<'value' | 'percent'>('value');
   const [fiadoDueDate, setFiadoDueDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 30);
@@ -72,8 +92,19 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const [productLimit, setProductLimit] = useState(48);
   const fiscal = useFiscalReadiness({ refreshKey: showPayment });
   const emitNfce = documentType === 'nfce';
+  const pricing = cartFinalTotal(
+    cart,
+    parseFloat(cartDiscountInput) || 0,
+    cartDiscountType,
+  );
+  const mixedHasReceivable = paymentLines.some(
+    (l) => l.method === 'fiado' || l.method === 'boleto',
+  );
   const customerRequired =
-    paymentMethod === 'fiado' || paymentMethod === 'boleto' || emitNfce;
+    emitNfce ||
+    (mixedMode
+      ? mixedHasReceivable
+      : paymentMethod === 'fiado' || paymentMethod === 'boleto');
 
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
@@ -98,6 +129,52 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       stopScanner();
     };
   }, [isScanning]);
+
+  // Atalhos: F2 busca · F4/Ctrl+Enter checkout · Esc fecha modal · F9 limpa carrinho
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const typing =
+        tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable;
+
+      if (e.key === 'Escape') {
+        if (showPayment && !isProcessing) {
+          e.preventDefault();
+          setShowPayment(false);
+        } else if (isScanning) {
+          e.preventDefault();
+          setIsScanning(false);
+        }
+        return;
+      }
+
+      if (e.key === 'F2') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      if (e.key === 'F4' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) {
+        e.preventDefault();
+        if (showPayment) {
+          if (!isProcessing) void handleFinalizeSale();
+        } else if (cart.length > 0) {
+          openCheckout();
+        }
+        return;
+      }
+
+      if (e.key === 'F9' && !typing && !showPayment) {
+        e.preventDefault();
+        if (cart.length > 0 && confirm('Limpar o carrinho?')) clearCart();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPayment, isProcessing, cart.length, isScanning]);
 
   const loadProducts = async () => {
     try {
@@ -240,10 +317,23 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
           name: product.name,
           price: product.sellingPrice || product.averageCost || 0,
           quantity: 1,
+          discount: 0,
           product,
         },
       ]);
     }
+  };
+
+  const setItemDiscount = (itemId: string, value: string) => {
+    const n = parseFloat(value);
+    const disc = Number.isFinite(n) && n > 0 ? n : 0;
+    setCart((prev) =>
+      prev.map((i) => {
+        if (i.id !== itemId) return i;
+        const max = roundMoney(i.price * i.quantity);
+        return { ...i, discount: Math.min(max, roundMoney(disc)) };
+      }),
+    );
   };
 
   const updateQuantity = (itemId: string, delta: number) => {
@@ -315,13 +405,17 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
     setCart([]);
   };
 
-  const calculateTotal = () => {
-    return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  };
+  const calculateTotal = () => pricing.total;
 
   const calculateChange = () => {
+    const cash = parseFloat(cashReceived || '0') || 0;
+    if (mixedMode) {
+      const moneyAmt = moneyPortion(paymentLines);
+      if (moneyAmt <= 0) return 0;
+      return roundMoney(cash - moneyAmt);
+    }
     if (paymentMethod !== 'money' || !cashReceived) return 0;
-    return parseFloat(cashReceived) - calculateTotal();
+    return roundMoney(cash - pricing.total);
   };
 
   const handleFinalizeSale = async () => {
@@ -330,14 +424,40 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       return;
     }
 
-    if (paymentMethod === 'money') {
-      const change = calculateChange();
-      if (change < 0) {
+    const finalTotal = pricing.total;
+    if (finalTotal <= 0) {
+      toast.error('Total da venda inválido');
+      return;
+    }
+
+    if (mixedMode) {
+      const paid = paymentsSum(paymentLines);
+      if (Math.abs(paid - finalTotal) > 0.009) {
+        toast.error(`Pagamento misto deve somar ${formatCurrency(finalTotal)}`);
+        return;
+      }
+      if (moneyPortion(paymentLines) > 0 && calculateChange() < 0) {
+        toast.error('Valor recebido em dinheiro insuficiente');
+        return;
+      }
+      if (
+        paymentLines.some((l) => l.method === 'fiado' || l.method === 'boleto') &&
+        !fiadoDueDate.trim()
+      ) {
+        toast.error('Informe a data de vencimento do fiado/boleto');
+        return;
+      }
+    } else if (paymentMethod === 'money') {
+      if (calculateChange() < 0) {
         toast.error('Valor recebido insuficiente');
         return;
       }
     }
-    if ((paymentMethod === 'fiado' || paymentMethod === 'boleto') && fiadoDueDate.trim() === '') {
+    if (
+      !mixedMode &&
+      (paymentMethod === 'fiado' || paymentMethod === 'boleto') &&
+      fiadoDueDate.trim() === ''
+    ) {
       toast.error('Informe a data de vencimento');
       return;
     }
@@ -349,11 +469,6 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
     setIsProcessing(true);
 
     try {
-      console.log('🛒 Starting sale finalization');
-      console.log('📦 Cart items:', cart);
-      console.log('💰 Payment method:', paymentMethod);
-      console.log('💵 Total:', calculateTotal());
-
       const headers: Record<string, string> = {
         'Authorization': `Bearer ${user?.accessToken || ''}`,
         'X-Custom-Token': user?.accessToken || '',
@@ -373,31 +488,41 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
           }
         : {};
 
+      const pricedItems = buildPricedSaleItems(cart, pricing.cartDiscount);
+      const methodToSend: string = mixedMode ? 'mixed' : paymentMethod;
+      const baseDetails: Record<string, unknown> = {
+        emitNfce: !!emitNfce,
+        subtotal: pricing.subtotal,
+        cartDiscount: pricing.cartDiscount,
+        cartDiscountType,
+        cartDiscountInput: parseFloat(cartDiscountInput) || 0,
+        ...customerPayload,
+      };
+
+      if (mixedMode) {
+        baseDetails.payments = paymentLines.map((l) => ({
+          method: l.method,
+          amount: roundMoney(l.amount),
+        }));
+        if (moneyPortion(paymentLines) > 0) {
+          baseDetails.cashReceived = parseFloat(cashReceived) || moneyPortion(paymentLines);
+          baseDetails.change = calculateChange();
+        }
+        if (mixedHasReceivable) baseDetails.dueDate = fiadoDueDate.trim();
+      } else if (paymentMethod === 'money') {
+        baseDetails.cashReceived = parseFloat(cashReceived);
+        baseDetails.change = calculateChange();
+      } else if (paymentMethod === 'fiado' || paymentMethod === 'boleto') {
+        baseDetails.dueDate = fiadoDueDate.trim();
+      }
+
       const salePayload = {
         registerId: register.id,
-        items: cart.map(item => ({
-          productId: item.id,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-        })),
-        total: calculateTotal(),
-        paymentMethod,
-        paymentDetails:
-          paymentMethod === 'money'
-            ? {
-                cashReceived: parseFloat(cashReceived),
-                change: calculateChange(),
-                emitNfce: !!emitNfce,
-                ...customerPayload,
-              }
-            : paymentMethod === 'fiado' || paymentMethod === 'boleto'
-              ? {
-                  dueDate: fiadoDueDate.trim(),
-                  emitNfce: !!emitNfce,
-                  ...customerPayload,
-                }
-              : { emitNfce: !!emitNfce, ...customerPayload },
+        items: pricedItems,
+        total: finalTotal,
+        paymentMethod: methodToSend,
+        paymentDetails: baseDetails,
+        clientRequestId: `pdv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       };
       
       console.log('📤 Sending sale to server:', salePayload);
@@ -510,6 +635,10 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       setShowPayment(false);
       setCashReceived('');
       setPaymentMethod('money');
+      setMixedMode(false);
+      setPaymentLines([{ id: newPaymentLineId(), method: 'money', amount: 0 }]);
+      setCartDiscountInput('');
+      setCartDiscountType('value');
       setSelectedCustomer(null);
       setDocumentType('non_fiscal');
       
@@ -554,6 +683,13 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const handleCompleteSale = () => handleFinalizeSale();
   const openCheckout = () => {
     fiscal.refresh();
+    const t = cartFinalTotal(
+      cart,
+      parseFloat(cartDiscountInput) || 0,
+      cartDiscountType,
+    ).total;
+    setPaymentLines([{ id: newPaymentLineId(), method: paymentMethod, amount: t }]);
+    if (paymentMethod === 'money') setCashReceived(t.toFixed(2));
     setShowPayment(true);
   };
 
@@ -626,13 +762,50 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white text-center">
                 <p className="text-sm opacity-90 font-bold mb-1">Total da Venda</p>
                 <p className="text-4xl md:text-5xl font-black tabular-nums">{formatCurrency(getTotal())}</p>
+                {pricing.cartDiscount > 0 && (
+                  <p className="text-sm opacity-90 mt-1">
+                    Subtotal {formatCurrency(pricing.subtotal)} − desconto{' '}
+                    {formatCurrency(pricing.cartDiscount)}
+                  </p>
+                )}
                 <p className="text-sm opacity-75 mt-2">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</p>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-2">
+                <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Pagamento misto</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !mixedMode;
+                    setMixedMode(next);
+                    if (next) {
+                      setPaymentLines([
+                        { id: newPaymentLineId(), method: 'money', amount: roundMoney(pricing.total / 2) },
+                        {
+                          id: newPaymentLineId(),
+                          method: 'pix',
+                          amount: roundMoney(pricing.total - pricing.total / 2),
+                        },
+                      ]);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
+                    mixedMode
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'
+                  }`}
+                >
+                  {mixedMode ? 'Ativo' : 'Dividir'}
+                </button>
               </div>
 
               {/* Payment + document (documento no topo do SaleCheckoutFields) */}
               <SaleCheckoutFields
                 paymentMethod={paymentMethod}
-                onPaymentMethodChange={setPaymentMethod}
+                onPaymentMethodChange={(m) => {
+                  setPaymentMethod(m);
+                  if (m === 'money') setCashReceived(pricing.total.toFixed(2));
+                }}
                 documentType={documentType}
                 onDocumentTypeChange={setDocumentType}
                 fiscalReady={fiscal.ready}
@@ -640,6 +813,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 fiscalLoading={fiscal.loading}
                 fiscalReason={fiscal.reasons[0]}
                 fiscalReasons={fiscal.reasons}
+                hidePaymentMethods={mixedMode}
               >
               <CustomerPicker
                 value={selectedCustomer}
@@ -652,6 +826,16 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 }
               />
 
+              {mixedMode ? (
+                <MixedPaymentEditor
+                  total={pricing.total}
+                  lines={paymentLines}
+                  onChange={setPaymentLines}
+                  cashReceived={cashReceived}
+                  onCashReceivedChange={setCashReceived}
+                />
+              ) : (
+                <>
               {/* Cash Input */}
               {paymentMethod === 'money' && (
                 <div className="space-y-3">
@@ -728,6 +912,22 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   </div>
                 </div>
               )}
+                </>
+              )}
+
+              {mixedMode && mixedHasReceivable && (
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-gray-500 uppercase">
+                    Vencimento (fiado/boleto)
+                  </label>
+                  <input
+                    type="date"
+                    value={fiadoDueDate}
+                    onChange={(e) => setFiadoDueDate(e.target.value)}
+                    className="w-full px-4 py-3 text-base border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+              )}
               </SaleCheckoutFields>
             </div>
 
@@ -745,8 +945,14 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   disabled={
                     isProcessing ||
                     (customerRequired && !selectedCustomer) ||
-                    (paymentMethod === 'money' && getChange() < 0) ||
-                    ((paymentMethod === 'fiado' || paymentMethod === 'boleto') && !fiadoDueDate.trim())
+                    (!mixedMode && paymentMethod === 'money' && getChange() < 0) ||
+                    (mixedMode &&
+                      (Math.abs(paymentsSum(paymentLines) - pricing.total) > 0.009 ||
+                        (moneyPortion(paymentLines) > 0 && getChange() < 0))) ||
+                    ((!mixedMode &&
+                      (paymentMethod === 'fiado' || paymentMethod === 'boleto') &&
+                      !fiadoDueDate.trim()) ||
+                      (mixedMode && mixedHasReceivable && !fiadoDueDate.trim()))
                   }
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
@@ -777,10 +983,18 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
+                  ref={searchInputRef}
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar produto..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && filteredProducts[0]) {
+                      e.preventDefault();
+                      handleAddToCart(filteredProducts[0]);
+                      setSearchTerm('');
+                    }
+                  }}
+                  placeholder="Buscar produto… (F2) · Enter adiciona o 1º"
                   className="w-full pl-10 pr-4 py-2.5 md:py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -955,15 +1169,6 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                         onChange={(e) => handleSetQuantityDirect(item.id, e.target.value)}
                         min="1"
                         max={item.product.currentStock}
-                        style={{
-                          backgroundColor: 'white !important' as any,
-                          color: '#111827 !important' as any,
-                          border: '2px solid #e5e7eb !important' as any,
-                          borderRadius: '0.5rem !important' as any,
-                          padding: '0.25rem !important' as any,
-                          fontSize: '0.875rem !important' as any,
-                          fontWeight: '700 !important' as any,
-                        }}
                         className="w-14 text-center font-bold text-gray-900 dark:text-white bg-white dark:bg-gray-600 border-2 border-gray-300 dark:border-gray-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <button
@@ -976,8 +1181,20 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                     </div>
 
                     <p className="text-lg font-black text-gray-900 dark:text-white tabular-nums">
-                      {formatCurrency(item.price * item.quantity)}
+                      {formatCurrency(lineNet(item))}
                     </p>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <label className="text-[11px] text-gray-500 shrink-0">Desc. R$</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={item.discount || ''}
+                      onChange={(e) => setItemDiscount(item.id, e.target.value)}
+                      placeholder="0"
+                      className="w-24 px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-600"
+                    />
                   </div>
                 </div>
               ))
@@ -987,11 +1204,42 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
           {/* Cart Footer — sticky no painel do carrinho */}
           {cart.length > 0 && (
             <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 space-y-3 shrink-0">
-              <div className="flex items-center justify-between">
-                <span className="text-lg font-bold text-gray-700 dark:text-gray-300">Total</span>
-                <span className="text-3xl font-black text-blue-600 dark:text-blue-400 tabular-nums">
-                  {formatCurrency(getTotal())}
-                </span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={cartDiscountType}
+                  onChange={(e) => setCartDiscountType(e.target.value as 'value' | 'percent')}
+                  className="h-9 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-xs font-bold px-2"
+                >
+                  <option value="value">Desc. R$</option>
+                  <option value="percent">Desc. %</option>
+                </select>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={cartDiscountInput}
+                  onChange={(e) => setCartDiscountInput(e.target.value)}
+                  placeholder="0"
+                  className="flex-1 h-9 px-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"
+                />
+              </div>
+              <div className="space-y-0.5 text-sm">
+                <div className="flex justify-between text-gray-500">
+                  <span>Subtotal</span>
+                  <span className="tabular-nums">{formatCurrency(pricing.subtotal)}</span>
+                </div>
+                {pricing.cartDiscount > 0 && (
+                  <div className="flex justify-between text-amber-700 dark:text-amber-300">
+                    <span>Desconto</span>
+                    <span className="tabular-nums">− {formatCurrency(pricing.cartDiscount)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-lg font-bold text-gray-700 dark:text-gray-300">Total</span>
+                  <span className="text-3xl font-black text-blue-600 dark:text-blue-400 tabular-nums">
+                    {formatCurrency(getTotal())}
+                  </span>
+                </div>
               </div>
 
               <button
@@ -999,9 +1247,12 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 className="w-full py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
               >
                 <Zap className="w-5 h-5" />
-                Continuar
+                Continuar (F4)
                 <ArrowRight className="w-5 h-5" />
               </button>
+              <p className="text-[10px] text-center text-gray-400">
+                F2 busca · Enter adiciona · F4 pagar · Esc fecha · F9 limpa
+              </p>
             </div>
           )}
         </div>

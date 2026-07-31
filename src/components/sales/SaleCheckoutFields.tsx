@@ -44,6 +44,8 @@ interface SaleCheckoutFieldsProps {
   fiscalReason?: string;
   fiscalReasons?: string[];
   onOpenFiscalConfig?: () => void;
+  /** Oculta grade de pagamento (ex.: modo misto). */
+  hidePaymentMethods?: boolean;
   children?: React.ReactNode;
 }
 
@@ -62,6 +64,7 @@ export function SaleCheckoutFields({
   fiscalReason,
   fiscalReasons,
   onOpenFiscalConfig,
+  hidePaymentMethods = false,
   children,
 }: SaleCheckoutFieldsProps) {
   const pendingReasons = (fiscalReasons || []).filter(Boolean);
@@ -161,41 +164,43 @@ export function SaleCheckoutFields({
         )}
       </div>
 
-      <div>
-        <p className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
-          Forma de pagamento
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {SALE_PAYMENT_OPTIONS.map((opt) => {
-            const selected = paymentMethod === opt.value;
-            const Icon = opt.icon;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onPaymentMethodChange(opt.value)}
-                className={`p-3 rounded-xl border-2 text-left transition-all ${
-                  selected
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <Icon
-                  className={`w-5 h-5 mb-1 ${selected ? 'text-blue-600' : 'text-gray-400'}`}
-                />
-                <p
-                  className={`text-sm font-bold ${
-                    selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'
+      {!hidePaymentMethods && (
+        <div>
+          <p className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+            Forma de pagamento
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {SALE_PAYMENT_OPTIONS.map((opt) => {
+              const selected = paymentMethod === opt.value;
+              const Icon = opt.icon;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => onPaymentMethodChange(opt.value)}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    selected
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  {opt.label}
-                </p>
-                <p className="text-[11px] text-gray-500">{opt.hint}</p>
-              </button>
-            );
-          })}
+                  <Icon
+                    className={`w-5 h-5 mb-1 ${selected ? 'text-blue-600' : 'text-gray-400'}`}
+                  />
+                  <p
+                    className={`text-sm font-bold ${
+                      selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </p>
+                  <p className="text-[11px] text-gray-500">{opt.hint}</p>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {children}
     </div>

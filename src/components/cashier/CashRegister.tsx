@@ -22,6 +22,7 @@ import { CashierPOS } from './CashierPOS';
 import { CashierClose } from './CashierClose';
 import { CashierHistory } from './CashierHistory';
 import { CashierSales } from './CashierSales';
+import { CashierCashMovements } from './CashierCashMovements';
 import { SaleReceipt } from './SaleReceipt';
 
 interface CashRegisterProps {
@@ -35,7 +36,7 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
   const { currentCompany } = useCompany();
   const [currentRegister, setCurrentRegister] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeView, setActiveView] = useState<'pos' | 'sales' | 'close' | 'history'>('pos');
+  const [activeView, setActiveView] = useState<'pos' | 'sales' | 'cash' | 'close' | 'history'>('pos');
   const [completedSale, setCompletedSale] = useState<any>(null);
   
   // Opening register form
@@ -360,6 +361,17 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
                 Histórico
               </button>
               <button
+                onClick={() => setActiveView('cash')}
+                className={`px-3 md:px-4 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
+                  activeView === 'cash'
+                    ? 'bg-amber-600 text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Wallet className="w-4 h-4 inline mr-1 md:mr-2" />
+                Sangria / Troco
+              </button>
+              <button
                 onClick={() => setActiveView('close')}
                 className={`px-3 md:px-4 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                   activeView === 'close'
@@ -400,6 +412,14 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
             register={currentRegister} 
             onSaleComplete={handleSaleComplete}
           />
+          </div>
+        )}
+        {activeView === 'cash' && (
+          <div className="flex-1 min-h-0 overflow-auto">
+            <CashierCashMovements
+              register={currentRegister}
+              onUpdated={checkCurrentRegister}
+            />
           </div>
         )}
         {activeView === 'close' && (

@@ -39,9 +39,14 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
   const [depositReason, setDepositReason] = useState('');
 
   const totalSales = register.sales?.reduce((sum: number, sale: any) => sum + sale.total, 0) || 0;
+  const cashSales =
+    register.sales
+      ?.filter((sale: any) => (sale.paymentMethod || 'money') === 'money')
+      .reduce((sum: number, sale: any) => sum + sale.total, 0) || 0;
   const totalWithdrawals = register.withdrawals?.reduce((sum: number, w: any) => sum + w.amount, 0) || 0;
   const totalDeposits = register.deposits?.reduce((sum: number, d: any) => sum + d.amount, 0) || 0;
-  const expectedBalance = register.initialBalance + totalSales + totalDeposits - totalWithdrawals;
+  // Esperado na gaveta = inicial + dinheiro das vendas + suprimentos − sangrias
+  const expectedBalance = register.initialBalance + cashSales + totalDeposits - totalWithdrawals;
   const salesCount = register.sales?.length || 0;
 
   // Payment breakdown
@@ -69,6 +74,10 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
       toast.error('Informe um valor válido');
       return;
     }
+    if (withdrawalReason.trim().length < 3) {
+      toast.error('Informe o motivo da sangria');
+      return;
+    }
 
     try {
       const headers: Record<string, string> = {
@@ -89,7 +98,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
           body: JSON.stringify({
             registerId: register.id,
             amount: parseFloat(withdrawalAmount),
-            reason: withdrawalReason,
+            reason: withdrawalReason.trim(),
           }),
         }
       );
@@ -121,6 +130,10 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
       toast.error('Informe um valor válido');
       return;
     }
+    if (depositReason.trim().length < 3) {
+      toast.error('Informe o motivo do suprimento (ex.: troco)');
+      return;
+    }
 
     try {
       const headers: Record<string, string> = {
@@ -141,7 +154,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
           body: JSON.stringify({
             registerId: register.id,
             amount: parseFloat(depositAmount),
-            reason: depositReason,
+            reason: depositReason.trim(),
           }),
         }
       );
@@ -153,7 +166,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
         return;
       }
 
-      toast.success('Reforço registrado');
+      toast.success('Suprimento registrado');
       setDepositAmount('');
       setDepositReason('');
       setShowDeposit(false);
@@ -261,10 +274,13 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
             <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
               <DollarSign className="w-5 h-5 text-orange-600" />
             </div>
-            <p className="text-sm font-bold text-gray-600">Esperado</p>
+            <p className="text-sm font-bold text-gray-600">Esperado (gaveta)</p>
           </div>
           <p className="text-2xl font-black text-orange-600">
             R$ {expectedBalance.toFixed(2)}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Inicial + dinheiro + troco − sangrias
           </p>
         </div>
       </div>
@@ -369,7 +385,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
               <ArrowUp className="w-5 h-5 text-green-600" />
-              Reforços
+              Suprimentos / troco
             </h3>
             <button
               onClick={() => setShowDeposit(true)}
@@ -560,7 +576,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-black text-gray-900">
-                Registrar Reforço
+                Registrar suprimento / troco
               </h3>
               <button
                 type="button"
@@ -606,7 +622,7 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
                 type="submit"
                 className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors"
               >
-                Registrar Reforço
+                Registrar suprimento
               </button>
             </div>
           </form>

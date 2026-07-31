@@ -62,6 +62,12 @@ export interface Product {
   barcode?: string;
   sellingPrice?: number;
   image?: string;
+  /** Fiscal NFC-e (opcional — defaults no emit se vazio). */
+  ncm?: string;
+  cfop?: string;
+  csosn?: string;
+  cst?: string;
+  origem?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -178,11 +184,14 @@ export interface UserPermissions {
   canManageRecipes: boolean;
   canViewReports: boolean;
   canManageUsers: boolean;
+  /** Configurações / integrações / fiscal — só admin e superadmin. */
   canManageSettings: boolean;
+  /** PDV: abrir/fechar caixa, vendas, sangria e suprimento. */
+  canAccessCashier: boolean;
 }
 
 export interface UserProfile {
-  id: string;
+  id: string; // Supabase Auth ID
   email: string;
   fullName: string;
   role: UserRole;

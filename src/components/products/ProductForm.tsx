@@ -37,6 +37,11 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
     barcode: '',
     supplierId: '',
     shelfLife: 0,
+    ncm: '',
+    cfop: '',
+    csosn: '',
+    cst: '',
+    origem: '0',
     isBundle: false,
     bundleItems: [] as Array<{ productId: string; quantity: number }>,
   });
@@ -73,6 +78,11 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
         barcode: product.barcode || '',
         supplierId: product.supplierId || '',
         shelfLife: product.shelfLife || 0,
+        ncm: product.ncm || '',
+        cfop: product.cfop || '',
+        csosn: product.csosn || '',
+        cst: product.cst || '',
+        origem: product.origem || '0',
         isBundle: Array.isArray(product.bundleItems) && product.bundleItems.length > 0,
         bundleItems: Array.isArray(product.bundleItems) ? product.bundleItems : [],
       });
@@ -369,6 +379,60 @@ export function ProductForm({ product, onSave, onCancel, existingProducts, onPro
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-1">Digite manualmente ou use o scanner de câmera</p>
+            </div>
+
+            <div className="rounded-lg border border-border p-3 space-y-3">
+              <h4 className="text-sm font-semibold">Fiscal (NFC-e)</h4>
+              <p className="text-xs text-muted-foreground">
+                Opcional. Se vazio, a emissão usa padrões (NCM 21069090 / CFOP 5102).
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-foreground mb-1 text-sm">NCM</label>
+                  <Input
+                    value={formData.ncm}
+                    onChange={(e) => handleChange('ncm', e.target.value.replace(/\D/g, '').slice(0, 8))}
+                    placeholder="8 dígitos"
+                    inputMode="numeric"
+                  />
+                </div>
+                <div>
+                  <label className="block text-foreground mb-1 text-sm">CFOP</label>
+                  <Input
+                    value={formData.cfop}
+                    onChange={(e) => handleChange('cfop', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="Ex.: 5102"
+                    inputMode="numeric"
+                  />
+                </div>
+                <div>
+                  <label className="block text-foreground mb-1 text-sm">CSOSN (Simples)</label>
+                  <Input
+                    value={formData.csosn}
+                    onChange={(e) => handleChange('csosn', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="Ex.: 102"
+                    inputMode="numeric"
+                  />
+                </div>
+                <div>
+                  <label className="block text-foreground mb-1 text-sm">CST / Origem</label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={formData.cst}
+                      onChange={(e) => handleChange('cst', e.target.value.replace(/\D/g, '').slice(0, 3))}
+                      placeholder="CST"
+                      inputMode="numeric"
+                    />
+                    <Input
+                      value={formData.origem}
+                      onChange={(e) => handleChange('origem', e.target.value.replace(/\D/g, '').slice(0, 1))}
+                      placeholder="0"
+                      className="w-16"
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
             
             <div className="flex items-center gap-2">
