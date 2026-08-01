@@ -84,12 +84,38 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [productLimit, setProductLimit] = useState(48);
   const fiscal = useFiscalReadiness({ refreshKey: isConfirmOpen });
   const emitNfce = documentType === 'nfce';
+  const [isOffline, setIsOffline] = useState(
+    () => typeof navigator !== 'undefined' && !navigator.onLine,
+  );
+  // Offline = venda avulsa sem cliente
   const customerRequired =
-    paymentMethod === 'fiado' || paymentMethod === 'boleto' || emitNfce;
+    !isOffline &&
+    (paymentMethod === 'fiado' || paymentMethod === 'boleto' || emitNfce);
 
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
   }, [fiscal.ready, documentType]);
+
+  useEffect(() => {
+    const applyOfflineCheckout = () => {
+      setIsOffline(true);
+      setDocumentType('non_fiscal');
+      setSelectedCustomer(null);
+      setPaymentMethod((m) =>
+        m === 'fiado' || m === 'boleto' ? 'money' : m,
+      );
+    };
+    const goOnline = () => setIsOffline(false);
+    window.addEventListener('offline', applyOfflineCheckout);
+    window.addEventListener('online', goOnline);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      applyOfflineCheckout();
+    }
+    return () => {
+      window.removeEventListener('offline', applyOfflineCheckout);
+      window.removeEventListener('online', goOnline);
+    };
+  }, []);
 
   useEffect(() => {
     setProductLimit(48);
@@ -401,13 +427,13 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const handleCheckout = async () => {
     if (cart.length === 0 || !currentCompany) return;
 
-    const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+    const offline = isOffline || (typeof navigator !== 'undefined' && !navigator.onLine);
     if (offline) {
       const gate = isOfflineNonFiscalAllowed({
-        emitNfce,
+        emitNfce: false,
         paymentMethod,
         mixedMode: false,
-        hasReceivable: isReceivable,
+        hasReceivable: false,
       });
       if (!gate.ok) {
         toast.error(gate.reason);
@@ -415,7 +441,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       }
     }
 
-    if (customerRequired && !selectedCustomer) {
+    if (!offline && customerRequired && !selectedCustomer) {
       toast.error('Selecione ou cadastre o cliente (nome + CPF/CNPJ)');
       return;
     }
@@ -1077,10 +1103,13 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                   value={selectedCustomer}
                   onChange={setSelectedCustomer}
                   required={customerRequired}
+                  allowWalkInWithoutCustomer={isOffline}
                   hint={
-                    customerRequired
-                      ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
-                      : 'Recomendado para vincular a venda e o cupom'
+                    isOffline
+                      ? 'Venda avulsa offline — sem cliente'
+                      : customerRequired
+                        ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
+                        : 'Opcional — pode vender sem cliente'
                   }
                 />
 

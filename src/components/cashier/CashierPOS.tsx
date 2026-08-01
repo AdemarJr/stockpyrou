@@ -106,23 +106,41 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const mixedHasReceivable = paymentLines.some(
     (l) => l.method === 'fiado' || l.method === 'boleto',
   );
+  const [isOffline, setIsOffline] = useState(
+    () => typeof navigator !== 'undefined' && !navigator.onLine,
+  );
+  // Offline = venda avulsa: nunca exige cliente (NFC-e/fiado ficam bloqueados)
   const customerRequired =
-    emitNfce ||
-    (mixedMode
-      ? mixedHasReceivable
-      : paymentMethod === 'fiado' || paymentMethod === 'boleto');
+    !isOffline &&
+    (emitNfce ||
+      (mixedMode
+        ? mixedHasReceivable
+        : paymentMethod === 'fiado' || paymentMethod === 'boleto'));
 
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
   }, [fiscal.ready, documentType]);
 
   useEffect(() => {
-    const goOffline = () => setDocumentType('non_fiscal');
-    window.addEventListener('offline', goOffline);
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const applyOfflineCheckout = () => {
+      setIsOffline(true);
       setDocumentType('non_fiscal');
+      setMixedMode(false);
+      setSelectedCustomer(null);
+      setPaymentMethod((m) =>
+        m === 'fiado' || m === 'boleto' ? 'money' : m,
+      );
+    };
+    const goOnline = () => setIsOffline(false);
+    window.addEventListener('offline', applyOfflineCheckout);
+    window.addEventListener('online', goOnline);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      applyOfflineCheckout();
     }
-    return () => window.removeEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('offline', applyOfflineCheckout);
+      window.removeEventListener('online', goOnline);
+    };
   }, []);
 
   useEffect(() => {
@@ -463,13 +481,13 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       return;
     }
 
-    const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+    const offline = isOffline || (typeof navigator !== 'undefined' && !navigator.onLine);
     if (offline) {
       const gate = isOfflineNonFiscalAllowed({
-        emitNfce,
+        emitNfce: false,
         paymentMethod,
         mixedMode,
-        hasReceivable: mixedHasReceivable,
+        hasReceivable: false,
       });
       if (!gate.ok) {
         toast.error(gate.reason);
@@ -514,7 +532,8 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       toast.error('Informe a data de vencimento');
       return;
     }
-    if (customerRequired && !selectedCustomer) {
+    // Offline: venda avulsa sem cliente. Online: só exige em fiado/boleto/NFC-e.
+    if (!offline && customerRequired && !selectedCustomer) {
       toast.error('Selecione ou cadastre o cliente (nome + CPF/CNPJ)');
       return;
     }
@@ -532,14 +551,15 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         headers['X-Company-Id'] = currentCompany.id;
       }
 
-      const customerPayload = selectedCustomer
-        ? {
-            customerId: selectedCustomer.id,
-            customerName: selectedCustomer.name,
-            customerDocument: selectedCustomer.documentDigits,
-            customerDocumentType: selectedCustomer.documentType,
-          }
-        : {};
+      const customerPayload =
+        !offline && selectedCustomer
+          ? {
+              customerId: selectedCustomer.id,
+              customerName: selectedCustomer.name,
+              customerDocument: selectedCustomer.documentDigits,
+              customerDocumentType: selectedCustomer.documentType,
+            }
+          : {};
 
       const pricedItems = buildPricedSaleItems(cart, pricing.cartDiscount);
       const methodToSend: string = mixedMode ? 'mixed' : paymentMethod;
@@ -923,10 +943,13 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 value={selectedCustomer}
                 onChange={setSelectedCustomer}
                 required={customerRequired}
+                allowWalkInWithoutCustomer={isOffline}
                 hint={
-                  customerRequired
-                    ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
-                    : 'Recomendado para vincular a venda e o cupom'
+                  isOffline
+                    ? 'Venda avulsa offline — sem cliente'
+                    : customerRequired
+                      ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
+                      : 'Opcional — pode vender sem cliente'
                 }
               />
 

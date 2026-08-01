@@ -19,6 +19,11 @@ interface CustomerPickerProps {
   required?: boolean;
   label?: string;
   hint?: string;
+  /**
+   * Offline / venda avulsa: não busca API nem exige cadastro.
+   * Mostra aviso e permite seguir sem cliente.
+   */
+  allowWalkInWithoutCustomer?: boolean;
 }
 
 function onlyDigits(v: string) {
@@ -49,6 +54,7 @@ export function CustomerPicker({
   required = false,
   label = 'Cliente',
   hint,
+  allowWalkInWithoutCustomer = false,
 }: CustomerPickerProps) {
   const { currentCompany } = useCompany();
   const [query, setQuery] = useState('');
@@ -60,7 +66,16 @@ export function CustomerPicker({
   const [newDoc, setNewDoc] = useState('');
   const [newPhone, setNewPhone] = useState('');
 
+  const walkIn = allowWalkInWithoutCustomer || (typeof navigator !== 'undefined' && !navigator.onLine);
+  const effectivelyRequired = required && !walkIn;
+
   useEffect(() => {
+    if (walkIn) {
+      setResults([]);
+      setLoading(false);
+      setShowCreate(false);
+      return;
+    }
     if (!currentCompany?.id) return;
     const t = window.setTimeout(() => {
       setLoading(true);
@@ -70,13 +85,16 @@ export function CustomerPicker({
         .finally(() => setLoading(false));
     }, 250);
     return () => window.clearTimeout(t);
-  }, [query, currentCompany?.id]);
+  }, [query, currentCompany?.id, walkIn]);
 
   const filteredHint = useMemo(() => {
+    if (walkIn) {
+      return 'Venda avulsa offline — cliente não é necessário';
+    }
     if (hint) return hint;
-    if (required) return 'Obrigatório: nome e CPF ou CNPJ';
+    if (effectivelyRequired) return 'Obrigatório: nome e CPF ou CNPJ';
     return 'Busque ou cadastre (nome + CPF/CNPJ)';
-  }, [hint, required]);
+  }, [hint, effectivelyRequired, walkIn]);
 
   const handleCreate = async () => {
     if (!currentCompany?.id) return;
@@ -117,12 +135,25 @@ export function CustomerPicker({
     }
   };
 
+  if (walkIn && !value) {
+    return (
+      <div className="space-y-1.5 rounded-xl border border-dashed border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-800 p-3">
+        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
+          {label}
+        </label>
+        <p className="text-sm text-emerald-800 dark:text-emerald-200">
+          Venda avulsa — sem dados de cliente. A busca/cadastro de clientes precisa de internet.
+        </p>
+      </div>
+    );
+  }
+
   if (value) {
     return (
       <div className="space-y-1.5">
         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
           {label}
-          {required && <span className="text-red-500"> *</span>}
+          {effectivelyRequired && <span className="text-red-500"> *</span>}
         </label>
         <div className="flex items-start gap-3 rounded-xl border-2 border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-3">
           <UserRound className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
@@ -149,7 +180,7 @@ export function CustomerPicker({
     <div className="space-y-2">
       <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
         {label}
-        {required && <span className="text-red-500"> *</span>}
+        {effectivelyRequired && <span className="text-red-500"> *</span>}
       </label>
       <p className="text-xs text-gray-500">{filteredHint}</p>
 
