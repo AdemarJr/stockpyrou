@@ -16,7 +16,7 @@ export function OfflineBanner() {
     >
       <span className="inline-flex items-center justify-center gap-2">
         <WifiOff className="w-4 h-4 shrink-0" aria-hidden />
-        Sem conexão — modo leitura limitada. Vendas, baixa ZIG, NFC-e e login precisam de internet.
+        Sem conexão — cupom não fiscal no PDV pode ser enfileirado. NFC-e, fiado, ZIG e login precisam de internet.
       </span>
     </div>
   );

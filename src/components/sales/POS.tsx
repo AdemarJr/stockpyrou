@@ -21,6 +21,12 @@ import {
   CustomerPicker,
   type SelectedCustomer,
 } from '../customers/CustomerPicker';
+import {
+  enqueueOfflineSale,
+  isOfflineNonFiscalAllowed,
+  loadCachedProducts,
+  loadCachedRegister,
+} from '../../offline/offlineSaleQueue';
 
 interface POSProps {
   products: Product[];
@@ -394,9 +400,19 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
   const handleCheckout = async () => {
     if (cart.length === 0 || !currentCompany) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      toast.error('Sem internet. Não é possível finalizar a venda offline.');
-      return;
+
+    const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (offline) {
+      const gate = isOfflineNonFiscalAllowed({
+        emitNfce,
+        paymentMethod,
+        mixedMode: false,
+        hasReceivable: isReceivable,
+      });
+      if (!gate.ok) {
+        toast.error(gate.reason);
+        return;
+      }
     }
 
     if (customerRequired && !selectedCustomer) {
@@ -413,10 +429,100 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     }
 
     setIsProcessing(true);
-    const toastId = toast.loading('Processando venda e baixando estoque...');
+    const toastId = toast.loading(
+      offline ? 'Registrando venda offline…' : 'Processando venda e baixando estoque...',
+    );
 
     try {
       const checkoutId = crypto.randomUUID();
+
+      if (offline) {
+        const cachedReg = await loadCachedRegister(currentCompany.id);
+        const registerId = cachedReg?.id ? String(cachedReg.id) : null;
+        if (!registerId) {
+          throw new Error('Sem caixa em cache. Abra o caixa online antes de vender offline.');
+        }
+
+        const catalog = (await loadCachedProducts(currentCompany.id)) || products;
+        for (const item of cart) {
+          if (item.type !== 'product') continue;
+          const product = catalog.find((p) => p.id === item.id);
+          const stock = Number(product?.currentStock) || 0;
+          if (stock < item.quantity) {
+            throw new Error(`Estoque insuficiente (local) para «${item.name}»`);
+          }
+        }
+
+        const paymentDetails: Record<string, unknown> = { emitNfce: false };
+        if (paymentMethod === 'money') {
+          paymentDetails.cashReceived = cashReceived
+            ? parseFloat(cashReceived)
+            : totalAmount;
+          paymentDetails.change = cashReceived ? cashChange : 0;
+        }
+
+        const salePayload = {
+          registerId,
+          clientRequestId: checkoutId,
+          items: cart.map((item) => ({
+            productId: item.type === 'product' ? item.id : undefined,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+          })),
+          total: totalAmount,
+          paymentMethod,
+          paymentDetails,
+        };
+
+        const stockItems = cart
+          .filter((item) => item.type === 'product')
+          .map((item) => {
+            const product = catalog.find((p) => p.id === item.id);
+            return {
+              productId: item.id,
+              quantity: item.quantity,
+              name: item.name,
+              bundleItems: product?.bundleItems,
+            };
+          });
+
+        const queued = await enqueueOfflineSale({
+          companyId: currentCompany.id,
+          registerId,
+          products: catalog,
+          payload: salePayload,
+          stockItems,
+          receiptItems: cart.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+          })),
+        });
+
+        toast.success('Venda offline registrada (cupom não fiscal). Sincroniza ao reconectar.', {
+          id: toastId,
+        });
+        setLastSale({
+          items: cart.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            unitPrice: item.price,
+            total: item.price * item.quantity,
+          })),
+          total: totalAmount,
+          date: new Date(),
+          paymentMethod,
+          customerName: selectedCustomer?.name,
+          saleId: queued.id,
+          emitNfce: false,
+        });
+        setCart([]);
+        setIsConfirmOpen(false);
+        resetCheckoutForm();
+        setShowReceipt(true);
+        return;
+      }
       /**
        * Regra de consistência financeira (custos/receita):
        * - Receita (dashboard) vem de `sales`

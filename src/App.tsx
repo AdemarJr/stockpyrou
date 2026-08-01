@@ -30,6 +30,7 @@ import { AdminSaaS } from './components/admin/AdminSaaS';
 import { QuickSearch } from './components/QuickSearch';
 import { PWAUpdateNotifier } from './components/PWAUpdateNotifier';
 import { OfflineBanner } from './components/OfflineBanner';
+import { OfflinePendingSales } from './components/OfflinePendingSales';
 import { CostDashboard } from './components/costs/CostDashboard';
 import { SettingsPage } from './components/settings/SettingsPage';
 import { NfceManagement } from './components/fiscal/NfceManagement';
@@ -317,7 +318,15 @@ function MainApp() {
         return prev;
       };
 
-      setProducts((prev) => mergeOrKeep(0, prev));
+      setProducts((prev) => {
+        const next = mergeOrKeep(0, prev);
+        if (companyId && results[0]?.status === 'fulfilled' && Array.isArray(next) && next.length > 0) {
+          void import('./offline/offlineSaleQueue').then(({ cacheProductsForOffline }) =>
+            cacheProductsForOffline(companyId, next),
+          );
+        }
+        return next;
+      });
       setSuppliers((prev) => mergeOrKeep(1, prev));
       setStockEntries((prev) => mergeOrKeep(2, prev));
       setMovements((prev) => mergeOrKeep(3, prev));
@@ -1154,6 +1163,7 @@ export default function App() {
       <CompanyProvider>
         <ThemeProvider>
           <OfflineBanner />
+          <OfflinePendingSales />
           <AppContent />
           <Toaster position="top-right" richColors closeButton duration={4000} />
           <PWAUpdateNotifier />

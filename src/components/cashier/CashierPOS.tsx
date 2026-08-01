@@ -43,6 +43,12 @@ import {
   roundMoney,
   type PaymentSplitLine,
 } from '../../utils/salePricing';
+import {
+  cacheProductsForOffline,
+  enqueueOfflineSale,
+  isOfflineNonFiscalAllowed,
+  loadCachedProducts,
+} from '../../offline/offlineSaleQueue';
 
 interface CashierPOSProps {
   register: { id: string; companyId?: string; [key: string]: unknown };
@@ -109,6 +115,15 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
   }, [fiscal.ready, documentType]);
+
+  useEffect(() => {
+    const goOffline = () => setDocumentType('non_fiscal');
+    window.addEventListener('offline', goOffline);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setDocumentType('non_fiscal');
+    }
+    return () => window.removeEventListener('offline', goOffline);
+  }, []);
 
   useEffect(() => {
     setProductLimit(48);
@@ -179,11 +194,35 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const loadProducts = async () => {
     try {
       if (!currentCompany) return;
-      
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const cached = await loadCachedProducts(currentCompany.id);
+        if (cached?.length) {
+          setProducts(cached);
+          toast.message('Produtos do cache local (offline)');
+          return;
+        }
+        toast.error('Sem internet e sem catálogo em cache. Conecte-se para carregar produtos.');
+        return;
+      }
+
       const allProducts = await ProductService.getAllProducts(currentCompany.id);
       setProducts(allProducts);
+      void cacheProductsForOffline(currentCompany.id, allProducts);
     } catch (error) {
       console.error('Error loading products:', error);
+      try {
+        if (currentCompany?.id) {
+          const cached = await loadCachedProducts(currentCompany.id);
+          if (cached?.length) {
+            setProducts(cached);
+            toast.message('Usando catálogo em cache (falha de rede)');
+            return;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
       toast.error('Erro ao carregar produtos');
     }
   };
@@ -423,9 +462,19 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       toast.error('Carrinho vazio');
       return;
     }
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      toast.error('Sem internet. Não é possível finalizar a venda offline.');
-      return;
+
+    const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (offline) {
+      const gate = isOfflineNonFiscalAllowed({
+        emitNfce,
+        paymentMethod,
+        mixedMode,
+        hasReceivable: mixedHasReceivable,
+      });
+      if (!gate.ok) {
+        toast.error(gate.reason);
+        return;
+      }
     }
 
     const finalTotal = pricing.total;
@@ -520,14 +569,65 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         baseDetails.dueDate = fiadoDueDate.trim();
       }
 
+      const clientRequestId = crypto.randomUUID();
       const salePayload = {
         registerId: register.id,
         items: pricedItems,
         total: finalTotal,
         paymentMethod: methodToSend,
         paymentDetails: baseDetails,
-        clientRequestId: `pdv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        clientRequestId,
       };
+
+      // Offline: enfileira cupom não fiscal e mostra recibo local
+      if (offline) {
+        if (!currentCompany?.id) {
+          toast.error('Empresa não identificada');
+          return;
+        }
+        for (const item of cart) {
+          const stock = Number(item.product.currentStock) || 0;
+          if (stock < item.quantity) {
+            toast.error(`Estoque insuficiente (local) para «${item.name}»`);
+            return;
+          }
+        }
+
+        const stockItems = cart.map((item) => ({
+          productId: item.id,
+          quantity: item.quantity,
+          name: item.name,
+          bundleItems: item.product.bundleItems,
+        }));
+
+        const queued = await enqueueOfflineSale({
+          companyId: currentCompany.id,
+          registerId: register.id,
+          products,
+          payload: salePayload,
+          stockItems,
+          receiptItems: cart.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+          })),
+        });
+
+        const cached = await loadCachedProducts(currentCompany.id);
+        if (cached) setProducts(cached);
+
+        toast.success('Venda offline registrada (cupom não fiscal). Sincroniza ao reconectar.');
+        clearCart();
+        setShowPayment(false);
+        setCashReceived('');
+        setCartDiscountInput('');
+        setMixedMode(false);
+        setPaymentLines([{ id: newPaymentLineId(), method: 'money', amount: 0 }]);
+        setSelectedCustomer(null);
+        setDocumentType('non_fiscal');
+        await onSaleComplete(queued.receipt);
+        return;
+      }
       
       console.log('📤 Sending sale to server:', salePayload);
       

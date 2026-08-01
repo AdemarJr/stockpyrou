@@ -24,6 +24,12 @@ import { CashierHistory } from './CashierHistory';
 import { CashierSales } from './CashierSales';
 import { CashierCashMovements } from './CashierCashMovements';
 import { SaleReceipt } from './SaleReceipt';
+import {
+  cacheOpenRegister,
+  countPendingOfflineSales,
+  loadCachedRegister,
+  syncPendingOfflineSales,
+} from '../../offline/offlineSaleQueue';
 
 interface CashRegisterProps {
   onBack?: () => void;
@@ -61,6 +67,20 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       setLoading(true);
       console.log('🔍 Checking current register with token:', user.accessToken.substring(0, 20) + '...');
       console.log('🏢 Current company:', currentCompany?.id);
+
+      // Offline: usa caixa aberto em cache
+      if (typeof navigator !== 'undefined' && !navigator.onLine && currentCompany?.id) {
+        const cached = await loadCachedRegister(currentCompany.id);
+        if (cached?.id && cached.status === 'open') {
+          setCurrentRegister(cached);
+          toast.message('Caixa em cache (offline) — cupom não fiscal disponível');
+        } else {
+          setCurrentRegister(null);
+          toast.error('Sem internet e sem caixa em cache. Abra o caixa online primeiro.');
+        }
+        setLoading(false);
+        return;
+      }
       
       const headers: Record<string, string> = {
         'Authorization': `Bearer ${user.accessToken}`,
@@ -93,8 +113,9 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       if (data.register) {
         console.log('✅ Register found:', data.register.id, 'Sales:', data.register.sales?.length || 0);
         setCurrentRegister(data.register);
-        // Salva no localStorage para persistência
-        localStorage.setItem(`cashier_register_${currentCompany?.id}`, JSON.stringify(data.register));
+        if (currentCompany?.id) {
+          void cacheOpenRegister(currentCompany.id, data.register);
+        }
       } else {
         console.log('ℹ️ No open register found');
         setCurrentRegister(null);
@@ -172,6 +193,9 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       console.log('✅ Register opened successfully:', data.register?.id);
       toast.success('Caixa aberto com sucesso!');
       setCurrentRegister(data.register);
+      if (currentCompany?.id && data.register) {
+        void cacheOpenRegister(currentCompany.id, data.register);
+      }
       setInitialBalance('');
     } catch (error) {
       console.error('💥 Error opening register:', error);
@@ -189,14 +213,22 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
 
   const handleSaleComplete = async (saleData: any) => {
     console.log('🎉 Sale completed:', saleData);
-    console.log('📋 Current completedSale state before update:', completedSale);
-    
-    // Set completed sale to show receipt
     setCompletedSale(saleData);
-    
-    console.log('✅ setCompletedSale called with:', saleData);
-    
-    // Refresh register data in background
+
+    // Venda offline: não chama API ainda
+    if (saleData?.offlinePending) {
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.onLine && currentCompany?.id && user?.accessToken) {
+      void syncPendingOfflineSales({
+        companyId: currentCompany.id,
+        accessToken: user.accessToken,
+      }).then(async (res) => {
+        if (res.synced > 0) await onInventoryChanged?.();
+      });
+    }
+
     await checkCurrentRegister();
     await onInventoryChanged?.();
   };

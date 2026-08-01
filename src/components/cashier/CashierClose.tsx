@@ -17,6 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { getBackendUrl } from '../../lib/backendUrl';
 import { toast } from 'sonner@2.0.3';
+import { countPendingOfflineSales } from '../../offline/offlineSaleQueue';
 
 interface CashierCloseProps {
   register: any;
@@ -183,6 +184,20 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
     if (!finalBalance || parseFloat(finalBalance) < 0) {
       toast.error('Informe o saldo final em caixa');
       return;
+    }
+
+    if (currentCompany?.id) {
+      try {
+        const pending = await countPendingOfflineSales(currentCompany.id);
+        if (pending > 0) {
+          toast.error(
+            `Há ${pending} venda(s) offline pendente(s). Reconecte e sincronize antes de fechar o caixa.`,
+          );
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
     }
 
     try {
