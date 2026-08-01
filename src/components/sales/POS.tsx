@@ -394,6 +394,10 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
 
   const handleCheckout = async () => {
     if (cart.length === 0 || !currentCompany) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error('Sem internet. Não é possível finalizar a venda offline.');
+      return;
+    }
 
     if (customerRequired && !selectedCustomer) {
       toast.error('Selecione ou cadastre o cliente (nome + CPF/CNPJ)');

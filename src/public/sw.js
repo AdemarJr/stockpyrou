@@ -1,5 +1,8 @@
-// Service Worker StockPyrou PWA — network-first no HTML para não travar em versão antiga
-const VERSION = '2.3.1'; // Incrementar a cada atualização
+// Service Worker StockPyrou PWA
+// - HTML network-first (não prende versão antiga)
+// - Atualização só com SKIP_WAITING (usuário clica "Atualizar")
+// - Offline: shell + assets já visitados + alguns GET de leitura
+const VERSION = '2.4.0';
 const CACHE_NAME = `stockpyrou-v${VERSION}`;
 const DATA_CACHE_NAME = `stockpyrou-data-v${VERSION}`;
 
@@ -7,31 +10,17 @@ function isAppCache(name) {
   return name.startsWith('pyroustock-') || name.startsWith('stockpyrou-');
 }
 
-// Não pré-cachear '/' — senão o index.html fica preso e o app não atualiza.
-const STATIC_CACHE = [];
-
-// URLs de API que podem ter fallback de cache (somente GET de leitura)
-const API_URLS = [
-  '/api/cashier/',
-  '/api/products/',
-  '/api/stock/',
-];
+const API_URLS = ['/api/cashier/', '/api/products/', '/api/stock/'];
 
 console.log(`[SW] Service Worker versão ${VERSION} carregando...`);
 
 self.addEventListener('install', (event) => {
-  console.log(`[SW] Installing version ${VERSION}...`);
+  console.log(`[SW] Installing version ${VERSION} (aguarda SKIP_WAITING)...`);
+  // NÃO chama skipWaiting aqui — o app só troca de versão quando o usuário confirma.
   event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => {
-        if (STATIC_CACHE.length === 0) return undefined;
-        return cache.addAll(STATIC_CACHE);
-      })
-      .then(() => self.skipWaiting())
-      .catch((error) => {
-        console.error('[SW] Install failed:', error);
-      }),
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.addAll(['/', '/manifest.json', '/favicon.svg']).catch(() => undefined),
+    ),
   );
 });
 
@@ -51,14 +40,7 @@ self.addEventListener('activate', (event) => {
           }),
         ),
       )
-      .then(() => self.clients.claim())
-      .then(() =>
-        self.clients.matchAll().then((clients) => {
-          clients.forEach((client) => {
-            client.postMessage({ type: 'SW_UPDATED', version: VERSION });
-          });
-        }),
-      ),
+      .then(() => self.clients.claim()),
   );
 });
 
@@ -83,16 +65,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Login e auth nunca devem passar pelo SW
+  // Auth nunca pelo SW
   if (url.pathname.includes('/auth/')) {
     return;
   }
 
-  if (url.origin !== self.location.origin && !url.hostname.includes('railway.app')) {
+  // Não intercepta API cross-origin (Railway) — evita CORS/offline estranho no login
+  if (url.origin !== self.location.origin) {
     return;
   }
 
-  // HTML / navegação: SEMPRE rede primeiro (evita tela branca e login antigo)
   if (isNavigationRequest(request) || url.pathname === '/' || url.pathname.endsWith('.html')) {
     event.respondWith(
       fetch(request)
@@ -107,10 +89,14 @@ self.addEventListener('fetch', (event) => {
           caches.match(request).then(
             (cached) =>
               cached ||
-              new Response('Offline', {
-                status: 503,
-                headers: { 'Content-Type': 'text/plain' },
-              }),
+              caches.match('/').then(
+                (home) =>
+                  home ||
+                  new Response(
+                    '<!doctype html><html><body style="font-family:sans-serif;padding:2rem"><h1>Offline</h1><p>Sem conexão. Reconecte e atualize a página.</p></body></html>',
+                    { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+                  ),
+              ),
           ),
         ),
     );
@@ -145,7 +131,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Assets com hash: cache first + atualização em background
+  // Assets: stale-while-revalidate
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       const networkFetch = fetch(request)
@@ -160,7 +146,6 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => cachedResponse || new Response('Offline', { status: 503 }));
 
-      // JS/CSS: prefere rede se houver cache antigo sem hash conhecido — usa stale-while-revalidate
       if (cachedResponse) {
         void networkFetch;
         return cachedResponse;
@@ -171,15 +156,17 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
+  const data = event.data || {};
+
+  if (data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 
-  if (event.data && event.data.type === 'GET_VERSION') {
-    event.ports[0].postMessage({ version: VERSION });
+  if (data.type === 'GET_VERSION') {
+    event.ports[0]?.postMessage({ version: VERSION });
   }
 
-  if (event.data && event.data.type === 'CLEAR_CACHE') {
+  if (data.type === 'CLEAR_CACHE') {
     event.waitUntil(
       caches
         .keys()
@@ -192,7 +179,7 @@ self.addEventListener('message', (event) => {
           ),
         )
         .then(() => {
-          event.ports[0].postMessage({ cleared: true });
+          event.ports[0]?.postMessage({ cleared: true, version: VERSION });
         }),
     );
   }

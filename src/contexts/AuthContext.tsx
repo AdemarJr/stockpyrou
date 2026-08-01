@@ -208,6 +208,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Login: sempre via API própria (stockpyrou-api).
   async function login(email: string, password: string): Promise<boolean> {
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        toast.error('Sem internet. Não é possível entrar offline.');
+        return false;
+      }
       return await loginCustom(email, password);
     } catch (error: unknown) {
       console.error('Login error:', error);

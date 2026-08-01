@@ -423,6 +423,10 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       toast.error('Carrinho vazio');
       return;
     }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error('Sem internet. Não é possível finalizar a venda offline.');
+      return;
+    }
 
     const finalTotal = pricing.total;
     if (finalTotal <= 0) {

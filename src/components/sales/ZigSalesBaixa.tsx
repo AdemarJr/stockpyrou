@@ -333,6 +333,10 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
   const handlePreviewSales = async () => {
     if (!currentCompany?.id) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error('Sem internet. Não é possível buscar vendas ZIG offline.');
+      return;
+    }
     if (zigBaixaUiDisabled) {
       toast.error('Baixa ZIG desligada. Ative o botão em Integrações → ZIG.');
       return;
@@ -404,6 +408,10 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
   const handleConfirmSales = async (transactionIdsOverride?: string[]) => {
     if (!currentCompany?.id) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error('Sem internet. Não é possível dar baixa ZIG offline.');
+      return;
+    }
     if (zigBaixaUiDisabled) {
       toast.error('Baixa ZIG desligada neste navegador.');
       return;
@@ -828,7 +836,12 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
           <button
             onClick={handlePreviewSales}
-            disabled={loadingPreview || !configLoaded || zigBaixaUiDisabled}
+            disabled={
+              loadingPreview ||
+              !configLoaded ||
+              zigBaixaUiDisabled ||
+              (typeof navigator !== 'undefined' && !navigator.onLine)
+            }
             className="w-full px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:bg-gray-400 flex items-center justify-center gap-2.5 transition-all font-semibold shadow-md active:scale-95"
           >
             {loadingPreview ? <RefreshCw className="w-5 h-5 animate-spin" /> : <ShoppingCart className="w-5 h-5" />}

@@ -1,36 +1,74 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw, Download, X } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { APP_NAME } from '../config/branding';
+import { safeStorage } from '../utils/safeStorage';
+
+const DISMISSED_SW_KEY = 'stockpyrou_sw_update_dismissed';
+const TOAST_ID = 'pwa-update-available';
 
 /**
- * Registra /sw.js do servidor (não Blob).
- * Blob SW não atualiza com reg.update() e deixava o app preso em JS antigo.
+ * Único registrador do Service Worker.
+ * Banner/toast só quando há worker em `waiting` (atualização real pendente).
  */
 export function PWAUpdateNotifier() {
-  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [showBanner, setShowBanner] = useState(false);
+  const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
+  const promptedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!('serviceWorker' in navigator)) {
-      console.log('ℹ️ Service Worker not supported in this browser');
-      return;
-    }
+    if (!('serviceWorker' in navigator)) return;
 
     let intervalId = 0;
     let cancelled = false;
 
-    const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'SW_UPDATED') {
-        setUpdateAvailable(true);
-        setShowBanner(true);
-      }
+    const waitingKey = (reg: ServiceWorkerRegistration) =>
+      reg.waiting?.scriptURL || '';
+
+    const wasDismissed = (reg: ServiceWorkerRegistration) => {
+      const key = waitingKey(reg);
+      return !!key && safeStorage.getItem(DISMISSED_SW_KEY) === key;
+    };
+
+    const promptUpdate = (reg: ServiceWorkerRegistration) => {
+      if (!reg.waiting || !navigator.serviceWorker.controller) return;
+      if (wasDismissed(reg)) return;
+      const key = waitingKey(reg);
+      if (!key || promptedKeyRef.current === key) return;
+
+      promptedKeyRef.current = key;
+      registrationRef.current = reg;
+      setRegistration(reg);
+      setShowBanner(true);
+
+      toast.info('Nova versão disponível!', {
+        id: TOAST_ID,
+        description: 'Há uma atualização pronta. Clique para aplicar.',
+        duration: 12_000,
+        action: {
+          label: 'Atualizar',
+          onClick: () => applyWaitingWorker(reg),
+        },
+      });
+    };
+
+    const watchInstalling = (reg: ServiceWorkerRegistration) => {
+      const newWorker = reg.installing;
+      if (!newWorker) return;
+      newWorker.addEventListener('statechange', () => {
+        if (
+          newWorker.state === 'installed' &&
+          navigator.serviceWorker.controller &&
+          reg.waiting
+        ) {
+          promptUpdate(reg);
+        }
+      });
     };
 
     const run = async () => {
       try {
-        // Remove registros Blob antigos (object URL) que travavam a atualização
         const existing = await navigator.serviceWorker.getRegistrations();
         for (const reg of existing) {
           const scriptUrl =
@@ -48,44 +86,23 @@ export function PWAUpdateNotifier() {
         if (cancelled) return;
 
         console.log('✅ Service Worker registered (/sw.js)');
+        registrationRef.current = reg;
         setRegistration(reg);
+
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          promptUpdate(reg);
+        }
+
+        reg.addEventListener('updatefound', () => watchInstalling(reg));
+
         void reg.update();
-
         intervalId = window.setInterval(() => {
-          void reg.update();
-        }, 60_000);
-
-        reg.addEventListener('updatefound', () => {
-          const newWorker = reg.installing;
-          if (!newWorker) return;
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              setUpdateAvailable(true);
-              setShowBanner(true);
-              toast.info('Nova versão disponível!', {
-                description: 'Clique para atualizar o aplicativo',
-                duration: Infinity,
-                action: {
-                  label: 'Atualizar',
-                  onClick: () => {
-                    if (reg.waiting) {
-                      navigator.serviceWorker.addEventListener(
-                        'controllerchange',
-                        () => window.location.reload(),
-                        { once: true },
-                      );
-                      reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                    } else {
-                      window.location.reload();
-                    }
-                  },
-                },
-              });
+          void reg.update().then(() => {
+            if (reg.waiting && navigator.serviceWorker.controller) {
+              promptUpdate(reg);
             }
           });
-        });
-
-        navigator.serviceWorker.addEventListener('message', onMessage);
+        }, 120_000);
       } catch (error) {
         console.log('ℹ️ Service Worker registration skipped:', error);
       }
@@ -96,34 +113,29 @@ export function PWAUpdateNotifier() {
     return () => {
       cancelled = true;
       if (intervalId) window.clearInterval(intervalId);
-      navigator.serviceWorker.removeEventListener('message', onMessage);
     };
   }, []);
 
   const handleUpdate = () => {
-    if (registration?.waiting) {
-      navigator.serviceWorker.addEventListener(
-        'controllerchange',
-        () => window.location.reload(),
-        { once: true },
-      );
-      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-      setShowBanner(false);
-      return;
-    }
-    window.location.reload();
+    const reg = registrationRef.current || registration;
+    if (reg) applyWaitingWorker(reg);
+    else window.location.reload();
   };
 
   const handleDismiss = () => {
+    const reg = registrationRef.current || registration;
+    const key = reg?.waiting?.scriptURL;
+    if (key) safeStorage.setItem(DISMISSED_SW_KEY, key);
     setShowBanner(false);
-    toast.info('Atualização adiada', {
-      description: 'A página será atualizada no próximo carregamento',
+    promptedKeyRef.current = key || null;
+    toast.dismiss(TOAST_ID);
+    toast.message('Atualização adiada', {
+      description: 'Você pode atualizar depois recarregando a página.',
+      duration: 4000,
     });
   };
 
-  if (!showBanner || !updateAvailable) {
-    return null;
-  }
+  if (!showBanner) return null;
 
   return (
     <>
@@ -131,7 +143,7 @@ export function PWAUpdateNotifier() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 flex-1">
             <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <RefreshCw className="w-5 h-5 animate-spin" />
+              <RefreshCw className="w-5 h-5" />
             </div>
             <div className="flex-1">
               <p className="font-bold text-sm">Nova versão disponível!</p>
@@ -140,6 +152,7 @@ export function PWAUpdateNotifier() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handleUpdate}
               className="px-4 py-2 bg-white text-blue-600 rounded-lg font-bold text-sm hover:bg-blue-50 transition-colors flex items-center gap-2"
             >
@@ -147,6 +160,7 @@ export function PWAUpdateNotifier() {
               Atualizar
             </button>
             <button
+              type="button"
               onClick={handleDismiss}
               className="w-8 h-8 flex items-center justify-center text-white/80 hover:text-white"
             >
@@ -159,7 +173,7 @@ export function PWAUpdateNotifier() {
       <div className="hidden md:block fixed top-4 right-4 bg-white rounded-2xl shadow-2xl border border-gray-200 p-5 z-50 max-w-md animate-slide-down">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-            <RefreshCw className="w-6 h-6 text-blue-600 animate-spin" />
+            <RefreshCw className="w-6 h-6 text-blue-600" />
           </div>
           <div className="flex-1">
             <h3 className="font-black text-gray-900 mb-1">Nova Versão Disponível!</h3>
@@ -168,6 +182,7 @@ export function PWAUpdateNotifier() {
             </p>
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={handleUpdate}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors flex items-center gap-2"
               >
@@ -175,6 +190,7 @@ export function PWAUpdateNotifier() {
                 Atualizar Agora
               </button>
               <button
+                type="button"
                 onClick={handleDismiss}
                 className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-bold text-sm hover:bg-gray-200 transition-colors"
               >
@@ -183,6 +199,7 @@ export function PWAUpdateNotifier() {
             </div>
           </div>
           <button
+            type="button"
             onClick={handleDismiss}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
@@ -205,4 +222,22 @@ export function PWAUpdateNotifier() {
       `}</style>
     </>
   );
+}
+
+function applyWaitingWorker(reg: ServiceWorkerRegistration) {
+  const waiting = reg.waiting;
+  if (!waiting) {
+    window.location.reload();
+    return;
+  }
+  safeStorage.removeItem(DISMISSED_SW_KEY);
+  toast.dismiss(TOAST_ID);
+  navigator.serviceWorker.addEventListener(
+    'controllerchange',
+    () => {
+      window.location.reload();
+    },
+    { once: true },
+  );
+  waiting.postMessage({ type: 'SKIP_WAITING' });
 }

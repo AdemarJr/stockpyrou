@@ -29,6 +29,7 @@ import { LandingPage } from './components/landing/LandingPage';
 import { AdminSaaS } from './components/admin/AdminSaaS';
 import { QuickSearch } from './components/QuickSearch';
 import { PWAUpdateNotifier } from './components/PWAUpdateNotifier';
+import { OfflineBanner } from './components/OfflineBanner';
 import { CostDashboard } from './components/costs/CostDashboard';
 import { SettingsPage } from './components/settings/SettingsPage';
 import { NfceManagement } from './components/fiscal/NfceManagement';
@@ -196,42 +197,15 @@ function MainApp() {
       document.head.appendChild(link);
     }
 
-    // Register Service Worker
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker
-          .register('/sw.js')
-          .then((registration) => {
-            console.log('[PWA] Service Worker registered successfully:', registration.scope);
-            
-            // Check for updates
-            registration.addEventListener('updatefound', () => {
-              const newWorker = registration.installing;
-              if (newWorker) {
-                newWorker.addEventListener('statechange', () => {
-                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                    console.log('[PWA] New content available, please refresh.');
-                  }
-                });
-              }
-            });
-          })
-          .catch((error) => {
-            console.error('[PWA] Service Worker registration failed:', error);
-          });
-      });
-    }
+    // Service Worker: registrado só em PWAUpdateNotifier (evita aviso duplicado).
 
     // PWA Install Prompt
-    let deferredPrompt: any = null;
-    
+    let deferredPrompt: Event | null = null;
+
     window.addEventListener('beforeinstallprompt', (e) => {
       console.log('[PWA] Install prompt available');
       e.preventDefault();
       deferredPrompt = e;
-      
-      // Show install button or notification
-      // You can create a custom install button here
     });
 
     window.addEventListener('appinstalled', () => {
@@ -1179,6 +1153,7 @@ export default function App() {
     <AuthProvider>
       <CompanyProvider>
         <ThemeProvider>
+          <OfflineBanner />
           <AppContent />
           <Toaster position="top-right" richColors closeButton duration={4000} />
           <PWAUpdateNotifier />
