@@ -334,7 +334,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       category: r.category,
       image: r.image
     })),
-    ...products.filter(p => !p.isPerishable || p.currentStock > 0).map(p => ({
+    ...products
+      .filter((p) => (Number(p.currentStock) || 0) > 0)
+      .map((p) => ({
       id: p.id,
       type: 'product' as const,
       name: p.name,

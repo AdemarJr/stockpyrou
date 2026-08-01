@@ -1,9 +1,7 @@
 import React from 'react';
 import { 
   CheckCircle2, 
-  BarChart3, 
   Smartphone, 
-  Barcode, 
   Zap, 
   ShieldCheck, 
   ArrowRight, 
@@ -13,24 +11,18 @@ import {
   Package,
   TrendingUp,
   Truck,
-  Moon,
-  Sun,
   Command,
-  Search,
   Users,
-  Database,
   LockKeyhole,
-  Sparkles,
   Star,
-  Layers,
-  Wifi,
-  WifiOff,
   Receipt,
   CreditCard,
   Camera,
   FileText,
   Clock,
-  TrendingDown
+  CloudOff,
+  Building2,
+  UserRound,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import image_e6773d54ec7685ec36adaaee57705c2d461a8da0 from 'figma:asset/e6773d54ec7685ec36adaaee57705c2d461a8da0.png';
@@ -52,78 +44,85 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
 
   const features = [
     {
-      title: "Dark Mode Profissional",
-      description: "Interface moderna com tema escuro/claro. Reduz fadiga visual e melhora a produtividade em ambientes de trabalho.",
-      icon: <Moon className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1762340276397-db7ca4ee6ab6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkYXJrJTIwbW9kZSUyMGludGVyZmFjZXxlbnwxfHx8fDE3NjkyOTQzMjR8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
+      title: "PDV Offline com Sync Automático",
+      description: "Venda com cupom não fiscal sem internet. Catálogo e caixa ficam em cache; a fila sincroniza sozinha ao reconectar, sem duplicar venda ou estoque.",
+      icon: <CloudOff className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvZmZsaW5lJTIwdGVjaG5vbG9neSUyMG1vYmlsZXxlbnwxfHx8fDE3NjkyMDIzMDF8MA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: "NEW"
     },
     {
-      title: "Busca Instantânea (⌘K)",
-      description: "Encontre produtos por nome, SKU ou código de barras em milissegundos. Atalho Cmd/Ctrl+K para acesso rápido.",
-      icon: <Command className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1763107228544-2ad5d71c21f0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JpbGUlMjBhcHAlMjBwcm9kdWN0aXZpdHl8ZW58MXx8fHwxNjkyOTgyMzF8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
+      title: "NFC-e na Frente de Caixa",
+      description: "Escolha emitir NFC-e ou cupom interno na hora da venda. Fluxo fiscal preparado na operação, com cliente e documento quando necessário.",
+      icon: <FileText className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
       badge: "NEW"
     },
     {
-      title: "Módulo de Caixa/PDV Completo",
-      description: "Sistema completo de Ponto de Venda com abertura/fechamento de caixa, vendas rápidas, sangrias, reforços e integração WhatsApp para envio de recibos.",
+      title: "Caixa / PDV Completo",
+      description: "Abertura e fechamento de caixa, vendas rápidas, sangrias, reforços, recibo e catálogo só com produtos em estoque — pronto para o dia a dia do balcão.",
       icon: <Receipt className="w-6 h-6 text-blue-600" />,
       image: "https://images.unsplash.com/photo-1556742521-9713bf272865?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyZXRhaWwlMjBwb3MlMjBzeXN0ZW18ZW58MXx8fHwxNzY5MjAyMzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: "HOT"
     },
     {
-      title: "Funcionamento Offline-First",
-      description: "Continue vendendo mesmo sem internet! Sistema com cache inteligente que sincroniza automaticamente quando a conexão volta.",
-      icon: <WifiOff className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvZmZsaW5lJTIwdGVjaG5vbG9neSUyMG1vYmlsZXxlbnwxfHx8fDE3NjkyMDIzMDF8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      title: "Baixa de Estoque via ZIG",
+      description: "Busque vendas da ZIG, selecione os itens e dê baixa no estoque com consolidação por produto e dia — sem processar o que você não marcou.",
+      icon: <Zap className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1740914994657-f1cdffdc418e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx3YXJlaG91c2UlMjBtYW5hZ2VtZW50JTIwaW52ZW50b3J5fGVufDF8fHx8MTc2OTE2NjY2OXww&ixlib=rb-4.1.0&q=80&w=1080",
       badge: "HOT"
     },
     {
-      title: "Relatórios Inteligentes",
-      description: "Análises detalhadas de vendas, fechamentos de caixa, desperdícios, lucratividade e previsão de demanda. Exporte em Excel e PDF.",
-      icon: <FileText className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkYXNoYm9hcmQlMjBhbmFseXRpY3MlMjByZXBvcnRzfGVufDF8fHx8MTc2OTIwMjMwMXww&ixlib=rb-4.1.0&q=80&w=1080",
-      badge: null
-    },
-    {
-      title: "Scanner de Câmera Nativo",
-      description: "Use a câmera do celular ou webcam para escanear códigos de barras. Perfeito para inventário, vendas e entrada de produtos.",
-      icon: <Camera className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1758543102397-e14b5dfdd8bd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxiYXJjb2RlJTIwc2Nhbm5lciUyMHJldGFpbCUyMHRlY2hub2xvZ3l8ZW58MXx8fHwxNzY5MjAyMzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
-      badge: null
-    },
-    {
-      title: "Multi-Tenant Seguro",
-      description: "Isolamento total entre empresas. Cada organização possui seus próprios dados, usuários e configurações com criptografia de ponta.",
-      icon: <Database className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1748609339084-ea43ec1b8fbb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBidXNpbmVzcyUyMGRhc2hib2FyZHxlbnwxfHx8fDE3NjkyNDAxNTV8MA&ixlib=rb-4.1.0&q=80&w=1080",
-      badge: null
-    },
-    {
-      title: "PWA com Auto-Update",
-      description: "Progressive Web App que funciona como aplicativo nativo. Atualizações automáticas sem necessidade de download manual.",
-      icon: <Smartphone className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1645226880663-81561dcab0ae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JpbGUlMjBhcHAlMjBzbWFydHBob25lJTIwYnVzaW5lc3N8ZW58MXx8fHwxNzY5MjAyMzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
-      badge: null
-    },
-    {
-      title: "Gestão de Múltiplos Pagamentos",
-      description: "Aceite dinheiro, PIX, cartão de crédito e débito. Controle total de sangrias, reforços e fechamento de caixa com conferência automática.",
+      title: "Pagamentos Flexíveis",
+      description: "Dinheiro, PIX, crédito, débito, pagamento misto, fiado e boleto. Controle de troco, sangrias e conferência no fechamento do caixa.",
       icon: <CreditCard className="w-6 h-6 text-blue-600" />,
       image: "https://images.unsplash.com/photo-1563013544-824ae1b704d3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwYXltZW50JTIwbWV0aG9kcyUyMGNhc2hpZXJ8ZW58MXx8fHwxNzY5MjAyMzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: null
     },
     {
-      title: "Integração API ZIG",
-      description: "Conecte com a API da ZIG para automação de processos financeiros, gestão de pagamentos e conciliação bancária.",
-      icon: <Zap className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1740914994657-f1cdffdc418e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx3YXJlaG91c2UlMjBtYW5hZ2VtZW50JTIwaW52ZW50b3J5fGVufDF8fHx8MTc2OTE2NjY2OXww&ixlib=rb-4.1.0&q=80&w=1080",
+      title: "Clientes e Venda Avulsa",
+      description: "Cadastro rápido de cliente com CPF/CNPJ quando precisar. Offline, venda avulsa sem obrigar cliente — ideal para balcão e delivery.",
+      icon: <UserRound className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1556745757-8d76bdb6984b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
       badge: null
     },
     {
-      title: "Histórico Completo de Operações",
-      description: "Rastreie todas as movimentações, vendas, fechamentos e ajustes. Auditoria completa com usuário, data/hora e motivo de cada ação.",
+      title: "Estoque e Entrada Inteligente",
+      description: "Entradas, balanço, combos/promos com baixa nos itens filhos, scanner de câmera e importação de XML de NF-e para acelerar o recebimento.",
+      icon: <Package className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
+      badge: null
+    },
+    {
+      title: "Relatórios Inteligentes",
+      description: "Vendas, fechamentos, saídas (incluindo ZIG), desperdícios, lucratividade e previsão de demanda. Exporte e acompanhe a operação.",
+      icon: <TrendingUp className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkYXNoYm9hcmQlMjBhbmFseXRpY3MlMjByZXBvcnRzfGVufDF8fHx8MTc2OTIwMjMwMXww&ixlib=rb-4.1.0&q=80&w=1080",
+      badge: null
+    },
+    {
+      title: "PWA Instalável",
+      description: "Instale no celular ou desktop como app. Atualização sob controle do operador — sem interrupção no meio da venda.",
+      icon: <Smartphone className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1645226880663-81561dcab0ae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JpbGUlMjBhcHAlMjBzbWFydHBob25lJTIwYnVzaW5lc3N8ZW58MXx8fHwxNzY5MjAyMzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      badge: null
+    },
+    {
+      title: "Multi-Empresa e Permissões",
+      description: "Várias empresas no mesmo login, dados isolados e papéis por usuário. Cada time vê só o que precisa operar.",
+      icon: <Building2 className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1748609339084-ea43ec1b8fbb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBidXNpbmVzcyUyMGRhc2hib2FyZHxlbnwxfHx8fDE3NjkyNDAxNTV8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      badge: null
+    },
+    {
+      title: "Busca Instantânea (⌘K)",
+      description: "Ache produto por nome, SKU ou código de barras em segundos. Atalho Cmd/Ctrl+K em qualquer tela.",
+      icon: <Command className="w-6 h-6 text-blue-600" />,
+      image: "https://images.unsplash.com/photo-1763107228544-2ad5d71c21f0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JpbGUlMjBhcHAlMjBwcm9kdWN0aXZpdHl8ZW58MXx8fHwxNjkyOTgyMzF8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
+      badge: null
+    },
+    {
+      title: "Histórico e Auditoria",
+      description: "Movimentações, vendas, fechamentos e ajustes com usuário, data/hora e motivo. Rastreabilidade completa da operação.",
       icon: <Clock className="w-6 h-6 text-blue-600" />,
       image: "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoaXN0b3J5JTIwdGltZWxpbmUlMjBhdWRpdHxlbnwxfHx8fDE3NjkyMDIzMDF8MA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: null
@@ -132,44 +131,44 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
 
   const differentials = [
     {
-      icon: <Receipt className="w-6 h-6" />,
-      title: "PDV Completo",
-      description: "Caixa com vendas, sangrias e WhatsApp"
-    },
-    {
-      icon: <WifiOff className="w-6 h-6" />,
-      title: "Funciona Offline",
-      description: "Venda mesmo sem internet"
+      icon: <CloudOff className="w-6 h-6" />,
+      title: "PDV Offline",
+      description: "Cupom não fiscal com sync ao voltar"
     },
     {
       icon: <FileText className="w-6 h-6" />,
-      title: "Relatórios Avançados",
-      description: "Análises de vendas e fechamentos"
+      title: "NFC-e opcional",
+      description: "Emita nota ou cupom na venda"
+    },
+    {
+      icon: <Zap className="w-6 h-6" />,
+      title: "Baixa ZIG",
+      description: "Vendas ZIG → estoque com um clique"
+    },
+    {
+      icon: <Receipt className="w-6 h-6" />,
+      title: "Caixa completo",
+      description: "Abertura, sangria e fechamento"
+    },
+    {
+      icon: <CreditCard className="w-6 h-6" />,
+      title: "Pagamentos",
+      description: "PIX, cartão, misto e fiado"
     },
     {
       icon: <Camera className="w-6 h-6" />,
-      title: "Scanner Nativo",
+      title: "Scanner nativo",
       description: "Câmera para código de barras"
     },
     {
-      icon: <LockKeyhole className="w-6 h-6" />,
-      title: "Segurança Total",
-      description: "Multi-tenant com isolamento"
+      icon: <Users className="w-6 h-6" />,
+      title: "Permissões",
+      description: "Multi-usuário por empresa"
     },
     {
       icon: <Smartphone className="w-6 h-6" />,
-      title: "PWA Auto-Update",
-      description: "Atualizações automáticas"
-    },
-    {
-      icon: <Users className="w-6 h-6" />,
-      title: "Multi-Usuário",
-      description: "Controle de permissões"
-    },
-    {
-      icon: <Sparkles className="w-6 h-6" />,
-      title: "Interface Moderna",
-      description: "Dark mode e busca ⌘K"
+      title: "App PWA",
+      description: "Instale e use no celular"
     }
   ];
 
@@ -178,21 +177,21 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       name: "Carlos Silva",
       role: "Dono de Restaurante",
       company: "Sabor & Arte",
-      content: "O módulo de Caixa/PDV revolucionou nosso atendimento. Agora fazemos vendas rápidas mesmo com a internet oscilando. O modo offline é fantástico!",
+      content: "Na hora do rush a internet cai e o caixa não para. Vendemos offline com cupom e, quando volta a conexão, tudo sincroniza sozinho. Mudou o jogo.",
       rating: 5
     },
     {
       name: "Ana Paula",
       role: "Gerente de Loja",
       company: "Moda Express",
-      content: "Incrível ter tudo no celular! O scanner de câmera acelerou nosso inventário em 80%. E os relatórios de vendas nos ajudam a tomar decisões estratégicas.",
+      content: "A baixa da ZIG no estoque e o PDV no celular aceleraram nossa rotina. Scanner, só produto em estoque na venda e relatórios claros — a equipe adotou rápido.",
       rating: 5
     },
     {
       name: "Roberto Lima",
       role: "Diretor de Operações",
       company: "DistribuMax",
-      content: "O sistema multi-tenant é perfeito para nossa rede. Cada filial tem seu painel administrativo e conseguimos acompanhar fechamentos de caixa em tempo real.",
+      content: "Multi-empresa com permissões e fechamento de caixa por unidade. Temos visão da operação sem misturar dados entre filiais.",
       rating: 5
     }
   ];
@@ -273,21 +272,20 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
         
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-16">
           <div className="flex-1 space-y-8 text-center lg:text-left">
-            <motion.div 
+            <motion.p
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 rounded-full text-sm font-bold border border-blue-100"
+              className="text-sm font-black tracking-[0.2em] uppercase text-blue-600"
             >
-              <Sparkles className="w-4 h-4" />
-              Gestão inteligente para o seu negócio
-            </motion.div>
+              {APP_NAME}
+            </motion.p>
             <motion.h1 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
               className="text-4xl md:text-6xl lg:text-7xl font-black text-gray-900 leading-[1.1]"
             >
-              O controle do seu estoque na <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">palma da mão.</span>
+              Estoque e PDV que <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">não param offline.</span>
             </motion.h1>
             <motion.p 
               initial={{ opacity: 0, y: 20 }}
@@ -295,29 +293,8 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
               transition={{ delay: 0.2 }}
               className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto lg:mx-0 leading-relaxed"
             >
-              Simplifique sua operação com o {APP_NAME}. Um SaaS multi-tenant completo com <strong className="text-gray-900">Dark Mode</strong>, <strong className="text-gray-900">busca instantânea (⌘K)</strong> e gestão de estoque e PDV inteligente.
+              Venda com cupom sem internet, sincronize ao reconectar, emita NFC-e quando precisar e baixe estoque das vendas ZIG — tudo em um só sistema.
             </motion.p>
-            
-            {/* Feature Pills */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
-              className="flex flex-wrap gap-3 justify-center lg:justify-start"
-            >
-              <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-full text-sm font-bold">
-                <Command className="w-4 h-4" />
-                Busca Rápida ⌘K
-              </div>
-              <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-full text-sm font-bold">
-                <Moon className="w-4 h-4" />
-                Dark Mode
-              </div>
-              <div className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 rounded-full text-sm font-bold">
-                <Database className="w-4 h-4" />
-                Multi-Tenant
-              </div>
-            </motion.div>
 
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
@@ -340,26 +317,6 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
               </button>
             </motion.div>
 
-            {/* Stats */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="flex flex-wrap justify-center lg:justify-start gap-8 pt-6"
-            >
-              <div>
-                <p className="text-3xl font-black text-gray-900">+24.8%</p>
-                <p className="text-sm text-gray-500 font-medium">Aumento de lucratividade</p>
-              </div>
-              <div>
-                <p className="text-3xl font-black text-gray-900">-50%</p>
-                <p className="text-sm text-gray-500 font-medium">Redução de tempo</p>
-              </div>
-              <div>
-                <p className="text-3xl font-black text-gray-900">100%</p>
-                <p className="text-sm text-gray-500 font-medium">Mobile-First</p>
-              </div>
-            </motion.div>
           </div>
 
           <motion.div 
@@ -444,9 +401,9 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       <section id="features" className="py-24 lg:py-32 px-4">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-3xl mx-auto mb-20">
-            <h2 className="text-blue-600 font-bold text-lg mb-4">Funcionalidades Premium</h2>
-            <p className="text-3xl md:text-5xl font-black text-gray-900 mb-6">Tudo que você precisa para gerir seu negócio</p>
-            <p className="text-lg text-gray-600 leading-relaxed">Desenvolvemos uma solução robusta que entende as dores do dia a dia da gestão de estoque e frente de caixa.</p>
+            <h2 className="text-blue-600 font-bold text-lg mb-4">Funcionalidades</h2>
+            <p className="text-3xl md:text-5xl font-black text-gray-900 mb-6">Do balcão ao estoque, online ou offline</p>
+            <p className="text-lg text-gray-600 leading-relaxed">PDV, caixa, NFC-e, baixa ZIG, clientes e relatórios — pensados para operação real, inclusive com internet instável.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -536,14 +493,15 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
           </div>
 
           <div className="flex-1 space-y-8 order-1 lg:order-2">
-            <h2 className="text-4xl md:text-5xl font-black leading-tight">Leve seu estoque no bolso com nossa tecnologia PWA.</h2>
+            <h2 className="text-4xl md:text-5xl font-black leading-tight">PDV no bolso: venda offline e sincronize depois.</h2>
             <div className="space-y-6">
               {[
-                "Funciona offline em conexões instáveis",
-                "Sem necessidade de download em lojas (Google/Apple)",
-                "Acesso instantâneo via QR Code ou link",
-                "Notificações push em tempo real",
-                "Câmera nativa para escaneamento rápido"
+                "Cupom não fiscal enfileirado sem internet",
+                "Catálogo e caixa em cache no aparelho",
+                "Sync automático ao reconectar (sem duplicar)",
+                "NFC-e opcional quando houver conexão",
+                "Instale como PWA — sem loja de apps",
+                "Scanner de câmera para código de barras"
               ].map((text, i) => (
                 <div key={i} className="flex items-center gap-4">
                   <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
@@ -568,8 +526,8 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       <section className="py-24 px-4">
         <div className="max-w-5xl mx-auto bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[3rem] p-8 md:p-16 text-center text-white relative overflow-hidden shadow-2xl">
           <div className="relative z-10 space-y-8">
-            <h2 className="text-3xl md:text-5xl font-black">Pronto para profissionalizar sua gestão?</h2>
-            <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">Agende uma demonstração gratuita com um de nossos consultores e veja como o {APP_NAME} pode transformar seu negócio hoje.</p>
+            <h2 className="text-3xl md:text-5xl font-black">Pronto para vender sem medo da internet?</h2>
+            <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">Agende uma demonstração e veja o {APP_NAME} com PDV offline, NFC-e, baixa ZIG e estoque no mesmo fluxo.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4">
               <a 
                 href={waHref(`Olá! Gostaria de agendar uma demonstração do ${APP_NAME}`)}

@@ -801,11 +801,14 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
     }
   };
 
-  const filteredProducts = products.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.barcode?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter((p) => {
+    if ((Number(p.currentStock) || 0) <= 0) return false;
+    const q = searchTerm.toLowerCase();
+    return (
+      p.name.toLowerCase().includes(q) ||
+      p.barcode?.toLowerCase().includes(q)
+    );
+  });
 
   const total = calculateTotal();
 
