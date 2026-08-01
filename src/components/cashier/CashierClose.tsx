@@ -233,6 +233,12 @@ export function CashierClose({ register, onClose }: CashierCloseProps) {
         return;
       }
 
+      if (currentCompany?.id) {
+        void import('../../offline/offlineSaleQueue').then(({ clearCachedRegister }) =>
+          clearCachedRegister(currentCompany.id),
+        );
+      }
+
       toast.success('Caixa fechado com sucesso!');
       onClose();
     } catch (error) {

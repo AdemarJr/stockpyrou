@@ -56,30 +56,75 @@ export async function cacheOpenRegister(
   companyId: string,
   register: Record<string, unknown>,
 ): Promise<void> {
+  if (!companyId || !register?.id) return;
+  const normalized = {
+    ...register,
+    status: (register.status as string) || 'open',
+  };
   await idbPutRegister({
     companyId,
-    register,
+    register: normalized,
     cachedAt: new Date().toISOString(),
   });
   try {
-    localStorage.setItem(`cashier_register_${companyId}`, JSON.stringify(register));
+    localStorage.setItem(`cashier_register_${companyId}`, JSON.stringify(normalized));
   } catch {
     /* ignore */
   }
 }
 
+export async function clearCachedRegister(companyId: string): Promise<void> {
+  if (!companyId) return;
+  try {
+    await idbPutRegister({
+      companyId,
+      register: {},
+      cachedAt: new Date().toISOString(),
+    });
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.removeItem(`cashier_register_${companyId}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Retorna caixa aberto em cache (IndexedDB ou localStorage). */
 export async function loadCachedRegister(
   companyId: string,
 ): Promise<Record<string, unknown> | null> {
-  const row = await idbGetRegister(companyId);
-  if (row?.register) return row.register;
+  if (!companyId) return null;
+
+  const usable = (reg: Record<string, unknown> | null | undefined) => {
+    if (!reg?.id) return null;
+    const status = String(reg.status || 'open').toLowerCase();
+    if (status && status !== 'open') return null;
+    return reg;
+  };
+
+  try {
+    const row = await idbGetRegister(companyId);
+    const fromIdb = usable(row?.register);
+    if (fromIdb) return fromIdb;
+  } catch {
+    /* IndexedDB pode falhar em modo privado — cai no localStorage */
+  }
+
   try {
     const raw = localStorage.getItem(`cashier_register_${companyId}`);
     if (!raw) return null;
-    return JSON.parse(raw) as Record<string, unknown>;
+    const parsed = usable(JSON.parse(raw) as Record<string, unknown>);
+    if (parsed) {
+      // Rehidrata IndexedDB a partir do localStorage
+      void cacheOpenRegister(companyId, parsed);
+      return parsed;
+    }
   } catch {
-    return null;
+    /* ignore */
   }
+  return null;
 }
 
 export function isOfflineNonFiscalAllowed(opts: {

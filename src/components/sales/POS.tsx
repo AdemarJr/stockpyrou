@@ -22,6 +22,7 @@ import {
   type SelectedCustomer,
 } from '../customers/CustomerPicker';
 import {
+  cacheOpenRegister,
   enqueueOfflineSale,
   isOfflineNonFiscalAllowed,
   loadCachedProducts,
@@ -466,7 +467,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         const cachedReg = await loadCachedRegister(currentCompany.id);
         const registerId = cachedReg?.id ? String(cachedReg.id) : null;
         if (!registerId) {
-          throw new Error('Sem caixa em cache. Abra o caixa online antes de vender offline.');
+          throw new Error(
+            'Sem caixa em cache. Com internet: abra o Caixa (ou faça uma venda online) e tente de novo offline.',
+          );
         }
 
         const catalog = (await loadCachedProducts(currentCompany.id)) || products;
@@ -574,6 +577,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         );
         const curData = await curRes.json().catch(() => ({}));
         let registerId: string | null = curData?.register?.id ?? null;
+        let registerForCache: Record<string, unknown> | null = curData?.register ?? null;
 
         if (!registerId) {
           const openRes = await fetch(
@@ -590,6 +594,18 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           );
           const openData = await openRes.json().catch(() => ({}));
           registerId = openData?.register?.id ?? null;
+          registerForCache = openData?.register ?? null;
+        }
+
+        // Garante cache para vendas offline posteriores (Venda Manual não passa pelo Caixa)
+        if (registerForCache?.id) {
+          void cacheOpenRegister(currentCompany.id, registerForCache);
+        } else if (registerId) {
+          void cacheOpenRegister(currentCompany.id, {
+            id: registerId,
+            status: 'open',
+            companyId: currentCompany.id,
+          });
         }
 
         if (registerId) {

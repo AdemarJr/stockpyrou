@@ -332,6 +332,38 @@ function MainApp() {
       setMovements((prev) => mergeOrKeep(3, prev));
       setPriceHistory((prev) => mergeOrKeep(4, prev));
 
+      // Aquecer cache do caixa aberto (necessário para venda offline / Venda Manual)
+      if (
+        companyId &&
+        user?.accessToken &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine
+      ) {
+        void (async () => {
+          try {
+            const { getBackendUrl } = await import('./lib/backendUrl');
+            const { cacheOpenRegister, clearCachedRegister } = await import(
+              './offline/offlineSaleQueue'
+            );
+            const res = await fetch(getBackendUrl('/cashier/current'), {
+              headers: {
+                Authorization: `Bearer ${user.accessToken}`,
+                'X-Custom-Token': user.accessToken,
+                'X-Company-Id': companyId,
+              },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (data?.register?.id) {
+              await cacheOpenRegister(companyId, data.register);
+            } else if (!data?.error) {
+              await clearCachedRegister(companyId);
+            }
+          } catch {
+            /* ignore — não apaga cache em falha de rede */
+          }
+        })();
+      }
+
       const failed = results.filter((r) => r.status === 'rejected');
       if (failed.length > 0) {
         if (silent) {
@@ -350,7 +382,7 @@ function MainApp() {
     } finally {
       setLoading(false);
     }
-  }, [companyId]);
+  }, [companyId, user?.accessToken]);
 
   // Só recarrega índice quando troca a empresa (id), não quando o objeto `user`/token é renovado
   useEffect(() => {

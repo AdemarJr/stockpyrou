@@ -26,6 +26,7 @@ import { CashierCashMovements } from './CashierCashMovements';
 import { SaleReceipt } from './SaleReceipt';
 import {
   cacheOpenRegister,
+  clearCachedRegister,
   countPendingOfflineSales,
   loadCachedRegister,
   syncPendingOfflineSales,
@@ -103,10 +104,17 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       
       if (data.error) {
         console.error('❌ Error checking register:', data.error);
+        // Não apaga cache em erro de API — pode ser rede/auth transitório
+        if (currentCompany?.id) {
+          const cached = await loadCachedRegister(currentCompany.id);
+          if (cached?.id) {
+            setCurrentRegister(cached);
+            toast.message('Usando caixa em cache (falha ao consultar servidor)');
+            return;
+          }
+        }
         toast.error(`Erro: ${data.error}`);
         setCurrentRegister(null);
-        // Remove do localStorage se houver erro
-        localStorage.removeItem(`cashier_register_${currentCompany?.id}`);
         return;
       }
 
@@ -119,15 +127,24 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
       } else {
         console.log('ℹ️ No open register found');
         setCurrentRegister(null);
-        // Remove do localStorage se não houver caixa aberto
-        localStorage.removeItem(`cashier_register_${currentCompany?.id}`);
+        // Só limpa cache quando o servidor confirma que não há caixa aberto
+        if (currentCompany?.id) {
+          void clearCachedRegister(currentCompany.id);
+        }
       }
     } catch (error) {
       console.error('💥 Error checking register:', error);
+      // Em falha de rede, mantém o último caixa em cache (necessário para venda offline)
+      if (currentCompany?.id) {
+        const cached = await loadCachedRegister(currentCompany.id);
+        if (cached?.id) {
+          setCurrentRegister(cached);
+          toast.message('Sem conexão — usando caixa em cache');
+          return;
+        }
+      }
       toast.error('Erro ao verificar caixa');
       setCurrentRegister(null);
-      // Remove do localStorage em caso de erro
-      localStorage.removeItem(`cashier_register_${currentCompany?.id}`);
     } finally {
       setLoading(false);
     }
@@ -207,6 +224,9 @@ export function CashRegister({ onBack, onInventoryChanged }: CashRegisterProps) 
 
   const handleRegisterClosed = () => {
     setCurrentRegister(null);
+    if (currentCompany?.id) {
+      void clearCachedRegister(currentCompany.id);
+    }
     setActiveView('pos');
     checkCurrentRegister();
   };

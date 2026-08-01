@@ -44,6 +44,7 @@ import {
   type PaymentSplitLine,
 } from '../../utils/salePricing';
 import {
+  cacheOpenRegister,
   cacheProductsForOffline,
   enqueueOfflineSale,
   isOfflineNonFiscalAllowed,
@@ -120,6 +121,14 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   useEffect(() => {
     if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
   }, [fiscal.ready, documentType]);
+
+  // Mantém caixa aberto em cache para Venda Manual / fila offline
+  useEffect(() => {
+    const companyId = currentCompany?.id || (register.companyId as string | undefined);
+    if (companyId && register?.id) {
+      void cacheOpenRegister(companyId, register as Record<string, unknown>);
+    }
+  }, [currentCompany?.id, register]);
 
   useEffect(() => {
     const applyOfflineCheckout = () => {
