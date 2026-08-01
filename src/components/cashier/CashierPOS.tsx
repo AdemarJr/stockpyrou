@@ -45,10 +45,12 @@ import {
 } from '../../utils/salePricing';
 import {
   cacheOpenRegister,
-  cacheProductsForOffline,
+  checkOfflineStockAvailability,
   enqueueOfflineSale,
   isOfflineNonFiscalAllowed,
   loadCachedProducts,
+  persistCatalogBaseline,
+  resolveOfflineCatalog,
 } from '../../offline/offlineSaleQueue';
 
 interface CashierPOSProps {
@@ -223,9 +225,9 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       if (!currentCompany) return;
 
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        const cached = await loadCachedProducts(currentCompany.id);
-        if (cached?.length) {
-          setProducts(cached);
+        const catalog = await resolveOfflineCatalog(currentCompany.id, []);
+        if (catalog.length) {
+          setProducts(catalog);
           toast.message('Produtos do cache local (offline)');
           return;
         }
@@ -234,15 +236,15 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       }
 
       const allProducts = await ProductService.getAllProducts(currentCompany.id);
-      setProducts(allProducts);
-      void cacheProductsForOffline(currentCompany.id, allProducts);
+      const catalog = await persistCatalogBaseline(currentCompany.id, allProducts);
+      setProducts(catalog);
     } catch (error) {
       console.error('Error loading products:', error);
       try {
         if (currentCompany?.id) {
-          const cached = await loadCachedProducts(currentCompany.id);
-          if (cached?.length) {
-            setProducts(cached);
+          const catalog = await resolveOfflineCatalog(currentCompany.id, products);
+          if (catalog.length) {
+            setProducts(catalog);
             toast.message('Usando catálogo em cache (falha de rede)');
             return;
           }
@@ -614,25 +616,35 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
           toast.error('Empresa não identificada');
           return;
         }
-        for (const item of cart) {
-          const stock = Number(item.product.currentStock) || 0;
-          if (stock < item.quantity) {
-            toast.error(`Estoque insuficiente (local) para «${item.name}»`);
-            return;
-          }
+
+        const catalog = await resolveOfflineCatalog(currentCompany.id, products);
+        if (catalog.length === 0) {
+          toast.error(
+            'Sem catálogo em cache. Abra o app online uma vez para gravar os produtos.',
+          );
+          return;
         }
 
-        const stockItems = cart.map((item) => ({
-          productId: item.id,
-          quantity: item.quantity,
-          name: item.name,
-          bundleItems: item.product.bundleItems,
-        }));
+        const stockItems = cart.map((item) => {
+          const product = catalog.find((p) => p.id === item.id) || item.product;
+          return {
+            productId: item.id,
+            quantity: item.quantity,
+            name: item.name,
+            bundleItems: product.bundleItems,
+          };
+        });
+
+        const stockGate = checkOfflineStockAvailability(catalog, stockItems);
+        if (!stockGate.ok) {
+          toast.error(stockGate.reason);
+          return;
+        }
 
         const queued = await enqueueOfflineSale({
           companyId: currentCompany.id,
           registerId: register.id,
-          products,
+          products: catalog,
           payload: salePayload,
           stockItems,
           receiptItems: cart.map((item) => ({
@@ -642,8 +654,8 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
           })),
         });
 
-        const cached = await loadCachedProducts(currentCompany.id);
-        if (cached) setProducts(cached);
+        const updated = await loadCachedProducts(currentCompany.id);
+        if (updated) setProducts(updated);
 
         toast.success('Venda offline registrada (cupom não fiscal). Sincroniza ao reconectar.');
         clearCart();

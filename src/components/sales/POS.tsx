@@ -23,10 +23,11 @@ import {
 } from '../customers/CustomerPicker';
 import {
   cacheOpenRegister,
+  checkOfflineStockAvailability,
   enqueueOfflineSale,
   isOfflineNonFiscalAllowed,
-  loadCachedProducts,
   loadCachedRegister,
+  resolveOfflineCatalog,
 } from '../../offline/offlineSaleQueue';
 
 interface POSProps {
@@ -472,14 +473,28 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           );
         }
 
-        const catalog = (await loadCachedProducts(currentCompany.id)) || products;
-        for (const item of cart) {
-          if (item.type !== 'product') continue;
-          const product = catalog.find((p) => p.id === item.id);
-          const stock = Number(product?.currentStock) || 0;
-          if (stock < item.quantity) {
-            throw new Error(`Estoque insuficiente (local) para «${item.name}»`);
-          }
+        const catalog = await resolveOfflineCatalog(currentCompany.id, products);
+        if (catalog.length === 0) {
+          throw new Error(
+            'Sem catálogo em cache. Abra o app online uma vez para gravar os produtos e tente de novo offline.',
+          );
+        }
+
+        const stockItems = cart
+          .filter((item) => item.type === 'product')
+          .map((item) => {
+            const product = catalog.find((p) => p.id === item.id);
+            return {
+              productId: item.id,
+              quantity: item.quantity,
+              name: item.name,
+              bundleItems: product?.bundleItems,
+            };
+          });
+
+        const stockGate = checkOfflineStockAvailability(catalog, stockItems);
+        if (!stockGate.ok) {
+          throw new Error(stockGate.reason);
         }
 
         const paymentDetails: Record<string, unknown> = { emitNfce: false };
@@ -503,18 +518,6 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           paymentMethod,
           paymentDetails,
         };
-
-        const stockItems = cart
-          .filter((item) => item.type === 'product')
-          .map((item) => {
-            const product = catalog.find((p) => p.id === item.id);
-            return {
-              productId: item.id,
-              quantity: item.quantity,
-              name: item.name,
-              bundleItems: product?.bundleItems,
-            };
-          });
 
         const queued = await enqueueOfflineSale({
           companyId: currentCompany.id,

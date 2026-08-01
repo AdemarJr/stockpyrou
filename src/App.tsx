@@ -318,11 +318,15 @@ function MainApp() {
         return prev;
       };
 
+      const productsOk = results[0]?.status === 'fulfilled';
+      const offline =
+        typeof navigator !== 'undefined' && !navigator.onLine;
+
       setProducts((prev) => {
         const next = mergeOrKeep(0, prev);
-        if (companyId && results[0]?.status === 'fulfilled' && Array.isArray(next) && next.length > 0) {
-          void import('./offline/offlineSaleQueue').then(({ cacheProductsForOffline }) =>
-            cacheProductsForOffline(companyId, next),
+        if (companyId && productsOk && Array.isArray(next) && next.length > 0) {
+          void import('./offline/offlineSaleQueue').then(({ persistCatalogBaseline }) =>
+            persistCatalogBaseline(companyId, next),
           );
         }
         return next;
@@ -332,13 +336,27 @@ function MainApp() {
       setMovements((prev) => mergeOrKeep(3, prev));
       setPriceHistory((prev) => mergeOrKeep(4, prev));
 
+      // Offline / falha de API: hidrata produtos (e estoque) do IndexedDB
+      if (companyId && (!productsOk || offline)) {
+        void import('./offline/offlineSaleQueue').then(async ({ resolveOfflineCatalog }) => {
+          try {
+            const catalog = await resolveOfflineCatalog(companyId, []);
+            if (catalog.length === 0) return;
+            setProducts((prev) => {
+              if (prev.length > 0 && productsOk) return prev;
+              if (offline && !silent && prev.length === 0) {
+                toast.message('Modo offline — catálogo local carregado');
+              }
+              return catalog;
+            });
+          } catch {
+            /* ignore */
+          }
+        });
+      }
+
       // Aquecer cache do caixa aberto (necessário para venda offline / Venda Manual)
-      if (
-        companyId &&
-        user?.accessToken &&
-        typeof navigator !== 'undefined' &&
-        navigator.onLine
-      ) {
+      if (companyId && user?.accessToken && !offline) {
         void (async () => {
           try {
             const { getBackendUrl } = await import('./lib/backendUrl');
@@ -368,7 +386,7 @@ function MainApp() {
       if (failed.length > 0) {
         if (silent) {
           console.warn('[refreshData] Falhas parciais (refresh silencioso, sem toast):', failed.length);
-        } else {
+        } else if (!offline) {
           toast.error(
             'Alguns dados não carregaram. Verifique a conexão e tente atualizar a página.'
           );

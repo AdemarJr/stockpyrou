@@ -52,6 +52,118 @@ export async function loadCachedProducts(companyId: string): Promise<Product[] |
   return row.products as Product[];
 }
 
+/**
+ * Catálogo offline confiável:
+ * - Com produtos em memória (última carga online): usa estoque do servidor como base
+ *   e reaplica vendas offline pendentes (evita cache stale com estoque 0).
+ * - Sem memória (app aberto já offline): usa o cache (já com baixas otimistas).
+ */
+export async function resolveOfflineCatalog(
+  companyId: string,
+  liveProducts: Product[] = [],
+): Promise<Product[]> {
+  const cached = (await loadCachedProducts(companyId)) || [];
+  const pending = (await listPendingOfflineSales(companyId)).filter(
+    (s) => s.status === 'pending' || s.status === 'failed' || s.status === 'syncing',
+  );
+
+  if (liveProducts.length > 0) {
+    const byId = new Map<string, Product>();
+    for (const p of cached) {
+      if (p?.id) byId.set(p.id, { ...p });
+    }
+    for (const p of liveProducts) {
+      if (!p?.id) continue;
+      const prev = byId.get(p.id);
+      const liveStock = Number(p.currentStock) || 0;
+      const cacheStock = Number(prev?.currentStock) || 0;
+      // Com pendentes: baseline = servidor (reaplica baixas). Sem pendentes: evita cache/memória zerados stale.
+      const baseline =
+        pending.length > 0 ? liveStock : Math.max(liveStock, cacheStock);
+      byId.set(p.id, {
+        ...(prev || ({} as Product)),
+        ...p,
+        currentStock: baseline,
+        bundleItems: p.bundleItems ?? prev?.bundleItems,
+      });
+    }
+    let merged = Array.from(byId.values());
+    for (const sale of pending) {
+      merged = applyOptimisticStock(merged, sale.stockItems);
+    }
+    return merged;
+  }
+
+  // Cold start offline: cache já reflete baixas otimistas — não reaplicar pendentes
+  return cached.map((p) => ({ ...p }));
+}
+
+/** Grava catálogo do servidor reaplicando baixas de vendas offline pendentes. */
+export async function persistCatalogBaseline(
+  companyId: string,
+  liveProducts: Product[],
+): Promise<Product[]> {
+  const resolved = await resolveOfflineCatalog(companyId, liveProducts);
+  await cacheProductsForOffline(companyId, resolved);
+  return resolved;
+}
+
+export function checkOfflineStockAvailability(
+  catalog: Product[],
+  lines: Array<{
+    productId: string;
+    quantity: number;
+    name: string;
+    bundleItems?: OfflineSaleStockLine['bundleItems'];
+  }>,
+): { ok: true } | { ok: false; reason: string } {
+  const byId = new Map(catalog.map((p) => [p.id, p]));
+  const stock = new Map(
+    catalog.map((p) => [p.id, Number(p.currentStock) || 0]),
+  );
+
+  for (const line of lines) {
+    const product = byId.get(line.productId);
+    const bundles =
+      line.bundleItems && line.bundleItems.length > 0
+        ? line.bundleItems
+        : product?.bundleItems && product.bundleItems.length > 0
+          ? product.bundleItems
+          : null;
+
+    if (bundles) {
+      for (const b of bundles) {
+        const need = (Number(b.quantity) || 0) * line.quantity;
+        if (!b.productId || need <= 0) continue;
+        const have = stock.get(b.productId) ?? 0;
+        if (have < need) {
+          const componentName = byId.get(b.productId)?.name || line.name;
+          return {
+            ok: false,
+            reason: `Estoque insuficiente (local) para «${componentName}» (necessário ${need}, disponível ${have}).`,
+          };
+        }
+        stock.set(b.productId, have - need);
+      }
+      continue;
+    }
+
+    // Produto ausente do catálogo: não bloqueia (não dá para afirmar falta)
+    if (!product) continue;
+
+    const have = stock.get(line.productId) ?? 0;
+    if (have < line.quantity) {
+      return {
+        ok: false,
+        reason: `Estoque insuficiente (local) para «${line.name}» (necessário ${line.quantity}, disponível ${have}).`,
+      };
+    }
+    stock.set(line.productId, have - line.quantity);
+  }
+
+  return { ok: true };
+}
+
 export async function cacheOpenRegister(
   companyId: string,
   register: Record<string, unknown>,
