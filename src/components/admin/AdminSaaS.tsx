@@ -58,7 +58,7 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     company: Company | null;
   }>({ isOpen: false, company: null });
   const [clearDataConfirmation, setClearDataConfirmation] = useState('');
-  const [clearDataOptions, setClearDataOptions] = useState({
+  const emptyClearOptions = {
     stockQuantities: false,
     products: false,
     stockEntries: false,
@@ -66,7 +66,13 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     priceHistory: false,
     suppliers: false,
     sales: false,
-  });
+    customers: false,
+    costs: false,
+    inboundNfe: false,
+    zigCache: false,
+  };
+  const [clearDataOptions, setClearDataOptions] = useState({ ...emptyClearOptions });
+  const [clearDataBusy, setClearDataBusy] = useState(false);
   
   // Admin Profile Password Change
   const [adminPasswordData, setAdminPasswordData] = useState({
@@ -354,71 +360,117 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     }
   };
 
+  const toggleClearOption = (key: keyof typeof emptyClearOptions, checked: boolean) => {
+    setClearDataOptions((prev) => {
+      const next = { ...prev, [key]: checked };
+      // Dependências na UI (espelha a API)
+      if (key === 'products' && checked) {
+        next.movements = true;
+        next.stockEntries = true;
+        next.priceHistory = true;
+        next.stockQuantities = false;
+      }
+      if (key === 'suppliers' && checked) {
+        next.stockEntries = true;
+      }
+      if (key === 'customers' && checked) {
+        next.sales = true;
+      }
+      if (key === 'stockQuantities' && checked) {
+        next.products = false;
+      }
+      return next;
+    });
+  };
+
+  const selectResetDemo = () => {
+    setClearDataOptions({
+      stockQuantities: false,
+      products: true,
+      stockEntries: true,
+      movements: true,
+      priceHistory: true,
+      suppliers: true,
+      sales: true,
+      customers: true,
+      costs: true,
+      inboundNfe: true,
+      zigCache: true,
+    });
+  };
+
   const handleClearData = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clearDataModal.company) return;
-    
-    // Check if at least one option is selected
-    const hasSelection = Object.values(clearDataOptions).some(v => v);
+    if (!clearDataModal.company || clearDataBusy) return;
+
+    const hasSelection = Object.values(clearDataOptions).some((v) => v);
     if (!hasSelection) {
       toast.error('Selecione pelo menos um tipo de dado para limpar!');
       return;
     }
-    
-    // Validation
     if (clearDataConfirmation !== 'LIMPAR') {
       toast.error('Código de confirmação incorreto!');
       return;
     }
-    
-    console.log('🗑️ [CLEAR DATA] Company ID:', clearDataModal.company.id);
-    console.log('🗑️ [CLEAR DATA] Company Name:', clearDataModal.company.name);
-    console.log('🗑️ [CLEAR DATA] Options:', clearDataOptions);
-    
+
+    setClearDataBusy(true);
+    const loadingToast = toast.loading('Limpando dados selecionados…');
     try {
-      const loadingToast = toast.loading('Limpando dados selecionados...');
       const response = await fetch(`${getBackendApiRoot()}/admin/clear-data`, {
         method: 'POST',
         headers: adminAuthHeaders(user?.accessToken),
         body: JSON.stringify({
           companyId: clearDataModal.company.id,
           confirmationCode: clearDataConfirmation,
-          options: clearDataOptions
-        })
+          options: clearDataOptions,
+        }),
       });
-      
+
       const result = await response.json();
-      console.log('🗑️ [CLEAR DATA] Server response:', result);
-      
-      if (!response.ok) throw new Error(result.error);
-      
-      // Build success message
-      const messages = [];
-      if (result.deletions?.stockQuantities) messages.push(`Estoques zerados: ${result.deletions.stockQuantities} produtos`);
-      if (result.deletions?.products) messages.push(`Produtos deletados: ${result.deletions.products}`);
-      if (result.deletions?.stockEntries) messages.push(`Entradas: ${result.deletions.stockEntries}`);
-      if (result.deletions?.movements) messages.push(`Movimentos: ${result.deletions.movements}`);
-      if (result.deletions?.priceHistory) messages.push(`Histórico de preços: ${result.deletions.priceHistory}`);
-      if (result.deletions?.suppliers) messages.push(`Fornecedores: ${result.deletions.suppliers}`);
-      if (result.deletions?.sales) messages.push(`Vendas: ${result.deletions.sales}`);
-      
+      if (!response.ok) throw new Error(result.error || 'Falha na limpeza');
+
+      const d = result.deletions || {};
+      const messages: string[] = [];
+      if (d.stockQuantities) messages.push(`Estoques zerados: ${d.stockQuantities}`);
+      if (d.products) messages.push(`Produtos: ${d.products}`);
+      if (d.stockEntries) messages.push(`Entradas: ${d.stockEntries}`);
+      if (d.movements) messages.push(`Movimentos: ${d.movements}`);
+      if (d.priceHistory) messages.push(`Histórico preços: ${d.priceHistory}`);
+      if (d.suppliers) messages.push(`Fornecedores: ${d.suppliers}`);
+      if (d.sales) messages.push(`Vendas: ${d.sales}`);
+      if (d.saleItems) messages.push(`Itens de venda: ${d.saleItems}`);
+      if (d.cashRegisters) messages.push(`Caixas: ${d.cashRegisters}`);
+      if (d.nfce) messages.push(`NFC-e: ${d.nfce}`);
+      if (d.receivables) messages.push(`Contas a receber: ${d.receivables}`);
+      if (d.customers) messages.push(`Clientes: ${d.customers}`);
+      if (d.expenses) messages.push(`Despesas: ${d.expenses}`);
+      if (d.financialMovements || d.financialMovementsSales) {
+        messages.push(
+          `Financeiro: ${(d.financialMovements || 0) + (d.financialMovementsSales || 0)}`,
+        );
+      }
+      if (d.inboundNfe) messages.push(`NF-e entrada (DF-e): ${d.inboundNfe}`);
+      if (d.zigCache) messages.push(`Cache ZIG: ${d.zigCache}`);
+
       toast.success(
-        `Limpeza concluída!\n${messages.join('\n')}`,
-        { id: loadingToast, duration: 10000 }
+        messages.length
+          ? `Limpeza concluída!\n${messages.join('\n')}`
+          : 'Limpeza concluída (nenhuma linha afetada).',
+        { id: loadingToast, duration: 12000 },
       );
+      if (Array.isArray(result.warnings) && result.warnings.length) {
+        toast.message(`Avisos: ${result.warnings.slice(0, 3).join(' · ')}`, {
+          duration: 8000,
+        });
+      }
+
       setClearDataModal({ isOpen: false, company: null });
       setClearDataConfirmation('');
-      setClearDataOptions({
-        stockQuantities: false,
-        products: false,
-        stockEntries: false,
-        movements: false,
-        priceHistory: false,
-        suppliers: false,
-        sales: false,
-      });
+      setClearDataOptions({ ...emptyClearOptions });
     } catch (error: any) {
-      toast.error('Erro ao limpar dados: ' + error.message);
+      toast.error('Erro ao limpar dados: ' + error.message, { id: loadingToast });
+    } finally {
+      setClearDataBusy(false);
     }
   };
 
@@ -1154,121 +1206,131 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
               </p>
               
               <form onSubmit={handleClearData} className="space-y-4">
+                <div className="flex flex-wrap gap-2 mb-1">
+                  <button
+                    type="button"
+                    onClick={selectResetDemo}
+                    className="text-xs font-bold px-3 py-1.5 rounded-lg bg-orange-100 text-orange-800 hover:bg-orange-200"
+                  >
+                    Reset demo (tudo operacional)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClearDataOptions({ ...emptyClearOptions })}
+                    className="text-xs font-bold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  >
+                    Limpar seleção
+                  </button>
+                </div>
+
                 <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
                     Selecione os itens para limpar:
                   </p>
-                  
-                  {/* Stock Quantities Only */}
-                  <label className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-blue-300 cursor-pointer transition-all">
-                    <input
-                      type="checkbox"
-                      checked={clearDataOptions.stockQuantities}
-                      onChange={e => setClearDataOptions(prev => ({ ...prev, stockQuantities: e.target.checked }))}
-                      className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                    />
-                    <div className="flex-1">
-                      <p className="font-bold text-gray-900">Zerar Estoques</p>
-                      <p className="text-xs text-gray-500">Mantém produtos cadastrados, apenas zera as quantidades em estoque</p>
-                    </div>
-                  </label>
-                  
-                  {/* Products */}
-                  <label className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-red-300 cursor-pointer transition-all">
-                    <input
-                      type="checkbox"
-                      checked={clearDataOptions.products}
-                      onChange={e => setClearDataOptions(prev => ({ ...prev, products: e.target.checked }))}
-                      className="mt-1 w-5 h-5 text-red-600 rounded focus:ring-2 focus:ring-red-500"
-                    />
-                    <div className="flex-1">
-                      <p className="font-bold text-gray-900">Deletar Produtos</p>
-                      <p className="text-xs text-gray-500">Remove todos os produtos cadastrados (⚠️ irreversível)</p>
-                    </div>
-                  </label>
-                  
-                  {/* Stock Entries */}
-                  <label className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-orange-300 cursor-pointer transition-all">
-                    <input
-                      type="checkbox"
-                      checked={clearDataOptions.stockEntries}
-                      onChange={e => setClearDataOptions(prev => ({ ...prev, stockEntries: e.target.checked }))}
-                      className="mt-1 w-5 h-5 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
-                    />
-                    <div className="flex-1">
-                      <p className="font-bold text-gray-900">Entradas de Estoque</p>
-                      <p className="text-xs text-gray-500">Limpa histórico de recebimentos</p>
-                    </div>
-                  </label>
-                  
-                  {/* Movements */}
-                  <label className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-purple-300 cursor-pointer transition-all">
-                    <input
-                      type="checkbox"
-                      checked={clearDataOptions.movements}
-                      onChange={e => setClearDataOptions(prev => ({ ...prev, movements: e.target.checked }))}
-                      className="mt-1 w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
-                    />
-                    <div className="flex-1">
-                      <p className="font-bold text-gray-900">Movimentos de Estoque</p>
-                      <p className="text-xs text-gray-500">Remove histórico de movimentações</p>
-                    </div>
-                  </label>
-                  
-                  {/* Price History */}
-                  <label className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-yellow-300 cursor-pointer transition-all">
-                    <input
-                      type="checkbox"
-                      checked={clearDataOptions.priceHistory}
-                      onChange={e => setClearDataOptions(prev => ({ ...prev, priceHistory: e.target.checked }))}
-                      className="mt-1 w-5 h-5 text-yellow-600 rounded focus:ring-2 focus:ring-yellow-500"
-                    />
-                    <div className="flex-1">
-                      <p className="font-bold text-gray-900">Histórico de Preços</p>
-                      <p className="text-xs text-gray-500">Limpa alterações de preços registradas</p>
-                    </div>
-                  </label>
-                  
-                  {/* Suppliers */}
-                  <label className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-green-300 cursor-pointer transition-all">
-                    <input
-                      type="checkbox"
-                      checked={clearDataOptions.suppliers}
-                      onChange={e => setClearDataOptions(prev => ({ ...prev, suppliers: e.target.checked }))}
-                      className="mt-1 w-5 h-5 text-green-600 rounded focus:ring-2 focus:ring-green-500"
-                    />
-                    <div className="flex-1">
-                      <p className="font-bold text-gray-900">Fornecedores</p>
-                      <p className="text-xs text-gray-500">Remove fornecedores cadastrados</p>
-                    </div>
-                  </label>
-                  
-                  {/* Sales and Cash */}
-                  <label className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-indigo-300 cursor-pointer transition-all">
-                    <input
-                      type="checkbox"
-                      checked={clearDataOptions.sales}
-                      onChange={e => setClearDataOptions(prev => ({ ...prev, sales: e.target.checked }))}
-                      className="mt-1 w-5 h-5 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <div className="flex-1">
-                      <p className="font-bold text-gray-900">Vendas e Caixa</p>
-                      <p className="text-xs text-gray-500">Limpa vendas e registros de caixa</p>
-                    </div>
-                  </label>
+
+                  {(
+                    [
+                      {
+                        key: 'stockQuantities' as const,
+                        title: 'Zerar estoques',
+                        desc: 'Mantém produtos; só zera current_stock',
+                        color: 'blue',
+                      },
+                      {
+                        key: 'products' as const,
+                        title: 'Deletar produtos',
+                        desc: 'Remove produtos (+ entradas, movimentos e preços por segurança)',
+                        color: 'red',
+                      },
+                      {
+                        key: 'stockEntries' as const,
+                        title: 'Entradas de estoque',
+                        desc: 'Histórico de recebimentos / XML importado',
+                        color: 'orange',
+                      },
+                      {
+                        key: 'movements' as const,
+                        title: 'Movimentos de estoque',
+                        desc: 'Saídas, vendas, ajustes e baixas',
+                        color: 'purple',
+                      },
+                      {
+                        key: 'priceHistory' as const,
+                        title: 'Histórico de preços',
+                        desc: 'Alterações de custo/preço registradas',
+                        color: 'yellow',
+                      },
+                      {
+                        key: 'suppliers' as const,
+                        title: 'Fornecedores',
+                        desc: 'Remove fornecedores (também limpa entradas)',
+                        color: 'green',
+                      },
+                      {
+                        key: 'sales' as const,
+                        title: 'Vendas, caixa e NFC-e',
+                        desc: 'Vendas, itens, caixa, NFC-e, fiado/contas a receber',
+                        color: 'indigo',
+                      },
+                      {
+                        key: 'customers' as const,
+                        title: 'Clientes',
+                        desc: 'Cadastro de clientes (+ vendas/fiado por dependência)',
+                        color: 'sky',
+                      },
+                      {
+                        key: 'costs' as const,
+                        title: 'Custos e financeiro',
+                        desc: 'Despesas operacionais e movimentos financeiros',
+                        color: 'rose',
+                      },
+                      {
+                        key: 'inboundNfe' as const,
+                        title: 'NF-e de entrada (DF-e)',
+                        desc: 'Notas sincronizadas da SEFAZ para recebimento',
+                        color: 'teal',
+                      },
+                      {
+                        key: 'zigCache' as const,
+                        title: 'Cache ZIG',
+                        desc: 'Baixas processadas / mapeamentos em cache (KV)',
+                        color: 'pink',
+                      },
+                    ] as const
+                  ).map((item) => (
+                    <label
+                      key={item.key}
+                      className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-orange-300 cursor-pointer transition-all"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={clearDataOptions[item.key]}
+                        onChange={(e) => toggleClearOption(item.key, e.target.checked)}
+                        className="mt-1 w-5 h-5 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
+                      />
+                      <div className="flex-1">
+                        <p className="font-bold text-gray-900">{item.title}</p>
+                        <p className="text-xs text-gray-500">{item.desc}</p>
+                      </div>
+                    </label>
+                  ))}
                 </div>
-                
-                {Object.values(clearDataOptions).some(v => v) && (
+
+                <p className="text-xs text-gray-500 text-center">
+                  Não remove: usuários, empresa, certificado A1 nem configuração fiscal (CNPJ/CSC).
+                </p>
+
+                {Object.values(clearDataOptions).some((v) => v) && (
                   <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4">
                     <p className="text-red-900 font-bold text-center text-sm">
-                      ⚠️ ATENÇÃO: Esta ação é IRREVERSÍVEL!
+                      Atenção: esta ação é irreversível
                     </p>
                     <p className="text-red-700 text-xs text-center mt-1">
-                      Não há como recuperar os dados após a exclusão.
+                      A limpeza roda em transação. Em caso de erro, nada é parcialmente aplicado.
                     </p>
                   </div>
                 )}
-                
+
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-700 text-center block">
                     Para confirmar, digite:
@@ -1276,42 +1338,40 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
                   <div className="bg-gray-100 p-3 rounded-lg mb-2 font-mono text-center text-sm font-bold text-gray-900">
                     LIMPAR
                   </div>
-                  <input 
+                  <input
                     required
                     type="text"
                     value={clearDataConfirmation}
-                    onChange={e => setClearDataConfirmation(e.target.value)}
+                    onChange={(e) => setClearDataConfirmation(e.target.value)}
                     className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-2xl outline-none focus:border-orange-600 font-mono text-center"
                     placeholder="Digite LIMPAR"
+                    disabled={clearDataBusy}
                   />
                 </div>
-                
+
                 <div className="flex gap-3 pt-2">
-                  <button 
+                  <button
                     type="button"
+                    disabled={clearDataBusy}
                     onClick={() => {
                       setClearDataModal({ isOpen: false, company: null });
                       setClearDataConfirmation('');
-                      setClearDataOptions({
-                        stockQuantities: false,
-                        products: false,
-                        stockEntries: false,
-                        movements: false,
-                        priceHistory: false,
-                        suppliers: false,
-                        sales: false,
-                      });
+                      setClearDataOptions({ ...emptyClearOptions });
                     }}
-                    className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                    className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all disabled:opacity-50"
                   >
                     Cancelar
                   </button>
-                  <button 
+                  <button
                     type="submit"
-                    disabled={clearDataConfirmation !== 'LIMPAR' || !Object.values(clearDataOptions).some(v => v)}
+                    disabled={
+                      clearDataBusy ||
+                      clearDataConfirmation !== 'LIMPAR' ||
+                      !Object.values(clearDataOptions).some((v) => v)
+                    }
                     className="flex-1 py-3 rounded-xl font-bold text-white transition-all bg-orange-600 hover:bg-orange-700 shadow-lg shadow-orange-200 disabled:bg-gray-400 disabled:cursor-not-allowed"
                   >
-                    Confirmar Limpeza
+                    {clearDataBusy ? 'Limpando…' : 'Confirmar limpeza'}
                   </button>
                 </div>
               </form>
