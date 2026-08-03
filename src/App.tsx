@@ -291,6 +291,9 @@ function MainApp() {
   
   const companyId = currentCompany?.id;
   const visibilityRefreshTimerRef = useRef<number | null>(null);
+  // Token em ref: renovação de sessão NÃO deve recriar refreshData nem recarregar a tela
+  const accessTokenRef = useRef(user?.accessToken);
+  accessTokenRef.current = user?.accessToken;
 
   // silent: não cobre a tela com loading (evita desmontar formulários ao sincronizar dados após venda, etc.)
   const refreshData = useCallback(async (options?: { silent?: boolean }) => {
@@ -356,7 +359,8 @@ function MainApp() {
       }
 
       // Aquecer cache do caixa aberto (necessário para venda offline / Venda Manual)
-      if (companyId && user?.accessToken && !offline) {
+      const token = accessTokenRef.current;
+      if (companyId && token && !offline) {
         void (async () => {
           try {
             const { getBackendUrl } = await import('./lib/backendUrl');
@@ -365,8 +369,8 @@ function MainApp() {
             );
             const res = await fetch(getBackendUrl('/cashier/current'), {
               headers: {
-                Authorization: `Bearer ${user.accessToken}`,
-                'X-Custom-Token': user.accessToken,
+                Authorization: `Bearer ${token}`,
+                'X-Custom-Token': token,
                 'X-Company-Id': companyId,
               },
             });
@@ -400,20 +404,19 @@ function MainApp() {
     } finally {
       setLoading(false);
     }
-  }, [companyId, user?.accessToken]);
+  }, [companyId]);
 
-  // Só recarrega índice quando troca a empresa (id), não quando o objeto `user`/token é renovado
+  // Só recarrega índice quando troca a empresa (id), não quando o token é renovado
   useEffect(() => {
-    if (!currentCompany?.id) return;
+    if (!companyId) return;
     void refreshData();
-  }, [currentCompany?.id, refreshData]);
+  }, [companyId, refreshData]);
 
-  // Fallback leve: ao voltar para a aba, um refresh silencioso (sem polling em background).
-  // Cobre quando Realtime não está habilitado no projeto ou rede oscila.
+  // Fallback leve: ao voltar para a aba, refresh silencioso (debounce maior para não “piscar”)
   useEffect(() => {
     if (!companyId) return;
 
-    const DEBOUNCE_MS = 2000;
+    const DEBOUNCE_MS = 8000;
 
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return;

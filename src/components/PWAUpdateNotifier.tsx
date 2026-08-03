@@ -22,6 +22,7 @@ export function PWAUpdateNotifier() {
 
     let intervalId = 0;
     let cancelled = false;
+    let onVisible: (() => void) | null = null;
 
     const waitingKey = (reg: ServiceWorkerRegistration) =>
       reg.waiting?.scriptURL || '';
@@ -95,14 +96,22 @@ export function PWAUpdateNotifier() {
 
         reg.addEventListener('updatefound', () => watchInstalling(reg));
 
-        void reg.update();
-        intervalId = window.setInterval(() => {
+        const checkForUpdate = () => {
           void reg.update().then(() => {
             if (reg.waiting && navigator.serviceWorker.controller) {
               promptUpdate(reg);
             }
           });
-        }, 120_000);
+        };
+
+        // Checagem inicial + ao voltar para a aba (sem spam a cada 2 min)
+        checkForUpdate();
+        onVisible = () => {
+          if (document.visibilityState === 'visible') checkForUpdate();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        // Backup raro: a cada 30 minutos se a aba ficar aberta o dia todo
+        intervalId = window.setInterval(checkForUpdate, 30 * 60_000);
       } catch (error) {
         console.log('ℹ️ Service Worker registration skipped:', error);
       }
@@ -113,6 +122,7 @@ export function PWAUpdateNotifier() {
     return () => {
       cancelled = true;
       if (intervalId) window.clearInterval(intervalId);
+      if (onVisible) document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 

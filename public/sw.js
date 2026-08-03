@@ -2,7 +2,7 @@
 // - HTML network-first (não prende versão antiga)
 // - Atualização só com SKIP_WAITING (usuário clica "Atualizar")
 // - Offline: shell + assets já visitados + alguns GET de leitura
-const VERSION = '2.4.0';
+const VERSION = '2.4.1';
 const CACHE_NAME = `stockpyrou-v${VERSION}`;
 const DATA_CACHE_NAME = `stockpyrou-data-v${VERSION}`;
 
