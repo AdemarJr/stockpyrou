@@ -432,16 +432,31 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
             {showTechnical && (
             <>
             <div className="space-y-1.5">
-              <Label>Ambiente</Label>
+              <Label>Ambiente SEFAZ</Label>
               <select
                 disabled={!canEdit}
                 value={form.ambiente}
-                onChange={(e) => setField('ambiente', e.target.value as FiscalAmbiente)}
+                onChange={(e) => {
+                  const next = e.target.value as FiscalAmbiente;
+                  if (next !== form.ambiente) {
+                    const ok = confirm(
+                      next === 'production'
+                        ? 'Mudar para Produção? NFC-e, DF-e e CSC passam a usar os endpoints oficiais de produção. Cadastre o CSC de produção se ainda não tiver.'
+                        : 'Mudar para Homologação? NFC-e e DF-e passam a usar a SEFAZ de teste. Cadastre o CSC de homologação se ainda não tiver.',
+                    );
+                    if (!ok) return;
+                  }
+                  setField('ambiente', next);
+                }}
                 className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="homologation">Homologação</option>
-                <option value="production">Produção</option>
+                <option value="homologation">Homologação (teste SEFAZ)</option>
+                <option value="production">Produção (notas reais)</option>
               </select>
+              <p className="text-xs text-muted-foreground">
+                Homologação e Produção são suportados de ponta a ponta (NFC-e AM + DF-e Nacional).
+                Cada ambiente tem endpoints, CSC e NSU próprios — não misture tokens.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>CRT</Label>

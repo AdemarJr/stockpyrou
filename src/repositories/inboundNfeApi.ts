@@ -15,6 +15,7 @@ export interface InboundNfeNote {
   dataEmissao?: string;
   valorTotal: number;
   status: string;
+  ambiente?: 'homologation' | 'production';
   manifestStatus: string | null;
   errorMessage: string | null;
   hasFullXml: boolean;
@@ -49,8 +50,19 @@ export class InboundNfeApi {
       downloadedFullXml: number;
       messages: string[];
       notes: InboundNfeNote[];
+      environment?: 'homologation' | 'production';
+      cnpj?: string;
+      uf?: string;
       error?: string;
     }>('/fiscal/inbound/sync', {}, companyId);
+  }
+
+  static async resetNsu(companyId?: string) {
+    return apiClient.post<{ success: boolean; ultNsu: string }>(
+      '/fiscal/inbound/reset-nsu',
+      {},
+      companyId,
+    );
   }
 
   static async list(companyId?: string, status?: string) {

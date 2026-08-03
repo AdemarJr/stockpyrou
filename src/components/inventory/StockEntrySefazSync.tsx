@@ -15,7 +15,7 @@ import {
   type InboundNfeNote,
   type InboundPreviewItem,
 } from '../../repositories/inboundNfeApi';
-import { ApiClientError } from '../../lib/apiClient';
+import { ApiClientError, apiClient } from '../../lib/apiClient';
 import type { Product, StockEntry, Supplier } from '../../types';
 import { calculateWeightedAverageCost, formatCurrency } from '../../utils/calculations';
 import { Button } from '../ui/button';
@@ -60,6 +60,11 @@ export function StockEntrySefazSync({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [importing, setImporting] = useState(false);
   const [needsMigration, setNeedsMigration] = useState(false);
+  const [syncMessages, setSyncMessages] = useState<string[]>([]);
+  const [syncEnvironment, setSyncEnvironment] = useState<
+    'homologation' | 'production' | null
+  >(null);
+  const [resettingNsu, setResettingNsu] = useState(false);
 
   const loadList = useCallback(async () => {
     if (!currentCompany?.id) return;
@@ -77,8 +82,20 @@ export function StockEntrySefazSync({
   }, [currentCompany?.id]);
 
   useEffect(() => {
-    if (open) void loadList();
-  }, [open, loadList]);
+    if (!open) return;
+    void loadList();
+    void (async () => {
+      try {
+        const data = await apiClient.get<{
+          config: { ambiente?: string } | null;
+        }>('/fiscal/config', currentCompany?.id);
+        const amb = data.config?.ambiente;
+        setSyncEnvironment(amb === 'production' ? 'production' : 'homologation');
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [open, loadList, currentCompany?.id]);
 
   const handleSync = async () => {
     if (!currentCompany?.id) return;
@@ -86,17 +103,54 @@ export function StockEntrySefazSync({
     try {
       const res = await InboundNfeApi.sync(currentCompany.id);
       setNotes(res.notes || []);
-      toast.success(
-        `Sincronizado: ${res.newDocuments} documento(s), ${res.downloadedFullXml} XML completo(s)`,
-      );
-      if (res.messages?.length) {
-        console.info('[SEFAZ DF-e]', res.messages);
+      setSyncMessages(res.messages || []);
+      setSyncEnvironment(res.environment || null);
+
+      const msgs = res.messages || [];
+      const envLabel =
+        res.environment === 'production' ? 'Produção' : 'Homologação';
+
+      if ((res.newDocuments || 0) === 0 && (res.downloadedFullXml || 0) === 0) {
+        toast.message(
+          `[${envLabel}] ${
+            msgs.find((m) => /^\d{3}/.test(m)) ||
+            'SEFAZ não retornou documentos novos neste ambiente (cStat 137 ou fim do NSU).'
+          }`,
+          { duration: 7000 },
+        );
+      } else {
+        toast.success(
+          `[${envLabel}] Sincronizado: ${res.newDocuments} documento(s), ${res.downloadedFullXml} XML completo(s)`,
+        );
       }
     } catch (err) {
       const msg = err instanceof ApiClientError ? err.message : 'Erro na sincronização SEFAZ';
-      toast.error(msg);
+      setSyncMessages([msg]);
+      toast.error(msg, { duration: 8000 });
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleResetNsu = async () => {
+    if (!currentCompany?.id) return;
+    if (
+      !confirm(
+        'Reiniciar o NSU da SEFAZ? Isso reconsulta os DF-e dos últimos ~3 meses. Se acabou de receber “nenhum documento” (137), aguarde 1 hora para evitar bloqueio 656.',
+      )
+    ) {
+      return;
+    }
+    setResettingNsu(true);
+    try {
+      await InboundNfeApi.resetNsu(currentCompany.id);
+      toast.success('NSU reiniciado. Clique em Sincronizar com SEFAZ.');
+      setSyncMessages(['NSU reiniciado para 0 — sincronize novamente.']);
+    } catch (err) {
+      const msg = err instanceof ApiClientError ? err.message : 'Falha ao reiniciar NSU';
+      toast.error(msg);
+    } finally {
+      setResettingNsu(false);
     }
   };
 
@@ -225,7 +279,11 @@ export function StockEntrySefazSync({
         {needsMigration && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm text-amber-900 dark:text-amber-100 flex gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            Execute no banco: <code className="text-xs">scripts/add_nfe_inbound_dfe.sql</code>
+            <span>
+              Execute no banco:{' '}
+              <code className="text-xs">scripts/add_nfe_inbound_dfe.sql</code> e{' '}
+              <code className="text-xs">scripts/add_fiscal_dual_environment.sql</code>
+            </span>
           </div>
         )}
 
@@ -242,12 +300,66 @@ export function StockEntrySefazSync({
             <RefreshCw className={`w-4 h-4 ${loadingList ? 'animate-spin' : ''}`} />
             Atualizar lista
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => void handleResetNsu()}
+            disabled={resettingNsu || syncing}
+            className="gap-2"
+          >
+            {resettingNsu ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            Reiniciar NSU
+          </Button>
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Requer certificado A1 e CNPJ em Configurações. Em homologação a SEFAZ pode não retornar
-          documentos reais.
+          Requer certificado A1 e CNPJ em Configurações → Fiscal (mesmo CNPJ do certificado).
+          Homologação e Produção usam endpoints e NSU separados. A SEFAZ distribui DF-e dos
+          últimos ~3 meses em cada ambiente.
         </p>
+
+        <div
+          className={`rounded-lg border p-3 text-sm flex gap-2 ${
+            syncEnvironment === 'production'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100'
+              : 'border-sky-200 bg-sky-50 text-sky-900 dark:bg-sky-950/30 dark:text-sky-100'
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            {syncEnvironment === 'production' ? (
+              <>
+                Ambiente ativo: <strong>Produção</strong> — busca DF-e reais no Ambiente Nacional
+                da SEFAZ.
+              </>
+            ) : syncEnvironment === 'homologation' ? (
+              <>
+                Ambiente ativo: <strong>Homologação</strong> — busca DF-e de teste na SEFAZ hom.
+                Para notas reais de fornecedores, alterne para Produção em Configurações → Fiscal
+                (o NSU de cada ambiente é independente).
+              </>
+            ) : (
+              <>
+                O sync usa o ambiente configurado em <strong>Configurações → Fiscal</strong>{' '}
+                (Homologação ou Produção). Ambos são suportados.
+              </>
+            )}
+          </span>
+        </div>
+
+        {syncMessages.length > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-900/40 p-3 text-xs text-slate-700 dark:text-slate-200 space-y-1 max-h-36 overflow-y-auto">
+            <p className="font-semibold text-slate-900 dark:text-slate-100">Retorno SEFAZ</p>
+            {syncMessages.map((m, i) => (
+              <p key={i} className="font-mono break-words">
+                {m}
+              </p>
+            ))}
+          </div>
+        )}
 
         {!selectedId ? (
           <div className="space-y-3">
