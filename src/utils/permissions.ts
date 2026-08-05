@@ -1,6 +1,6 @@
 import type { UserPermissions, UserRole } from '../types';
 
-/** Espelho da matriz da API — usado como fallback se o token antigo não trouxer canAccessCashier. */
+/** Espelho da matriz da API — usado como fallback se o token antigo não trouxer campos novos. */
 export function getPermissionsByRole(role: UserRole): UserPermissions {
   switch (role) {
     case 'superadmin':
@@ -12,6 +12,7 @@ export function getPermissionsByRole(role: UserRole): UserPermissions {
         canManageStock: true,
         canManageRecipes: true,
         canViewReports: true,
+        canManageCosts: true,
         canManageUsers: true,
         canManageSettings: true,
         canAccessCashier: true,
@@ -24,6 +25,7 @@ export function getPermissionsByRole(role: UserRole): UserPermissions {
         canManageStock: true,
         canManageRecipes: true,
         canViewReports: true,
+        canManageCosts: true,
         canManageUsers: false,
         canManageSettings: false,
         canAccessCashier: true,
@@ -36,6 +38,7 @@ export function getPermissionsByRole(role: UserRole): UserPermissions {
         canManageStock: false,
         canManageRecipes: false,
         canViewReports: false,
+        canManageCosts: false,
         canManageUsers: false,
         canManageSettings: false,
         canAccessCashier: true,
@@ -48,6 +51,7 @@ export function getPermissionsByRole(role: UserRole): UserPermissions {
         canManageStock: false,
         canManageRecipes: false,
         canViewReports: true,
+        canManageCosts: false,
         canManageUsers: false,
         canManageSettings: false,
         canAccessCashier: false,
@@ -55,6 +59,40 @@ export function getPermissionsByRole(role: UserRole): UserPermissions {
     default:
       return getPermissionsByRole('operador');
   }
+}
+
+export function getRoleRank(role: UserRole): number {
+  switch (role) {
+    case 'superadmin':
+      return 5;
+    case 'admin':
+      return 4;
+    case 'gerente':
+      return 3;
+    case 'operador':
+      return 2;
+    case 'visualizacao':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/** Actor só atribui roles com rank estritamente menor (superadmin atribui qualquer). */
+export function canAssignRole(actorRole: UserRole, targetRole: UserRole): boolean {
+  if (actorRole === 'superadmin') return true;
+  return getRoleRank(actorRole) > getRoleRank(targetRole);
+}
+
+/** Actor pode editar/desativar/resetar o alvo (superadmin gerencia qualquer). */
+export function canManageTargetUser(actorRole: UserRole, targetRole: UserRole): boolean {
+  if (actorRole === 'superadmin') return true;
+  return getRoleRank(actorRole) > getRoleRank(targetRole);
+}
+
+export function assignableRolesFor(actorRole: UserRole): UserRole[] {
+  const all: UserRole[] = ['superadmin', 'admin', 'gerente', 'operador', 'visualizacao'];
+  return all.filter((r) => canAssignRole(actorRole, r));
 }
 
 export function resolveUserPermissions(
@@ -66,7 +104,6 @@ export function resolveUserPermissions(
   return {
     ...defaults,
     ...permissions,
-    // Tokens antigos sem o campo: usa a matriz do perfil
     canAccessCashier:
       permissions.canAccessCashier !== undefined
         ? !!permissions.canAccessCashier
@@ -75,5 +112,9 @@ export function resolveUserPermissions(
       permissions.canManageSettings !== undefined
         ? !!permissions.canManageSettings
         : defaults.canManageSettings,
+    canManageCosts:
+      permissions.canManageCosts !== undefined
+        ? !!permissions.canManageCosts
+        : defaults.canManageCosts,
   };
 }

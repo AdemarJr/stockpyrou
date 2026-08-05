@@ -55,7 +55,7 @@ function statusLabel(status: string) {
   return 'Em aberto';
 }
 
-export function ReceivableManagement() {
+export function ReceivableManagement({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { currentCompany } = useCompany();
   const companyId = currentCompany?.id;
   const today = todayYmdLocal();
@@ -271,10 +271,12 @@ export function ReceivableManagement() {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Novo título
-        </Button>
+        {!readOnly && (
+          <Button onClick={() => setCreateOpen(true)} className="gap-2">
+            <Plus className="w-4 h-4" />
+            Novo título
+          </Button>
+        )}
       </div>
 
       <Card className="overflow-hidden">
@@ -340,6 +342,7 @@ export function ReceivableManagement() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {!readOnly && (
                       <div className="inline-flex gap-1">
                         {row.remainingAmount > 0.005 && row.paymentStatus !== 'cancelled' && (
                           <Button size="sm" variant="outline" onClick={() => void openReceive(row)}>
@@ -355,6 +358,7 @@ export function ReceivableManagement() {
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
+                      )}
                     </td>
                   </tr>
                 ))}

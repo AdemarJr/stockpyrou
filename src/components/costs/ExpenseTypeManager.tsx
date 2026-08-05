@@ -17,7 +17,7 @@ import { CostRepository } from '../../repositories/CostRepository';
 import { cn } from '../ui/utils';
 import { ariaInvalidProps } from '../../lib/formFieldValidation';
 
-export function ExpenseTypeManager() {
+export function ExpenseTypeManager({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { currentCompany } = useCompany();
   const [types, setTypes] = useState<any[]>([]);
   const [centers, setCenters] = useState<CostCenter[]>([]);
@@ -228,10 +228,12 @@ export function ExpenseTypeManager() {
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">
             Tipos de Despesa
           </h2>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Novo Tipo
-          </Button>
+          {!readOnly && (
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Tipo
+            </Button>
+          )}
         </div>
 
         <div className="mb-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 p-3 rounded-lg border border-border bg-muted/20">
@@ -304,6 +306,7 @@ export function ExpenseTypeManager() {
                       {type.cost_centers?.name ?? type.cost_centers_8a20b27d?.name}
                     </p>
                   </div>
+                  {!readOnly && (
                   <div className="flex gap-1">
                     <Button
                       variant="ghost"
@@ -326,6 +329,7 @@ export function ExpenseTypeManager() {
                       )}
                     </Button>
                   </div>
+                  )}
                 </div>
                 
                 <div className="flex items-center gap-2 flex-wrap">

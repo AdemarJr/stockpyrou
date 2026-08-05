@@ -33,6 +33,7 @@ import {
 import { Search } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { ariaInvalidProps } from '../../lib/formFieldValidation';
+import { assignableRolesFor, canManageTargetUser } from '../../utils/permissions';
 
 const API_URL = getBackendApiRoot();
 
@@ -42,6 +43,14 @@ const roleLabels: Record<UserRole, string> = {
   gerente: 'Gerente',
   operador: 'Operador de PDV',
   visualizacao: 'Somente Visualização',
+};
+
+const roleHints: Record<UserRole, string> = {
+  superadmin: 'Acesso total: usuários, configurações, fiscal, estoque e PDV',
+  admin: 'Acesso total da conta: usuários, configurações, estoque e PDV',
+  gerente: 'Operação completa (estoque, PDV, custos, relatórios). Sem usuários e sem configurações',
+  operador: 'Somente PDV: abrir/fechar caixa, vender, sangria e suprimento/troco',
+  visualizacao: 'Somente dashboard e relatórios (sem alterar dados)',
 };
 
 const roleColors: Record<UserRole, string> = {
@@ -86,6 +95,11 @@ export function UserManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const assignableRoles = useMemo(
+    () => (user?.role ? assignableRolesFor(user.role) : ([] as UserRole[])),
+    [user?.role],
+  );
 
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
@@ -177,6 +191,7 @@ export function UserManagement() {
             'Authorization': `Bearer ${user?.accessToken || ''}`,
             'X-Custom-Token': user?.accessToken || '',
             'Content-Type': 'application/json',
+            ...(currentCompany?.id ? { 'X-Company-Id': currentCompany.id } : {}),
           },
           body: JSON.stringify({
             fullName: formData.fullName,
@@ -186,22 +201,31 @@ export function UserManagement() {
         });
 
         if (!response.ok) {
-          throw new Error('Erro ao atualizar usuário');
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.error || 'Erro ao atualizar usuário');
         }
 
         toast.success('Usuário atualizado com sucesso!');
       } else {
-        const response = await fetch(`${API_URL}/auth/signup`, {
+        if (!currentCompany?.id) {
+          throw new Error('Selecione uma empresa para criar o usuário');
+        }
+        const response = await fetch(`${API_URL}/users`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${user?.accessToken}`,
+            'X-Custom-Token': user?.accessToken || '',
             'Content-Type': 'application/json',
+            'X-Company-Id': currentCompany.id,
           },
-          body: JSON.stringify(formData),
+          body: JSON.stringify({
+            ...formData,
+            companyId: currentCompany.id,
+          }),
         });
 
         if (!response.ok) {
-          const error = await response.json();
+          const error = await response.json().catch(() => ({}));
           throw new Error(error.error || 'Erro ao criar usuário');
         }
 
@@ -230,11 +254,13 @@ export function UserManagement() {
           'Authorization': `Bearer ${user?.accessToken || ''}`,
           'X-Custom-Token': user?.accessToken || '',
           'Content-Type': 'application/json',
+          ...(currentCompany?.id ? { 'X-Company-Id': currentCompany.id } : {}),
         },
       });
 
       if (!response.ok) {
-        throw new Error('Erro ao desativar usuário');
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Erro ao desativar usuário');
       }
 
       toast.success('Usuário desativado com sucesso!');
@@ -287,13 +313,21 @@ export function UserManagement() {
     }
   }
 
+  function defaultAssignableRole(): UserRole {
+    if (assignableRoles.includes('visualizacao')) return 'visualizacao';
+    return assignableRoles[0] || 'visualizacao';
+  }
+
   function handleEdit(userToEdit: UserProfile) {
     setEditingUser(userToEdit);
+    const role = assignableRoles.includes(userToEdit.role)
+      ? userToEdit.role
+      : defaultAssignableRole();
     setFormData({
       email: userToEdit.email,
       password: '',
       fullName: userToEdit.fullName,
-      role: userToEdit.role,
+      role,
       position: userToEdit.position || '',
     });
     setShowForm(true);
@@ -307,7 +341,7 @@ export function UserManagement() {
       email: '',
       password: '',
       fullName: '',
-      role: 'visualizacao',
+      role: defaultAssignableRole(),
       position: '',
     });
   }
@@ -458,6 +492,7 @@ export function UserManagement() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
+                      {user?.role && canManageTargetUser(user.role, userItem.role) && (
                       <button
                         onClick={() => handleEdit(userItem)}
                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
@@ -466,6 +501,8 @@ export function UserManagement() {
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
+                      )}
+                      {user?.role && canManageTargetUser(user.role, userItem.role) && (
                       <button
                         onClick={() => setResettingPassword(userItem)}
                         className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors disabled:opacity-50"
@@ -474,7 +511,10 @@ export function UserManagement() {
                       >
                         <Key className="w-4 h-4" />
                       </button>
-                      {userItem.id !== user.id && (
+                      )}
+                      {userItem.id !== user.id &&
+                        user?.role &&
+                        canManageTargetUser(user.role, userItem.role) && (
                         <button
                           onClick={() => setDeletingUser(userItem)}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
@@ -587,24 +627,13 @@ export function UserManagement() {
                   onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
                   className="mt-2 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="visualizacao">Somente Visualização</option>
-                  <option value="operador">Operador de PDV</option>
-                  <option value="gerente">Gerente de Estoque</option>
-                  <option value="admin">Administrador</option>
-                  <option value="superadmin">Super Administrador</option>
+                  {assignableRoles.map((r) => (
+                    <option key={r} value={r}>
+                      {roleLabels[r]}
+                    </option>
+                  ))}
                 </select>
-                <p className="mt-2 text-gray-600">
-                  {formData.role === 'superadmin' &&
-                    'Acesso total: usuários, configurações, fiscal, estoque e PDV'}
-                  {formData.role === 'admin' &&
-                    'Acesso total da conta: usuários, configurações, estoque e PDV'}
-                  {formData.role === 'gerente' &&
-                    'Operação completa (estoque, PDV, relatórios). Sem usuários e sem configurações'}
-                  {formData.role === 'operador' &&
-                    'Somente PDV: abrir/fechar caixa, vender, sangria e suprimento/troco'}
-                  {formData.role === 'visualizacao' &&
-                    'Somente dashboard e relatórios (sem alterar dados)'}
-                </p>
+                <p className="mt-2 text-gray-600">{roleHints[formData.role]}</p>
               </div>
 
               <div className="flex gap-3 pt-4">

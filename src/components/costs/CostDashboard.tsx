@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -49,7 +50,9 @@ interface DashboardMetrics {
 }
 
 export function CostDashboard() {
+  const { user } = useAuth();
   const { currentCompany } = useCompany();
+  const canManageCosts = !!user?.permissions?.canManageCosts;
   const [loading, setLoading] = useState(true);
   const [referenceMonth, setReferenceMonth] = useState<string>(() => {
     const d = new Date();
@@ -156,6 +159,10 @@ export function CostDashboard() {
 
   const initializeCostCenters = async () => {
     if (!currentCompany?.id) return;
+    if (!canManageCosts) {
+      toast.error('Sem permissão para alterar centros de custo');
+      return;
+    }
 
     try {
       const { created } = await CostRepository.seedDefaultCostCentersIfEmpty(currentCompany.id);
@@ -205,12 +212,20 @@ export function CostDashboard() {
               className="bg-transparent text-sm text-gray-900 dark:text-gray-100 outline-none"
             />
           </div>
-          <Button onClick={initializeCostCenters} variant="outline">
-            <Settings className="w-4 h-4 mr-2" />
-            Inicializar Centros de Custo
-          </Button>
+          {canManageCosts && (
+            <Button onClick={initializeCostCenters} variant="outline">
+              <Settings className="w-4 h-4 mr-2" />
+              Inicializar Centros de Custo
+            </Button>
+          )}
         </div>
       </div>
+      {!canManageCosts && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Modo leitura: seu perfil pode visualizar custos e relatórios, mas não criar, editar ou excluir
+          lançamentos.
+        </div>
+      )}
 
       {/* Metrics Cards */}
       {activeTab === 'overview' && (
@@ -407,7 +422,7 @@ export function CostDashboard() {
         </TabsList>
 
         <TabsContent value="overview">
-          <CostCenterManagement />
+          <CostCenterManagement readOnly={!canManageCosts} />
         </TabsContent>
 
         <TabsContent value="finance">
@@ -419,11 +434,11 @@ export function CostDashboard() {
         </TabsContent>
 
         <TabsContent value="expenses">
-          <ExpenseManagement forcedPeriod={forcedPeriod} />
+          <ExpenseManagement forcedPeriod={forcedPeriod} readOnly={!canManageCosts} />
         </TabsContent>
 
         <TabsContent value="receivables">
-          <ReceivableManagement />
+          <ReceivableManagement readOnly={!canManageCosts} />
         </TabsContent>
 
         <TabsContent value="analytics">

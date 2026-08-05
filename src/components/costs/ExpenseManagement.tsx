@@ -213,10 +213,13 @@ function getStatusLabelStatic(status: string): string {
 }
 
 export function ExpenseManagement({
-  forcedPeriod
+  forcedPeriod,
+  readOnly = false,
 }: {
   /** Período forçado (YYYY-MM-DD) vindo do filtro superior do dashboard. */
   forcedPeriod?: { from: string; to: string };
+  /** Perfil só leitura (ex.: visualizacao). */
+  readOnly?: boolean;
 } = {}) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
@@ -1027,10 +1030,12 @@ export function ExpenseManagement({
                 <Printer className="w-4 h-4 mr-2" />
                 Imprimir
               </Button>
-              <Button onClick={openNewExpense}>
-                <Plus className="w-4 h-4 mr-2" />
-                Nova Despesa
-              </Button>
+              {!readOnly && (
+                <Button onClick={openNewExpense}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nova Despesa
+                </Button>
+              )}
             </div>
           </div>
 
@@ -1372,6 +1377,7 @@ export function ExpenseManagement({
                     </td>
                     <td className="py-3 px-4 text-center">
                       <div className="flex flex-wrap items-center justify-center gap-1">
+                        {!readOnly && (
                         <Button
                           type="button"
                           size="sm"
@@ -1383,6 +1389,8 @@ export function ExpenseManagement({
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
+                        )}
+                        {!readOnly && (
                         <Button
                           type="button"
                           size="sm"
@@ -1400,7 +1408,8 @@ export function ExpenseManagement({
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
-                        {expense.expense_group_id && (
+                        )}
+                        {!readOnly && expense.expense_group_id && (
                           <Button
                             type="button"
                             size="sm"
@@ -1423,7 +1432,8 @@ export function ExpenseManagement({
                             <Layers className="w-3.5 h-3.5" />
                           </Button>
                         )}
-                        {(expense.payment_status === 'pending' || expense.payment_status === 'overdue') &&
+                        {!readOnly &&
+                          (expense.payment_status === 'pending' || expense.payment_status === 'overdue') &&
                           expenseRemaining(expense) > 0 && (
                           <Button
                             type="button"

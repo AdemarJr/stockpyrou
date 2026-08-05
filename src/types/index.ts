@@ -183,6 +183,8 @@ export interface UserPermissions {
   canManageStock: boolean;
   canManageRecipes: boolean;
   canViewReports: boolean;
+  /** Despesas / centros / tipos / contas a receber (escrita). */
+  canManageCosts: boolean;
   canManageUsers: boolean;
   /** Configurações / integrações / fiscal — só admin e superadmin. */
   canManageSettings: boolean;

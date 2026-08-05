@@ -18,7 +18,7 @@ import { ExpenseTypeManager } from './ExpenseTypeManager';
 import { cn } from '../ui/utils';
 import { ariaInvalidProps } from '../../lib/formFieldValidation';
 
-export function CostCenterManagement() {
+export function CostCenterManagement({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { currentCompany } = useCompany();
   const [centers, setCenters] = useState<CostCenter[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,10 +196,12 @@ export function CostCenterManagement() {
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                 Centros de Custo
               </h2>
-              <Button onClick={() => setDialogOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Novo Centro
-              </Button>
+              {!readOnly && (
+                <Button onClick={() => setDialogOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Novo Centro
+                </Button>
+              )}
             </div>
 
             <div className="mb-4 space-y-1.5">
@@ -222,10 +224,12 @@ export function CostCenterManagement() {
                 <p className="text-gray-500 dark:text-gray-400">
                   Nenhum centro de custo cadastrado
                 </p>
-                <Button onClick={() => setDialogOpen(true)} variant="outline" className="mt-4">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Criar Primeiro Centro
-                </Button>
+                {!readOnly && (
+                  <Button onClick={() => setDialogOpen(true)} variant="outline" className="mt-4">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Criar Primeiro Centro
+                  </Button>
+                )}
               </div>
             ) : filteredCenters.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
@@ -249,6 +253,7 @@ export function CostCenterManagement() {
                           </p>
                         </div>
                       </div>
+                      {!readOnly && (
                       <div className="flex gap-1">
                         <Button
                           variant="ghost"
@@ -272,6 +277,7 @@ export function CostCenterManagement() {
                           )}
                         </Button>
                       </div>
+                      )}
                     </div>
                     {center.description && (
                       <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -373,7 +379,7 @@ export function CostCenterManagement() {
         </TabsContent>
 
         <TabsContent value="types">
-          <ExpenseTypeManager />
+          <ExpenseTypeManager readOnly={readOnly} />
         </TabsContent>
       </Tabs>
     </div>
