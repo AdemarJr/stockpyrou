@@ -2,7 +2,7 @@
 // - HTML network-first (não prende versão antiga)
 // - Atualização só com SKIP_WAITING (usuário clica "Atualizar")
 // - Offline: shell + assets já visitados + alguns GET de leitura
-const VERSION = '2.4.0';
+const VERSION = '2.4.2';
 const CACHE_NAME = `stockpyrou-v${VERSION}`;
 const DATA_CACHE_NAME = `stockpyrou-data-v${VERSION}`;
 
@@ -82,6 +82,27 @@ self.addEventListener('fetch', (event) => {
           if (response && response.ok) {
             const copy = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+            return response;
+          }
+          // SPA deep links (ex.: /reset-password) — serve shell se o host não reescreve
+          if (
+            isNavigationRequest(request) &&
+            response &&
+            response.status === 404 &&
+            url.pathname !== '/' &&
+            !url.pathname.endsWith('.html')
+          ) {
+            return caches.match('/').then(
+              (home) =>
+                home ||
+                fetch('/').catch(
+                  () =>
+                    new Response(
+                      '<!doctype html><html><body style="font-family:sans-serif;padding:2rem"><h1>Offline</h1><p>Sem conexão. Reconecte e atualize a página.</p></body></html>',
+                      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+                    ),
+                ),
+            );
           }
           return response;
         })

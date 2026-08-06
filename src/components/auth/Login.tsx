@@ -19,7 +19,10 @@ export function Login({ onBackToLanding }: LoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ email?: boolean; password?: boolean }>({});
+  const [forgotError, setForgotError] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +67,35 @@ export function Login({ onBackToLanding }: LoginProps) {
     }
   };
 
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const value = forgotEmail.trim();
+    if (!value || !value.includes('@')) {
+      setForgotError(true);
+      return;
+    }
+    setForgotError(false);
+    setLoading(true);
+    try {
+      const { getBackendApiRoot } = await import('../../lib/backendUrl');
+      const res = await fetch(`${getBackendApiRoot()}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setForgotSent(true);
+      toast.success(
+        data.message ||
+          'Se existir uma conta com este e-mail, enviaremos instruções para redefinir a senha.',
+      );
+    } catch {
+      toast.error('Não foi possível enviar a solicitação. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (showForgotPassword) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center p-4">
@@ -73,17 +105,72 @@ export function Login({ onBackToLanding }: LoginProps) {
               <Lock className="w-10 h-10 text-blue-600" />
             </div>
             <h2 className="text-gray-900 mb-2">Recuperar Senha</h2>
-            <p className="text-gray-600">
-              Entre em contato com o administrador do sistema para redefinir sua senha.
+            <p className="text-gray-600 text-sm">
+              Informe o e-mail da sua conta. Se ele estiver cadastrado, enviaremos um link para
+              redefinir a senha.
             </p>
           </div>
 
-          <button
-            onClick={() => setShowForgotPassword(false)}
-            className="w-full bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Voltar ao Login
-          </button>
+          {forgotSent ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                Se o e-mail estiver cadastrado, você receberá as instruções em breve. Verifique também
+                a caixa de spam.
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setForgotSent(false);
+                  setForgotEmail('');
+                }}
+                className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+              >
+                Voltar ao Login
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={(e) => void handleForgotSubmit(e)} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    className={cn(
+                      'w-full rounded-lg border border-gray-300 pl-11 pr-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
+                      nativeFieldInvalidClass(!!forgotError),
+                    )}
+                    placeholder="seu@email.com"
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2 font-semibold"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Enviando…
+                  </>
+                ) : (
+                  'Enviar link de recuperação'
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowForgotPassword(false)}
+                className="w-full bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Voltar ao Login
+              </button>
+            </form>
+          )}
         </div>
       </div>
     );

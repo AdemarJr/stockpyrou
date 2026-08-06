@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Toaster } from 'sonner@2.0.3';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CompanyProvider, useCompany } from './contexts/CompanyContext';
@@ -25,6 +25,7 @@ import { UserManagement } from './components/users/UserManagement';
 import { CompanySelection } from './components/auth/CompanySelection';
 import { Login } from './components/auth/Login';
 import { AdminLogin } from './components/auth/AdminLogin';
+import { ResetPassword } from './components/auth/ResetPassword';
 import { LandingPage } from './components/landing/LandingPage';
 import { AdminSaaS } from './components/admin/AdminSaaS';
 import { QuickSearch } from './components/QuickSearch';
@@ -1178,6 +1179,29 @@ function AppContent() {
   const [showLogin, setShowLogin] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
 
+  const resetToken = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get('token') || '';
+    if (path === '/reset-password' || path.endsWith('/reset-password')) {
+      return fromQuery;
+    }
+    // Também aceita ?resetToken= em qualquer path (fallback)
+    return params.get('resetToken') || '';
+  }, []);
+
+  const clearResetUrl = () => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (url.pathname.replace(/\/+$/, '') === '/reset-password' || url.pathname.endsWith('/reset-password')) {
+      url.pathname = '/';
+    }
+    url.searchParams.delete('token');
+    url.searchParams.delete('resetToken');
+    window.history.replaceState({}, '', url.pathname + url.search);
+  };
+
   // Debug: log estado de autenticação
   useEffect(() => {
     console.log('🔍 [AppContent] Auth State:', {
@@ -1191,6 +1215,23 @@ function AppContent() {
   if (loading) {
     console.log('⏳ [AppContent] Loading auth state...');
     return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>;
+  }
+
+  // Página pública de redefinição (antes do login)
+  if (!user && (window.location.pathname.replace(/\/+$/, '') === '/reset-password' || window.location.pathname.endsWith('/reset-password') || resetToken)) {
+    return (
+      <ResetPassword
+        token={resetToken || new URLSearchParams(window.location.search).get('token') || ''}
+        onDone={() => {
+          clearResetUrl();
+          setShowLogin(true);
+        }}
+        onBackToLogin={() => {
+          clearResetUrl();
+          setShowLogin(true);
+        }}
+      />
+    );
   }
   
   if (!user) {
