@@ -218,6 +218,7 @@ function MainApp() {
 
   const [currentPage, setCurrentPage] = useState<Page>(resolveInitialPage);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [showProductForm, setShowProductForm] = useState(false);
   const [showQuickProductForm, setShowQuickProductForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
@@ -249,6 +250,7 @@ function MainApp() {
       setSidebarOpen(false);
     } else {
       setSidebarOpen(true);
+      setMobileMoreOpen(false);
     }
   }, [isMobile]);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -826,6 +828,14 @@ function MainApp() {
   };
 
   const navigation = getNavigation();
+  const MOBILE_PRIMARY = 4;
+  const primaryNav = navigation.slice(0, MOBILE_PRIMARY);
+  const moreNav = navigation.slice(MOBILE_PRIMARY);
+  const moreNavActive = moreNav.some((n) => n.id === currentPage);
+  const goToMobilePage = (id: Page) => {
+    setCurrentPage(id);
+    setMobileMoreOpen(false);
+  };
 
   if (loading) {
     return (
@@ -1098,39 +1108,92 @@ function MainApp() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex md:hidden z-40 h-16 safe-area-bottom">
-         {navigation.slice(0, 6).map((item) => {
-           const Icon = item.icon;
-           return (
-             <button
-               key={item.id}
-               onClick={() => setCurrentPage(item.id)}
-               className={`flex-1 flex flex-col items-center justify-center gap-1 ${currentPage === item.id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}
-             >
-               <Icon className="w-5 h-5" />
-               <span className="text-[10px] font-medium">{item.name.split(' ')[0]}</span>
-             </button>
-           );
-         })}
-         {navigation.length > 6 && (
+      {mobileMoreOpen && (
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Mais opções">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            aria-label="Fechar menu"
+            onClick={() => setMobileMoreOpen(false)}
+          />
+          <div className="absolute bottom-0 left-0 right-0 max-h-[75vh] overflow-y-auto rounded-t-2xl border-t border-gray-200 bg-white pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] shadow-2xl dark:border-gray-700 dark:bg-gray-800">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Mais opções</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Demais telas do sistema</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileMoreOpen(false)}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                aria-label="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 p-4">
+              {moreNav.map((item) => {
+                const Icon = item.icon;
+                const active = currentPage === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => goToMobilePage(item.id)}
+                    className={`flex flex-col items-center gap-2 rounded-xl px-2 py-4 text-center transition-colors ${
+                      active
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700/60'
+                    }`}
+                  >
+                    <Icon className="h-6 w-6 shrink-0" />
+                    <span className="text-[11px] font-medium leading-tight">{item.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <nav className="fixed bottom-0 left-0 right-0 z-40 flex h-16 border-t border-gray-200 bg-white safe-area-bottom dark:border-gray-700 dark:bg-gray-800 md:hidden">
+        {primaryNav.map((item) => {
+          const Icon = item.icon;
+          return (
             <button
-              onClick={() => {
-                // Find index of current if it's beyond 6
-                const currentIndex = navigation.findIndex(n => n.id === currentPage);
-                if (currentIndex >= 6) {
-                   // Cycle or just show a menu? For simplicity let's just make a toggle to show others
-                }
-              }}
-              className="flex-1 flex flex-col items-center justify-center gap-1 text-gray-500 dark:text-gray-400"
+              key={item.id}
+              type="button"
+              onClick={() => goToMobilePage(item.id)}
+              className={`flex flex-1 flex-col items-center justify-center gap-1 ${
+                currentPage === item.id
+                  ? 'text-blue-600 dark:text-blue-400'
+                  : 'text-gray-500 dark:text-gray-400'
+              }`}
             >
-              <Menu className="w-5 h-5" />
-              <span className="text-[10px] font-medium">Mais</span>
+              <Icon className="h-5 w-5" />
+              <span className="text-[10px] font-medium">{item.name.split(' ')[0]}</span>
             </button>
-         )}
+          );
+        })}
+        {moreNav.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setMobileMoreOpen((open) => !open)}
+            className={`flex flex-1 flex-col items-center justify-center gap-1 ${
+              moreNavActive || mobileMoreOpen
+                ? 'text-blue-600 dark:text-blue-400'
+                : 'text-gray-500 dark:text-gray-400'
+            }`}
+            aria-expanded={mobileMoreOpen}
+            aria-haspopup="dialog"
+          >
+            <Menu className="h-5 w-5" />
+            <span className="text-[10px] font-medium">Mais</span>
+          </button>
+        )}
       </nav>
-      
+
       {/* Modals */}
-      {sidebarOpen && <div className="fixed inset-0 bg-black/50 md:hidden z-40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />}
       
       {viewingProduct && <ProductViewModal product={viewingProduct} onClose={() => setViewingProduct(null)} />}
       
