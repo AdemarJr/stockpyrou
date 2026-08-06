@@ -78,15 +78,20 @@ export function getRoleRank(role: UserRole): number {
   }
 }
 
-/** Actor só atribui roles com rank estritamente menor (superadmin atribui qualquer). */
+/** Actor só atribui roles com rank estritamente menor (superadmin atribui qualquer).
+ * Admin da empresa: pode criar/editar outros admins e perfis abaixo (não superadmin). */
 export function canAssignRole(actorRole: UserRole, targetRole: UserRole): boolean {
   if (actorRole === 'superadmin') return true;
+  if (targetRole === 'superadmin') return false;
+  if (actorRole === 'admin') return getRoleRank(targetRole) <= getRoleRank('admin');
   return getRoleRank(actorRole) > getRoleRank(targetRole);
 }
 
 /** Actor pode editar/desativar/resetar o alvo (superadmin gerencia qualquer). */
 export function canManageTargetUser(actorRole: UserRole, targetRole: UserRole): boolean {
   if (actorRole === 'superadmin') return true;
+  if (targetRole === 'superadmin') return false;
+  if (actorRole === 'admin') return getRoleRank(targetRole) <= getRoleRank('admin');
   return getRoleRank(actorRole) > getRoleRank(targetRole);
 }
 

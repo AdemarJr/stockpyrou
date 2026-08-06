@@ -153,6 +153,7 @@ export function UserManagement() {
           'Authorization': `Bearer ${user?.accessToken || ''}`,
           'X-Custom-Token': user?.accessToken || '',
           'Content-Type': 'application/json',
+          ...(currentCompany?.id ? { 'X-Company-Id': currentCompany.id } : {}),
         },
       });
 
