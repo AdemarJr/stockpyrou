@@ -158,6 +158,9 @@ export class StockService {
    * Reverte (Exclui) uma entrada de estoque
    * AVISO: Isso reverterá o estoque. O custo médio será recalculado matematicamente
    * revertendo a operação de média ponderada.
+   *
+   * Entradas duplicadas: se parte do estoque já foi vendida, estorna só o disponível
+   * (não deixa negativo) e mesmo assim remove o lançamento + AP vinculada.
    */
   static async deleteStockEntry(entryId: string, userId: string, reason: string): Promise<StockMovement> {
     const entry = await StockRepository.findById(entryId);
@@ -171,50 +174,48 @@ export class StockService {
       throw new Error('Produto associado não encontrado');
     }
 
-    // Verificar se é possível reverter o estoque (não pode ficar negativo)
-    // Nota: Em alguns casos de negócio, pode-se permitir negativo para correção,
-    // mas por segurança vamos bloquear se o produto já foi consumido.
-    if (product.currentStock < entry.quantity) {
-      throw new Error('Não é possível reverter esta entrada: Os produtos já foram consumidos ou vendidos.');
-    }
+    const entryQty = Number(entry.quantity) || 0;
+    const currentStock = Number(product.currentStock) || 0;
+    // Estorna no máximo o estoque atual (duplicata + vendas não devem impedir limpeza do lançamento)
+    const reverseQty = Math.min(entryQty, Math.max(0, currentStock));
+    const partial = reverseQty + 1e-9 < entryQty;
 
-    // Calcular reversão do Custo Médio
-    // Fórmula Inversa:
-    // (TotalAtual - ValorEntrada) / (QtdAtual - QtdEntrada)
+    // Calcular reversão do Custo Médio (proporcional ao que de fato sai do estoque)
+    const currentTotalValue = currentStock * (Number(product.averageCost) || 0);
+    const entryUnit = Number(entry.unitPrice) || 0;
+    const reverseValue = reverseQty * entryUnit;
+    const newStock = Math.max(0, currentStock - reverseQty);
     
-    const currentTotalValue = product.currentStock * product.averageCost;
-    const entryTotalValue = entry.quantity * entry.unitPrice;
-    const newStock = product.currentStock - entry.quantity;
+    let newAvgCost = Number(product.averageCost) || 0;
     
-    let newAvgCost = product.averageCost; // Fallback
-    
-    if (newStock > 0) {
-      const newTotalValue = currentTotalValue - entryTotalValue;
-      // Proteção contra valores negativos muito pequenos devido a ponto flutuante
+    if (newStock > 1e-9) {
+      const newTotalValue = currentTotalValue - reverseValue;
       const sanitizedTotalValue = Math.max(0, newTotalValue);
       newAvgCost = sanitizedTotalValue / newStock;
     } else {
-      newAvgCost = 0; // Se zerou o estoque, zera o custo
+      newAvgCost = 0;
     }
 
-    // 1. Atualizar Produto (Remove estoque e atualiza custo)
-    await ProductService.updateStock(product.id, -entry.quantity, newAvgCost);
+    // 1. Atualizar Produto (Remove estoque disponível e atualiza custo)
+    if (reverseQty > 1e-9) {
+      await ProductService.updateStock(product.id, -reverseQty, newAvgCost);
+    }
 
-    // 2. Excluir a Entrada (Delete físico para permitir re-lançamento limpo)
+    // 2. Excluir a Entrada (API limpa despesa/ledger vinculados)
     await StockRepository.deleteEntry(entryId);
 
     // 3. Registrar Movimentação de Estorno (Para auditoria)
-    // Nota: Poderíamos deletar a movimentação original também, mas um estorno é mais seguro para rastreio.
-    // Porém, o usuário pediu para "alterar", então vamos fazer um "Delete" limpo da entrada
-    // e criar uma movimentação de "Correção de Entrada".
+    const notesExtra = partial
+      ? ` Estorno parcial: entrada ${entryQty}, estoque disponível ${reverseQty} (resto já havia sido consumido).`
+      : '';
     const movement = await StockRepository.createMovement({
       companyId: entry.companyId,
       productId: entry.productId,
-      type: 'saida', // Saída técnica
-      quantity: entry.quantity,
+      type: 'saida',
+      quantity: reverseQty > 0 ? reverseQty : entryQty,
       reason: `Estorno: ${reason}`,
-      cost: entry.totalPrice, // Valor total que saiu
-      notes: `Cancelamento de entrada. Motivo: ${reason}`,
+      cost: reverseQty * entryUnit,
+      notes: `Cancelamento de entrada. Motivo: ${reason}.${notesExtra}`,
       userId: userId,
     });
 
@@ -234,22 +235,21 @@ export class StockService {
     const oldEntry = await StockRepository.findById(entryId);
     if (!oldEntry) throw new Error('Entrada original não encontrada');
 
-    // 2. Reverter os efeitos da entrada antiga
-    // Reutilizamos a lógica de validação do deleteStockEntry (verifica se tem estoque para remover)
+    // 2. Reverter os efeitos da entrada antiga (estorno parcial se já houve consumo)
     const product = await ProductRepository.findById(oldEntry.productId);
     if (!product) throw new Error('Produto não encontrado');
 
-    if (product.currentStock < oldEntry.quantity) {
-      throw new Error('Não é possível editar esta entrada: O estoque já foi consumido.');
-    }
+    const oldQty = Number(oldEntry.quantity) || 0;
+    const currentStock = Number(product.currentStock) || 0;
+    const reverseQty = Math.min(oldQty, Math.max(0, currentStock));
 
-    // Cálculo reverso do custo (remover a entrada antiga)
-    const currentTotalVal = product.currentStock * product.averageCost;
-    const oldEntryTotalVal = oldEntry.quantity * oldEntry.unitPrice;
-    const stockAfterRevert = product.currentStock - oldEntry.quantity;
+    const currentTotalVal = currentStock * (Number(product.averageCost) || 0);
+    const oldUnit = Number(oldEntry.unitPrice) || 0;
+    const oldEntryTotalVal = reverseQty * oldUnit;
+    const stockAfterRevert = Math.max(0, currentStock - reverseQty);
     
-    let costAfterRevert = product.averageCost;
-    if (stockAfterRevert > 0) {
+    let costAfterRevert = Number(product.averageCost) || 0;
+    if (stockAfterRevert > 1e-9) {
       costAfterRevert = Math.max(0, currentTotalVal - oldEntryTotalVal) / stockAfterRevert;
     } else {
       costAfterRevert = 0;
@@ -277,8 +277,10 @@ export class StockService {
     // Revert Old (-OldQty, CostAfterRevert) -> Apply New (+NewQty, FinalCost)
     // Para ser atômico e seguro com a função updateStock existente:
     
-    // Passo A: Remover estoque antigo
-    await ProductService.updateStock(product.id, -oldEntry.quantity, costAfterRevert);
+    // Passo A: Remover estoque antigo (só o disponível)
+    if (reverseQty > 1e-9) {
+      await ProductService.updateStock(product.id, -reverseQty, costAfterRevert);
+    }
     
     // Passo B: Adicionar estoque novo
     await ProductService.updateStock(product.id, newQuantity, finalAvgCost);

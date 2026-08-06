@@ -729,6 +729,7 @@ function MainApp() {
       const entry = stockEntries.find(e => e.id === entryId);
       if (!entry) throw new Error('Entrada não encontrada');
 
+      const productBefore = products.find((p) => p.id === entry.productId);
       const movement = await StockService.deleteStockEntry(entryId, user?.id || 'unknown', reason);
       
       // Update UI state
@@ -741,7 +742,15 @@ function MainApp() {
         setProducts(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
       }
 
-      toast.success('Entrada cancelada com sucesso!', { id: loadingToast });
+      const entryQty = Number(entry.quantity) || 0;
+      const stockWas = Number(productBefore?.currentStock ?? entryQty) || 0;
+      const partial = stockWas + 1e-9 < entryQty;
+      toast.success(
+        partial
+          ? 'Entrada excluída. Parte do estoque já havia sido vendida — estorno parcial aplicado.'
+          : 'Entrada cancelada com sucesso!',
+        { id: loadingToast },
+      );
     } catch (error: any) {
       console.error('Error canceling stock entry:', error);
       toast.error(`Erro ao cancelar entrada: ${error.message}`);
