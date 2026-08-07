@@ -812,6 +812,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
           </div>
 
           {dateFilter === 'custom' && (
+            <div className="space-y-2">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-indigo-700 mb-1">Data Inicial</label>
@@ -831,6 +832,10 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                   className="w-full rounded-lg border-indigo-200 text-sm focus:border-indigo-500 focus:ring-indigo-500"
                 />
               </div>
+            </div>
+            <p className="text-xs text-indigo-900/70">
+              Noites que cruzam meia-noite (ex.: quarta → quinta): selecione os dois dias para trazer todas as vendas do período.
+            </p>
             </div>
           )}
 

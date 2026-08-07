@@ -38,6 +38,55 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
     ? { Authorization: `Bearer ${user.accessToken}`, 'X-Custom-Token': user.accessToken }
     : {};
 
+  const persistTokenToServer = async (token: string): Promise<boolean> => {
+    if (!currentCompany?.id) return false;
+    const tok = token.trim();
+    if (!tok) return false;
+    try {
+      const res = await fetch(`${SERVER_URL}/zig/config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...edgeHeaders,
+        },
+        body: JSON.stringify({
+          companyId: currentCompany.id,
+          redeId: redeId.trim() || undefined,
+          zigToken: tok,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao salvar token');
+      }
+      setHasTokenOnServer(true);
+      setTokenMasked(
+        data.config?.zigTokenMasked || `${tok.slice(0, 4)}…${tok.slice(-4)}`,
+      );
+      setZigToken('');
+      return true;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`Não foi possível salvar o token: ${message}`);
+      return false;
+    }
+  };
+
+  const handleSaveTokenOnly = async () => {
+    const tok = zigToken.trim();
+    if (!tok) {
+      toast.error('Cole o token ZIG no campo antes de salvar.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const ok = await persistTokenToServer(tok);
+      if (ok) toast.success('Token ZIG salvo no sistema para esta empresa.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchStores = async (overrideRedeId?: string) => {
     if (!currentCompany) return;
 
@@ -78,7 +127,15 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
       const fetchedStores = data.stores || [];
       setStores(fetchedStores);
 
-      if (fetchedStores.length === 0) {
+      // Token digitado e válido → grava no servidor automaticamente
+      if (inlineTok && fetchedStores.length > 0) {
+        const saved = await persistTokenToServer(inlineTok);
+        toast.success(
+          saved
+            ? `${fetchedStores.length} lojas carregadas. Token ZIG salvo no sistema.`
+            : `${fetchedStores.length} lojas carregadas.`,
+        );
+      } else if (fetchedStores.length === 0) {
         toast.info('Nenhuma loja encontrada para esta Rede.');
       } else {
         toast.success(`${fetchedStores.length} lojas carregadas.`);
@@ -234,7 +291,11 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
         throw new Error(err.error || 'Failed to save config');
       }
 
-      toast.success('Configuração salva com sucesso!');
+      toast.success(
+        tok
+          ? 'Loja e token ZIG salvos no sistema.'
+          : 'Configuração da loja salva (token já estava no servidor).',
+      );
       setConfigLoaded(true);
       setHasTokenOnServer(true);
       if (tok) setTokenMasked(`${tok.slice(0, 4)}…${tok.slice(-4)}`);
@@ -270,7 +331,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3">
           <div className="bg-pink-100 p-2.5 rounded-xl">
             <Store className="w-6 h-6 text-pink-600" />
@@ -284,12 +345,22 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+        {hasTokenOnServer && (
+          <div className="flex items-center gap-2 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
+            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="text-xs font-semibold text-emerald-700">
+              Token salvo{tokenMasked ? ` (${tokenMasked})` : ''}
+            </span>
+          </div>
+        )}
         {configLoaded && (
           <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-full border border-green-100">
             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             <span className="text-xs font-semibold text-green-700">Loja salva</span>
           </div>
         )}
+        </div>
       </div>
 
       <div className="space-y-6">
@@ -336,17 +407,37 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
               <KeyRound className="w-3.5 h-3.5" />
               Token ZIG (por empresa)
             </label>
-            <input
-              type="password"
-              autoComplete="off"
-              value={zigToken}
-              onChange={(e) => setZigToken(e.target.value)}
-              placeholder={hasTokenOnServer ? 'Deixe em branco para manter o token salvo' : 'Cole o token fornecido pela ZIG'}
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 text-sm"
-            />
-            {hasTokenOnServer && (
-              <p className="text-xs text-gray-500 mt-1">
-                Token salvo: <span className="font-mono">{tokenMasked ?? '****'}</span> — preencha acima somente para substituir.
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="password"
+                autoComplete="off"
+                value={zigToken}
+                onChange={(e) => setZigToken(e.target.value)}
+                placeholder={
+                  hasTokenOnServer
+                    ? 'Deixe em branco para manter o token salvo'
+                    : 'Cole o token fornecido pela ZIG'
+                }
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => void handleSaveTokenOnly()}
+                disabled={loading || !zigToken.trim()}
+                className="px-4 py-2.5 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-sm font-medium disabled:opacity-50 whitespace-nowrap shadow-sm"
+              >
+                Salvar token
+              </button>
+            </div>
+            {hasTokenOnServer ? (
+              <p className="text-xs text-emerald-700 mt-1">
+                Token gravado no servidor: <span className="font-mono">{tokenMasked ?? '****'}</span>.
+                Preencha o campo só para substituir.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-700 mt-1">
+                Ainda sem token salvo. Cole o token e clique em <strong>Salvar token</strong> (ou
+                Listar lojas — o token válido é gravado automaticamente).
               </p>
             )}
           </div>

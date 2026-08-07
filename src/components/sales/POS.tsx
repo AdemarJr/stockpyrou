@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package, Plug } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, ArrowRight, Zap, RefreshCw, X, ChevronRight, Camera, AlertTriangle, Package, Plug, PackageMinus } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import type { Product } from '../../types';
 import { useCompany } from '../../contexts/CompanyContext';
@@ -8,6 +8,7 @@ import { StockRepository } from '../../repositories/StockRepository';
 import { toast } from 'sonner@2.0.3';
 import { SaleReceipt } from './SaleReceipt';
 import { ZigSalesBaixa } from './ZigSalesBaixa';
+import { ManualStockWriteOff } from './ManualStockWriteOff';
 import { useIsMobile } from '../ui/use-mobile';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
 import { getBackendUrl } from '../../lib/backendUrl';
@@ -74,7 +75,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     saleId?: string | null;
     emitNfce?: boolean;
   } | null>(null);
-  const [posTab, setPosTab] = useState<'manual' | 'zig'>('manual');
+  const [posTab, setPosTab] = useState<'manual' | 'zig' | 'writeoff'>('manual');
   /** Integrações → ZIG: quando true, não entra na aba ZIG / Baixa (localStorage). */
   const [zigBaixaAccessDisabled, setZigBaixaAccessDisabled] = useState(false);
 
@@ -162,7 +163,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     }
   }, [zigBaixaAccessDisabled, posTab]);
 
-  const activePosTab: 'manual' | 'zig' =
+  const activePosTab: 'manual' | 'zig' | 'writeoff' =
     zigBaixaAccessDisabled && posTab === 'zig' ? 'manual' : posTab;
 
   useEffect(() => {
@@ -801,6 +802,20 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             <button
               type="button"
               role="tab"
+              aria-selected={activePosTab === 'writeoff'}
+              onClick={() => setPosTab('writeoff')}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-colors ${
+                activePosTab === 'writeoff'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <PackageMinus className="w-3.5 h-3.5" aria-hidden />
+              Baixa avulsa
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={activePosTab === 'zig'}
               aria-disabled={zigBaixaAccessDisabled}
               title={
@@ -842,6 +857,10 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       {activePosTab === 'zig' ? (
         <div className="flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
           <ZigSalesBaixa onSyncComplete={onSaleComplete} />
+        </div>
+      ) : activePosTab === 'writeoff' ? (
+        <div className="flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
+          <ManualStockWriteOff products={products} onComplete={onSaleComplete} />
         </div>
       ) : (
       <>
