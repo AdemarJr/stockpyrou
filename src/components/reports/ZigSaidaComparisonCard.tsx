@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { getBackendApiRoot } from '../../lib/backendUrl';
 import { formatCurrency } from '../../utils/calculations';
+import { safeStorage } from '../../utils/safeStorage';
 
 type ZigDayRow = { lines: number; qty: number; value: number };
 type LocalDayRow = { movements: number; qty: number; cost: number };
@@ -46,7 +47,10 @@ export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaCompariso
     let cancelled = false;
     (async () => {
       try {
-        const token = user?.accessToken;
+        const token =
+          user?.accessToken?.trim() ||
+          safeStorage.getItem('pyroustock_custom_token')?.trim() ||
+          '';
         const res = await fetch(
           `${getBackendApiRoot()}/zig/config/${currentCompany.id}`,
           {
@@ -69,7 +73,11 @@ export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaCompariso
   }, [currentCompany?.id, user?.accessToken]);
 
   const load = useCallback(async () => {
-    if (!user?.accessToken || !currentCompany?.id) {
+    const token =
+      user?.accessToken?.trim() ||
+      safeStorage.getItem('pyroustock_custom_token')?.trim() ||
+      '';
+    if (!token || !currentCompany?.id) {
       toast.error('Faça login e selecione uma empresa.');
       return;
     }
@@ -90,8 +98,8 @@ export function ZigSaidaComparisonCard({ startDate, endDate }: ZigSaidaCompariso
         `${getBackendApiRoot()}/zig/saida-comparison?${params}`,
         {
           headers: {
-            Authorization: `Bearer ${user.accessToken}`,
-            'X-Custom-Token': user.accessToken,
+            Authorization: `Bearer ${token}`,
+            'X-Custom-Token': token,
             'X-Company-Id': currentCompany.id,
           },
         },

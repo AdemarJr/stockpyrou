@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { getBackendApiRoot } from '../../lib/backendUrl';
 import { readZigBaixaUiDisabled, ZIG_BAIXA_UI_EVENT } from '../../utils/zigBaixaUi';
+import { safeStorage } from '../../utils/safeStorage';
 import { APP_NAME } from '../../config/branding';
 import { ReportExport } from '../reports/ReportExport';
 import * as XLSX from 'xlsx';
@@ -254,8 +255,10 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
   const SERVER_URL = getBackendApiRoot();
 
-  const edgeAuthHeaders: Record<string, string> = user?.accessToken
-    ? { Authorization: `Bearer ${user.accessToken}`, 'X-Custom-Token': user.accessToken }
+  const sessionToken =
+    user?.accessToken?.trim() || safeStorage.getItem('pyroustock_custom_token')?.trim() || '';
+  const edgeAuthHeaders: Record<string, string> = sessionToken
+    ? { Authorization: `Bearer ${sessionToken}`, 'X-Custom-Token': sessionToken }
     : {};
 
   /** YYYY-MM-DD no calendário de São Paulo (mesma base do servidor ZIG). */

@@ -6,12 +6,15 @@ import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCompany } from '../../contexts/CompanyContext';
 import { getBackendApiRoot } from '../../lib/backendUrl';
+import { safeStorage } from '../../utils/safeStorage';
 import { readZigBaixaUiDisabled, writeZigBaixaUiDisabled } from '../../utils/zigBaixaUi';
 
 interface ZigStore {
   id: string;
   name: string;
 }
+
+const CUSTOM_TOKEN_KEY = 'pyroustock_custom_token';
 
 export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: () => void | Promise<void> }) {
   const { currentCompany } = useCompany();
@@ -34,20 +37,36 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
 
   const SERVER_URL = getBackendApiRoot();
 
-  const edgeHeaders: Record<string, string> = user?.accessToken
-    ? { Authorization: `Bearer ${user.accessToken}`, 'X-Custom-Token': user.accessToken }
-    : {};
+  /** Sessão para rotas Zig (requireAuth): accessToken do contexto ou token persistido. */
+  const getEdgeHeaders = (): Record<string, string> => {
+    const token =
+      user?.accessToken?.trim() || safeStorage.getItem(CUSTOM_TOKEN_KEY)?.trim() || '';
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+      headers['X-Custom-Token'] = token;
+    }
+    if (currentCompany?.id) {
+      headers['X-Company-Id'] = currentCompany.id;
+    }
+    return headers;
+  };
 
   const persistTokenToServer = async (token: string): Promise<boolean> => {
     if (!currentCompany?.id) return false;
     const tok = token.trim();
     if (!tok) return false;
+    const authHeaders = getEdgeHeaders();
+    if (!authHeaders.Authorization) {
+      toast.error('Sessão expirada. Faça login novamente para salvar o token ZIG.');
+      return false;
+    }
     try {
       const res = await fetch(`${SERVER_URL}/zig/config`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...edgeHeaders,
+          ...authHeaders,
         },
         body: JSON.stringify({
           companyId: currentCompany.id,
@@ -59,9 +78,10 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
       if (!res.ok) {
         throw new Error(data.error || 'Falha ao salvar token');
       }
-      setHasTokenOnServer(true);
+      const saved = data.config as { hasZigToken?: boolean; zigTokenMasked?: string } | undefined;
+      setHasTokenOnServer(saved?.hasZigToken !== false);
       setTokenMasked(
-        data.config?.zigTokenMasked || `${tok.slice(0, 4)}…${tok.slice(-4)}`,
+        saved?.zigTokenMasked || `${tok.slice(0, 4)}…${tok.slice(-4)}`,
       );
       setZigToken('');
       return true;
@@ -106,7 +126,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
       if (!inlineTok) {
         url.searchParams.append('companyId', currentCompany.id);
       }
-      const headers: Record<string, string> = { ...edgeHeaders };
+      const headers: Record<string, string> = { ...getEdgeHeaders() };
       if (inlineTok) headers['X-ZIG-TOKEN'] = inlineTok;
 
       const res = await fetch(url.toString(), { headers });
@@ -153,7 +173,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
     if (!currentCompany?.id) return;
     try {
       const res = await fetch(`${SERVER_URL}/zig/auto-baixa/${currentCompany.id}`, {
-        headers: edgeHeaders,
+        headers: getEdgeHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -167,23 +187,53 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
   const loadConfig = async () => {
     if (!currentCompany?.id) return;
 
+    const authHeaders = getEdgeHeaders();
+    if (!authHeaders.Authorization) {
+      // Evita GET silencioso 401 antes da sessão estar pronta
+      return;
+    }
+
     try {
       const res = await fetch(`${SERVER_URL}/zig/config/${currentCompany.id}`, {
-        headers: edgeHeaders,
+        headers: authHeaders,
       });
+      if (res.status === 401 || res.status === 403) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(
+          err.error ||
+            (res.status === 401
+              ? 'Sessão inválida ao carregar configuração ZIG. Faça login novamente.'
+              : 'Sem permissão para ler a configuração ZIG desta empresa.'),
+        );
+        setHasTokenOnServer(false);
+        setTokenMasked(undefined);
+        setConfigLoaded(false);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         if (data.config) {
+          const hasTok = !!data.config.hasZigToken;
+          setHasTokenOnServer(hasTok);
+          setTokenMasked(data.config.zigTokenMasked);
           if (data.config.redeId) {
             setRedeId(data.config.redeId);
-            void fetchStores(data.config.redeId);
           }
           if (data.config.storeId) {
             setSelectedStore(data.config.storeId);
             setConfigLoaded(true);
+          } else {
+            setConfigLoaded(false);
           }
-          setHasTokenOnServer(!!data.config.hasZigToken);
-          setTokenMasked(data.config.zigTokenMasked);
+          // Lista lojas só se já houver token no servidor (evita erro ruidoso no load)
+          if (hasTok && data.config.redeId) {
+            void fetchStores(data.config.redeId);
+          }
+        } else {
+          setHasTokenOnServer(false);
+          setTokenMasked(undefined);
+          setConfigLoaded(false);
+          setSelectedStore('');
         }
       }
     } catch (error) {
@@ -200,7 +250,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...edgeHeaders,
+          ...getEdgeHeaders(),
         },
         body: JSON.stringify({ companyId: currentCompany.id, enabled }),
       });
@@ -234,7 +284,7 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...edgeHeaders,
+          ...getEdgeHeaders(),
         },
         body: JSON.stringify({ companyId: currentCompany.id }),
       });
@@ -272,11 +322,15 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
 
     try {
       setLoading(true);
+      const authHeaders = getEdgeHeaders();
+      if (!authHeaders.Authorization) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      }
       const res = await fetch(`${SERVER_URL}/zig/config`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...edgeHeaders,
+          ...authHeaders,
         },
         body: JSON.stringify({
           companyId: currentCompany.id,
@@ -286,10 +340,14 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Falha ao salvar' }));
-        throw new Error(err.error || 'Failed to save config');
+        throw new Error(data.error || 'Failed to save config');
       }
+
+      const saved = data.config as
+        | { hasZigToken?: boolean; zigTokenMasked?: string; storeId?: string }
+        | undefined;
 
       toast.success(
         tok
@@ -297,8 +355,12 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
           : 'Configuração da loja salva (token já estava no servidor).',
       );
       setConfigLoaded(true);
-      setHasTokenOnServer(true);
-      if (tok) setTokenMasked(`${tok.slice(0, 4)}…${tok.slice(-4)}`);
+      setHasTokenOnServer(!!saved?.hasZigToken || hasTokenOnServer || !!tok);
+      if (saved?.zigTokenMasked) {
+        setTokenMasked(saved.zigTokenMasked);
+      } else if (tok) {
+        setTokenMasked(`${tok.slice(0, 4)}…${tok.slice(-4)}`);
+      }
       setZigToken('');
       await onSyncComplete?.();
     } catch (error: unknown) {
@@ -312,9 +374,14 @@ export function ZigIntegrationSettings({ onSyncComplete }: { onSyncComplete?: ()
   useEffect(() => {
     if (currentCompany?.id) {
       setZigPdvBaixaAtiva(!readZigBaixaUiDisabled(currentCompany.id));
+      setHasTokenOnServer(false);
+      setTokenMasked(undefined);
+      setConfigLoaded(false);
+      setSelectedStore('');
+      setStores([]);
       void loadConfig();
     }
-  }, [currentCompany?.id]);
+  }, [currentCompany?.id, user?.accessToken]);
 
   if (!currentCompany) {
     return (

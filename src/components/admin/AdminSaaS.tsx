@@ -107,6 +107,8 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
       'Clientes estão ligados a vendas/fiado — vendas, caixa e NFC-e também serão limpos.',
     costs:
       'Remove despesas e movimentos financeiros (incluindo os vinculados a compras/entradas).',
+    zigCache:
+      'Apaga só cache operacional (vendas já processadas / previews). Token, loja e baixa automática NÃO são removidos.',
   };
 
   const [clearDataOptions, setClearDataOptions] = useState({ ...emptyClearOptions });
