@@ -71,8 +71,84 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     inboundNfe: false,
     zigCache: false,
   };
+  type ClearOptionKey = keyof typeof emptyClearOptions;
+
+  const CLEAR_OPTION_LABELS: Record<ClearOptionKey, string> = {
+    stockQuantities: 'Zerar estoques',
+    products: 'Deletar produtos',
+    stockEntries: 'Entradas de estoque',
+    movements: 'Movimentos de estoque',
+    priceHistory: 'Histórico de preços',
+    suppliers: 'Fornecedores',
+    sales: 'Vendas, caixa e NFC-e',
+    customers: 'Clientes',
+    costs: 'Custos e financeiro',
+    inboundNfe: 'NF-e de entrada (DF-e)',
+    zigCache: 'Cache ZIG',
+  };
+
+  /** Ao marcar A, também marca B (FK / vínculo operacional). */
+  const CLEAR_REQUIRES: Partial<Record<ClearOptionKey, ClearOptionKey[]>> = {
+    products: ['stockEntries', 'movements', 'priceHistory'],
+    suppliers: ['stockEntries'],
+    customers: ['sales'],
+    /** Entradas geram ledger; limpar entradas sem financeiro deixa órfãos/erro de FK */
+    stockEntries: ['costs'],
+  };
+
+  const CLEAR_EXTRA_NOTES: Partial<Record<ClearOptionKey, string>> = {
+    stockEntries:
+      'As entradas de compra estão ligadas ao financeiro (contas a pagar / movimentos). Por isso Custos e financeiro também precisa ser limpo.',
+    products:
+      'Produtos referenciam entradas, movimentos e histórico de preços — esses itens são marcados automaticamente. Vínculos em sale_items/NFC-e são desfeitos no servidor.',
+    suppliers:
+      'Fornecedores estão ligados às entradas de estoque — entradas também serão limpas.',
+    customers:
+      'Clientes estão ligados a vendas/fiado — vendas, caixa e NFC-e também serão limpos.',
+    costs:
+      'Remove despesas e movimentos financeiros (incluindo os vinculados a compras/entradas).',
+  };
+
   const [clearDataOptions, setClearDataOptions] = useState({ ...emptyClearOptions });
   const [clearDataBusy, setClearDataBusy] = useState(false);
+
+  const applyClearDependencies = (
+    base: typeof emptyClearOptions,
+  ): typeof emptyClearOptions => {
+    const next = { ...base };
+    let changed = true;
+    // Propaga dependências em cascata (ex.: produtos → entradas → custos)
+    while (changed) {
+      changed = false;
+      (Object.keys(CLEAR_REQUIRES) as ClearOptionKey[]).forEach((key) => {
+        if (!next[key]) return;
+        for (const dep of CLEAR_REQUIRES[key] || []) {
+          if (!next[dep]) {
+            next[dep] = true;
+            changed = true;
+          }
+        }
+      });
+    }
+    if (next.products) next.stockQuantities = false;
+    return next;
+  };
+
+  const clearDependencyHints = (() => {
+    const hints: string[] = [];
+    (Object.keys(CLEAR_REQUIRES) as ClearOptionKey[]).forEach((key) => {
+      if (!clearDataOptions[key]) return;
+      const deps = (CLEAR_REQUIRES[key] || []).filter((d) => clearDataOptions[d]);
+      if (deps.length === 0) return;
+      const note = CLEAR_EXTRA_NOTES[key];
+      hints.push(
+        `${CLEAR_OPTION_LABELS[key]} → também: ${deps.map((d) => CLEAR_OPTION_LABELS[d]).join(', ')}.${
+          note ? ` ${note}` : ''
+        }`,
+      );
+    });
+    return hints;
+  })();
   
   // Admin Profile Password Change
   const [adminPasswordData, setAdminPasswordData] = useState({
@@ -360,27 +436,28 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
     }
   };
 
-  const toggleClearOption = (key: keyof typeof emptyClearOptions, checked: boolean) => {
-    setClearDataOptions((prev) => {
-      const next = { ...prev, [key]: checked };
-      // Dependências na UI (espelha a API)
-      if (key === 'products' && checked) {
-        next.movements = true;
-        next.stockEntries = true;
-        next.priceHistory = true;
-        next.stockQuantities = false;
+  const toggleClearOption = (key: ClearOptionKey, checked: boolean) => {
+    const prev = clearDataOptions;
+    const next = { ...prev, [key]: checked };
+    if (key === 'stockQuantities' && checked) {
+      next.products = false;
+    }
+    const withDeps = applyClearDependencies(next);
+    setClearDataOptions(withDeps);
+
+    if (checked) {
+      const autoMarked = (Object.keys(withDeps) as ClearOptionKey[]).filter(
+        (k) => withDeps[k] && !prev[k] && k !== key,
+      );
+      if (autoMarked.length > 0) {
+        toast.message(
+          `Para limpar “${CLEAR_OPTION_LABELS[key]}”, também é necessário: ${autoMarked
+            .map((d) => CLEAR_OPTION_LABELS[d])
+            .join(', ')}. Já marcamos automaticamente.`,
+          { duration: 7000 },
+        );
       }
-      if (key === 'suppliers' && checked) {
-        next.stockEntries = true;
-      }
-      if (key === 'customers' && checked) {
-        next.sales = true;
-      }
-      if (key === 'stockQuantities' && checked) {
-        next.products = false;
-      }
-      return next;
-    });
+    }
   };
 
   const selectResetDemo = () => {
@@ -1234,73 +1311,73 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
                         key: 'stockQuantities' as const,
                         title: 'Zerar estoques',
                         desc: 'Mantém produtos; só zera current_stock',
-                        color: 'blue',
                       },
                       {
                         key: 'products' as const,
                         title: 'Deletar produtos',
-                        desc: 'Remove produtos (+ entradas, movimentos e preços por segurança)',
-                        color: 'red',
+                        desc: 'Exige também: entradas, movimentos e histórico de preços',
                       },
                       {
                         key: 'stockEntries' as const,
                         title: 'Entradas de estoque',
-                        desc: 'Histórico de recebimentos / XML importado',
-                        color: 'orange',
+                        desc: 'Exige também: custos e financeiro (lançamentos das compras)',
                       },
                       {
                         key: 'movements' as const,
                         title: 'Movimentos de estoque',
                         desc: 'Saídas, vendas, ajustes e baixas',
-                        color: 'purple',
                       },
                       {
                         key: 'priceHistory' as const,
                         title: 'Histórico de preços',
                         desc: 'Alterações de custo/preço registradas',
-                        color: 'yellow',
                       },
                       {
                         key: 'suppliers' as const,
                         title: 'Fornecedores',
-                        desc: 'Remove fornecedores (também limpa entradas)',
-                        color: 'green',
+                        desc: 'Exige também: entradas de estoque (+ financeiro das compras)',
                       },
                       {
                         key: 'sales' as const,
                         title: 'Vendas, caixa e NFC-e',
                         desc: 'Vendas, itens, caixa, NFC-e, fiado/contas a receber',
-                        color: 'indigo',
                       },
                       {
                         key: 'customers' as const,
                         title: 'Clientes',
-                        desc: 'Cadastro de clientes (+ vendas/fiado por dependência)',
-                        color: 'sky',
+                        desc: 'Exige também: vendas, caixa e NFC-e',
                       },
                       {
                         key: 'costs' as const,
                         title: 'Custos e financeiro',
                         desc: 'Despesas operacionais e movimentos financeiros',
-                        color: 'rose',
                       },
                       {
                         key: 'inboundNfe' as const,
                         title: 'NF-e de entrada (DF-e)',
                         desc: 'Notas sincronizadas da SEFAZ para recebimento',
-                        color: 'teal',
                       },
                       {
                         key: 'zigCache' as const,
                         title: 'Cache ZIG',
                         desc: 'Baixas processadas / mapeamentos em cache (KV)',
-                        color: 'pink',
                       },
                     ] as const
-                  ).map((item) => (
+                  ).map((item) => {
+                    const requiredBy = (Object.keys(CLEAR_REQUIRES) as ClearOptionKey[]).filter(
+                      (parent) =>
+                        clearDataOptions[parent] &&
+                        (CLEAR_REQUIRES[parent] || []).includes(item.key),
+                    );
+                    const lockedByParent = requiredBy.length > 0 && clearDataOptions[item.key];
+                    return (
                     <label
                       key={item.key}
-                      className="flex items-start gap-3 p-3 bg-white rounded-xl border-2 border-gray-200 hover:border-orange-300 cursor-pointer transition-all"
+                      className={`flex items-start gap-3 p-3 bg-white rounded-xl border-2 cursor-pointer transition-all ${
+                        clearDataOptions[item.key]
+                          ? 'border-orange-300 bg-orange-50/40'
+                          : 'border-gray-200 hover:border-orange-300'
+                      }`}
                     >
                       <input
                         type="checkbox"
@@ -1311,10 +1388,32 @@ export function AdminSaaS({ onLogout }: AdminSaaSProps) {
                       <div className="flex-1">
                         <p className="font-bold text-gray-900">{item.title}</p>
                         <p className="text-xs text-gray-500">{item.desc}</p>
+                        {lockedByParent && (
+                          <p className="text-[11px] text-orange-700 mt-1 font-medium">
+                            Marcado automaticamente porque você selecionou:{' '}
+                            {requiredBy.map((k) => CLEAR_OPTION_LABELS[k]).join(', ')}
+                          </p>
+                        )}
                       </div>
                     </label>
-                  ))}
+                    );
+                  })}
                 </div>
+
+                {clearDependencyHints.length > 0 && (
+                  <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 space-y-2">
+                    <p className="text-amber-950 font-bold text-sm">
+                      Vínculos entre os itens selecionados
+                    </p>
+                    <ul className="space-y-1.5">
+                      {clearDependencyHints.map((hint) => (
+                        <li key={hint.slice(0, 48)} className="text-xs text-amber-900/90 leading-relaxed">
+                          • {hint}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <p className="text-xs text-gray-500 text-center">
                   Não remove: usuários, empresa, certificado A1 nem configuração fiscal (CNPJ/CSC).
