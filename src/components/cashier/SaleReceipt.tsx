@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { NfceSaleActions } from '../fiscal/NfceSaleActions';
+import { NfeSaleActions } from '../fiscal/NfeSaleActions';
 import { useCompanyLogo } from '../../hooks/useCompanyLogo';
 import fallbackLogo from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
 
@@ -32,10 +33,12 @@ interface SaleReceiptProps {
       cashReceived?: number;
       change?: number;
       emitNfce?: boolean;
+      emitNfe?: boolean;
       customerName?: string;
       dueDate?: string;
     };
     emitNfce?: boolean;
+    emitNfe?: boolean;
     timestamp: string;
   };
   cashierName: string;
@@ -83,6 +86,9 @@ export function SaleReceipt({
   const isNfce =
     sale.emitNfce === true ||
     sale.paymentDetails?.emitNfce === true;
+  const isNfe =
+    sale.emitNfe === true ||
+    sale.paymentDetails?.emitNfe === true;
 
   const handlePrint = () => {
     window.print();
@@ -164,7 +170,9 @@ export function SaleReceipt({
     lines.push(`TOTAL: R$ ${sale.total.toFixed(2)}`);
     lines.push(`───────────────────────────────────`);
     lines.push(`Pagamento: ${paymentLabel}`);
-    lines.push(`Documento: ${isNfce ? 'NFC-e' : 'Cupom não fiscal'}`);
+    lines.push(
+      `Documento: ${isNfe ? 'NF-e' : isNfce ? 'NFC-e' : 'Cupom não fiscal'}`,
+    );
 
     if (method === 'money' && sale.paymentDetails) {
       lines.push(`Recebido: R$ ${sale.paymentDetails.cashReceived?.toFixed(2)}`);
@@ -215,7 +223,7 @@ export function SaleReceipt({
               <div className="flex items-center justify-center gap-2 text-sm text-green-100 print:text-gray-600">
                 <ReceiptIcon className="w-4 h-4" />
                 <span className="font-bold">
-                  {isNfce ? 'CUPOM FISCAL (NFC-e)' : 'CUPOM NÃO FISCAL'}
+                  {isNfe ? 'NF-e (MODELO 55)' : isNfce ? 'CUPOM FISCAL (NFC-e)' : 'CUPOM NÃO FISCAL'}
                 </span>
               </div>
             </div>
@@ -312,7 +320,7 @@ export function SaleReceipt({
               <div className="text-sm text-gray-600 mt-1">
                 Documento:{' '}
                 <span className="font-semibold text-gray-900">
-                  {isNfce ? 'NFC-e' : 'Cupom não fiscal'}
+                  {isNfe ? 'NF-e' : isNfce ? 'NFC-e' : 'Cupom não fiscal'}
                 </span>
               </div>
 
@@ -338,6 +346,11 @@ export function SaleReceipt({
             {isNfce && sale.id && (
               <div className="print:hidden">
                 <NfceSaleActions saleId={sale.id} autoEmit />
+              </div>
+            )}
+            {isNfe && sale.id && (
+              <div className="print:hidden">
+                <NfeSaleActions saleId={sale.id} autoEmit />
               </div>
             )}
 

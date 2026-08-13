@@ -6,6 +6,7 @@ import { toast } from 'sonner@2.0.3';
 import fallbackLogo from "figma:asset/e8d336438522d7b8e8099c7d47e7869928dfd8f9.png";
 import { APP_NAME } from '../../config/branding';
 import { NfceSaleActions } from '../fiscal/NfceSaleActions';
+import { NfeSaleActions } from '../fiscal/NfeSaleActions';
 import { useCompanyLogo } from '../../hooks/useCompanyLogo';
 
 interface SaleReceiptItem {
@@ -24,6 +25,7 @@ interface SaleReceiptProps {
   customerName?: string;
   saleId?: string | null;
   emitNfce?: boolean;
+  emitNfe?: boolean;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -44,6 +46,7 @@ export function SaleReceipt({
   customerName,
   saleId,
   emitNfce,
+  emitNfe,
 }: SaleReceiptProps) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
@@ -153,7 +156,7 @@ export function SaleReceipt({
             </div>
             <div>
               <h2 className="text-lg font-bold dark:text-white">
-                {emitNfce ? 'Cupom Fiscal' : 'Cupom Não Fiscal'}
+                {emitNfe ? 'NF-e' : emitNfce ? 'Cupom Fiscal' : 'Cupom Não Fiscal'}
               </h2>
               <p className="text-xs text-gray-500 dark:text-gray-400">#{receiptNumber}</p>
             </div>
@@ -186,7 +189,9 @@ export function SaleReceipt({
           {/* Receipt Info */}
           <div className="space-y-1 mb-4 text-sm">
             <div className="flex justify-between dark:text-gray-300 print:text-black">
-              <span className="font-medium">{emitNfce ? 'Cupom Fiscal:' : 'Cupom Não Fiscal:'}</span>
+              <span className="font-medium">
+                {emitNfe ? 'NF-e:' : emitNfce ? 'Cupom Fiscal:' : 'Cupom Não Fiscal:'}
+              </span>
               <span className="font-mono">#{receiptNumber}</span>
             </div>
             <div className="flex justify-between dark:text-gray-300 print:text-black">
@@ -258,6 +263,7 @@ export function SaleReceipt({
         {/* Action Buttons - Hidden on print */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-3 print:hidden">
           {emitNfce && saleId && <NfceSaleActions saleId={saleId} autoEmit />}
+          {emitNfe && saleId && <NfeSaleActions saleId={saleId} autoEmit />}
 
           <div className="grid grid-cols-2 gap-3">
             <button

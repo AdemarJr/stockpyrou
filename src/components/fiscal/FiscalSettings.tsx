@@ -33,6 +33,8 @@ interface FiscalConfigForm {
   ambiente: FiscalAmbiente;
   serieNfce: number;
   numeroNfce: number;
+  serieNfe: number;
+  numeroNfe: number;
   cscId: string;
   cscToken: string;
   enabled: boolean;
@@ -75,6 +77,8 @@ const emptyForm = (): FiscalConfigForm => ({
   ambiente: 'homologation',
   serieNfce: 1,
   numeroNfce: 0,
+  serieNfe: 1,
+  numeroNfe: 0,
   cscId: '',
   cscToken: '',
   enabled: false,
@@ -146,6 +150,8 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
             c.ambiente === 'production' ? 'production' : 'homologation',
           serieNfce: Number(c.serieNfce) || 1,
           numeroNfce: Number(c.numeroNfce) || 0,
+          serieNfe: Number(c.serieNfe) || 1,
+          numeroNfe: Number(c.numeroNfe) || 0,
           cscId: String(c.cscId || ''),
           cscToken: '',
           enabled: !!c.enabled,
@@ -212,6 +218,8 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
         payload.ambiente = form.ambiente;
         payload.serieNfce = form.serieNfce;
         payload.numeroNfce = form.numeroNfce;
+        payload.serieNfe = form.serieNfe;
+        payload.numeroNfe = form.numeroNfe;
         payload.cscId = form.cscId || null;
         if (form.cscToken.trim()) {
           payload.cscToken = form.cscToken.trim();
@@ -363,7 +371,7 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
               ? 'Nome, CNPJ, endereço e contato usados no cupom / DANFE e na emissão fiscal.'
               : section === 'technical'
                 ? 'Ambiente SEFAZ, numeração, CSC e certificado digital A1.'
-                : 'Configuração fiscal da empresa (modelo 65). Certificado e CSC ficam só no servidor.'}
+                : 'Configuração fiscal da empresa (NFC-e 65 e NF-e 55). Certificado e CSC ficam só no servidor.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -663,10 +671,10 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
 
           {showTechnical && (
           <div>
-            <p className="text-sm font-semibold mb-3">Numeração NFC-e / CSC</p>
+            <p className="text-sm font-semibold mb-3">Numeração NFC-e / NF-e / CSC</p>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div className="space-y-1.5">
-                <Label>Série</Label>
+                <Label>Série NFC-e</Label>
                 <Input
                   type="number"
                   disabled={!canEdit}
@@ -675,12 +683,30 @@ export function FiscalSettings({ section = 'full' }: FiscalSettingsProps) {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Último número</Label>
+                <Label>Último nº NFC-e</Label>
                 <Input
                   type="number"
                   disabled={!canEdit}
                   value={form.numeroNfce}
                   onChange={(e) => setField('numeroNfce', Number(e.target.value) || 0)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Série NF-e</Label>
+                <Input
+                  type="number"
+                  disabled={!canEdit}
+                  value={form.serieNfe}
+                  onChange={(e) => setField('serieNfe', Number(e.target.value) || 1)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Último nº NF-e</Label>
+                <Input
+                  type="number"
+                  disabled={!canEdit}
+                  value={form.numeroNfe}
+                  onChange={(e) => setField('numeroNfe', Number(e.target.value) || 0)}
                 />
               </div>
               <div className="space-y-1.5">

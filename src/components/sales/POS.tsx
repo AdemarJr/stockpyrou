@@ -74,8 +74,11 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     customerName?: string;
     saleId?: string | null;
     emitNfce?: boolean;
+    emitNfe?: boolean;
   } | null>(null);
-  const [posTab, setPosTab] = useState<'manual' | 'zig' | 'writeoff'>('manual');
+  const [posTab, setPosTab] = useState<'manual' | 'zig'>('manual');
+  /** Dentro de Venda manual: venda fiscal/não fiscal ou só baixa de estoque. */
+  const [manualMode, setManualMode] = useState<'sale' | 'writeoff'>('sale');
   /** Integrações → ZIG: quando true, não entra na aba ZIG / Baixa (localStorage). */
   const [zigBaixaAccessDisabled, setZigBaixaAccessDisabled] = useState(false);
 
@@ -87,16 +90,19 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [productLimit, setProductLimit] = useState(48);
   const fiscal = useFiscalReadiness({ refreshKey: isConfirmOpen });
   const emitNfce = documentType === 'nfce';
+  const emitNfe = documentType === 'nfe';
   const [isOffline, setIsOffline] = useState(
     () => typeof navigator !== 'undefined' && !navigator.onLine,
   );
   // Offline = venda avulsa sem cliente
   const customerRequired =
     !isOffline &&
-    (paymentMethod === 'fiado' || paymentMethod === 'boleto' || emitNfce);
+    (paymentMethod === 'fiado' || paymentMethod === 'boleto' || emitNfce || emitNfe);
 
   useEffect(() => {
-    if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
+    if (!fiscal.ready && (documentType === 'nfce' || documentType === 'nfe')) {
+      setDocumentType('non_fiscal');
+    }
   }, [fiscal.ready, documentType]);
 
   useEffect(() => {
@@ -163,7 +169,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     }
   }, [zigBaixaAccessDisabled, posTab]);
 
-  const activePosTab: 'manual' | 'zig' | 'writeoff' =
+  const activePosTab: 'manual' | 'zig' =
     zigBaixaAccessDisabled && posTab === 'zig' ? 'manual' : posTab;
 
   useEffect(() => {
@@ -450,6 +456,18 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       toast.error('Selecione ou cadastre o cliente (nome + CPF/CNPJ)');
       return;
     }
+    if (!offline && emitNfe && selectedCustomer) {
+      const hasAddr =
+        !!selectedCustomer.logradouro?.trim() &&
+        !!selectedCustomer.municipio?.trim() &&
+        String(selectedCustomer.cep || '').replace(/\D/g, '').length === 8;
+      if (!hasAddr) {
+        toast.error(
+          'NF-e exige cliente com endereço completo (logradouro, município e CEP). Atualize o cadastro.',
+        );
+        return;
+      }
+    }
     if (isReceivable && !dueDate.trim()) {
       toast.error('Informe a data de vencimento');
       return;
@@ -617,6 +635,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         if (registerId) {
           const paymentDetails: Record<string, unknown> = {
             emitNfce: !!emitNfce,
+            emitNfe: !!emitNfe,
           };
           if (selectedCustomer) {
             paymentDetails.customerId = selectedCustomer.id;
@@ -738,9 +757,11 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
       }
 
       toast.success(
-        emitNfce
-          ? 'Venda registrada — autorizando NFC-e...'
-          : 'Venda registrada com sucesso!',
+        emitNfe
+          ? 'Venda registrada — autorizando NF-e...'
+          : emitNfce
+            ? 'Venda registrada — autorizando NFC-e...'
+            : 'Venda registrada com sucesso!',
         { id: toastId },
       );
       setLastSale({
@@ -756,6 +777,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         customerName: selectedCustomer?.name,
         saleId,
         emitNfce: !!emitNfce,
+        emitNfe: !!emitNfe,
       });
       setCart([]);
       setIsConfirmOpen(false);
@@ -802,20 +824,6 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             <button
               type="button"
               role="tab"
-              aria-selected={activePosTab === 'writeoff'}
-              onClick={() => setPosTab('writeoff')}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-colors ${
-                activePosTab === 'writeoff'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <PackageMinus className="w-3.5 h-3.5" aria-hidden />
-              Baixa avulsa
-            </button>
-            <button
-              type="button"
-              role="tab"
               aria-selected={activePosTab === 'zig'}
               aria-disabled={zigBaixaAccessDisabled}
               title={
@@ -858,7 +866,49 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
         <div className="flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
           <ZigSalesBaixa onSyncComplete={onSaleComplete} />
         </div>
-      ) : activePosTab === 'writeoff' ? (
+      ) : (
+      <>
+      <div className="shrink-0 px-4 md:px-6 pt-3 pb-1 bg-gray-50 border-b border-gray-100">
+        <div
+          className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5"
+          role="tablist"
+          aria-label="Modo da venda manual"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={manualMode === 'sale'}
+            onClick={() => setManualMode('sale')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              manualMode === 'sale'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Venda
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={manualMode === 'writeoff'}
+            onClick={() => setManualMode('writeoff')}
+            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              manualMode === 'writeoff'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <PackageMinus className="w-3.5 h-3.5" aria-hidden />
+            Baixa avulsa
+          </button>
+        </div>
+        {manualMode === 'writeoff' && (
+          <p className="mt-1.5 text-[11px] text-gray-500">
+            Só movimenta estoque — sem venda, cupom ou nota fiscal.
+          </p>
+        )}
+      </div>
+      {manualMode === 'writeoff' ? (
         <div className="flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
           <ManualStockWriteOff products={products} onComplete={onSaleComplete} />
         </div>
@@ -1148,7 +1198,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                     isOffline
                       ? 'Venda avulsa offline — sem cliente'
                       : customerRequired
-                        ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
+                        ? emitNfe
+                          ? 'Obrigatório para NF-e (CPF/CNPJ + endereço completo)'
+                          : 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
                         : 'Opcional — pode vender sem cliente'
                   }
                 />
@@ -1254,8 +1306,11 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           customerName={lastSale.customerName}
           saleId={lastSale.saleId}
           emitNfce={lastSale.emitNfce}
+          emitNfe={lastSale.emitNfe}
           onClose={() => setShowReceipt(false)}
         />
+      )}
+      </>
       )}
       </>
       )}

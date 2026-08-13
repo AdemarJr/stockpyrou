@@ -241,12 +241,16 @@ export async function loadCachedRegister(
 
 export function isOfflineNonFiscalAllowed(opts: {
   emitNfce: boolean;
+  emitNfe?: boolean;
   paymentMethod: string;
   mixedMode: boolean;
   hasReceivable: boolean;
 }): { ok: true } | { ok: false; reason: string } {
   if (opts.emitNfce) {
     return { ok: false, reason: 'NFC-e exige internet. Use cupom não fiscal offline.' };
+  }
+  if (opts.emitNfe) {
+    return { ok: false, reason: 'NF-e exige internet. Use cupom não fiscal offline.' };
   }
   if (opts.hasReceivable || opts.paymentMethod === 'fiado' || opts.paymentMethod === 'boleto') {
     return { ok: false, reason: 'Fiado/boleto exige internet.' };

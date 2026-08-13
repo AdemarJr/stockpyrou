@@ -15,7 +15,7 @@ export type SalePaymentMethod =
   | 'fiado'
   | 'boleto';
 
-export type SaleDocumentType = 'non_fiscal' | 'nfce';
+export type SaleDocumentType = 'non_fiscal' | 'nfce' | 'nfe';
 
 export const SALE_PAYMENT_OPTIONS: {
   value: SalePaymentMethod;
@@ -77,7 +77,7 @@ export function SaleCheckoutFields({
         <p className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
           Documento da venda
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <button
             type="button"
             onClick={() => onDocumentTypeChange('non_fiscal')}
@@ -111,14 +111,12 @@ export function SaleCheckoutFields({
                 documentType === 'nfce' ? 'text-emerald-600' : 'text-gray-400'
               }`}
             />
-            <p className="text-sm font-bold text-gray-800 dark:text-gray-200">
-              NFC-e / cupom fiscal
-            </p>
+            <p className="text-sm font-bold text-gray-800 dark:text-gray-200">NFC-e</p>
             <p className="text-[11px] text-gray-500">
               {fiscalLoading
                 ? 'Verificando módulo fiscal…'
                 : fiscalReady
-                  ? 'Emite nota fiscal eletrônica (NFC-e) após a venda'
+                  ? 'Cupom fiscal consumidor (mod. 65)'
                   : fiscalReason || 'Ative o módulo fiscal em Integrações → Fiscal'}
             </p>
             {!fiscalReady && !fiscalLoading && onOpenFiscalConfig && (
@@ -140,6 +138,31 @@ export function SaleCheckoutFields({
                 Abrir configuração fiscal
               </span>
             )}
+          </button>
+
+          <button
+            type="button"
+            disabled={!fiscalReady || !!fiscalLoading}
+            onClick={() => fiscalReady && onDocumentTypeChange('nfe')}
+            className={`p-3 rounded-xl border-2 text-left transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
+              documentType === 'nfe'
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40'
+                : 'border-gray-200 dark:border-gray-700'
+            }`}
+          >
+            <FileText
+              className={`w-5 h-5 mb-1 ${
+                documentType === 'nfe' ? 'text-blue-600' : 'text-gray-400'
+              }`}
+            />
+            <p className="text-sm font-bold text-gray-800 dark:text-gray-200">NF-e</p>
+            <p className="text-[11px] text-gray-500">
+              {fiscalLoading
+                ? 'Verificando módulo fiscal…'
+                : fiscalReady
+                  ? 'Nota fiscal modelo 55 (exige endereço do cliente)'
+                  : fiscalReason || 'Ative o módulo fiscal em Integrações → Fiscal'}
+            </p>
           </button>
         </div>
 

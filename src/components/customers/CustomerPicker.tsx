@@ -10,6 +10,14 @@ export type SelectedCustomer = {
   documentDigits: string;
   documentType: 'cpf' | 'cnpj';
   documentFormatted: string;
+  logradouro?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  municipio?: string | null;
+  codigoMunicipio?: string | null;
+  uf?: string | null;
+  cep?: string | null;
 };
 
 interface CustomerPickerProps {
@@ -28,6 +36,24 @@ interface CustomerPickerProps {
 
 function onlyDigits(v: string) {
   return v.replace(/\D/g, '');
+}
+
+function toSelected(c: Customer): SelectedCustomer {
+  return {
+    id: c.id,
+    name: c.name,
+    documentDigits: c.documentDigits,
+    documentType: c.documentType,
+    documentFormatted: c.documentFormatted,
+    logradouro: c.logradouro,
+    numero: c.numero,
+    complemento: c.complemento,
+    bairro: c.bairro,
+    municipio: c.municipio,
+    codigoMunicipio: c.codigoMunicipio,
+    uf: c.uf,
+    cep: c.cep,
+  };
 }
 
 function formatDocInput(raw: string) {
@@ -114,13 +140,7 @@ export function CustomerPicker({
         { name, document: doc, phone: newPhone.trim() || undefined },
         currentCompany.id,
       );
-      onChange({
-        id: customer.id,
-        name: customer.name,
-        documentDigits: customer.documentDigits,
-        documentType: customer.documentType,
-        documentFormatted: customer.documentFormatted,
-      });
+      onChange(toSelected(customer));
       setShowCreate(false);
       setNewName('');
       setNewDoc('');
@@ -204,15 +224,7 @@ export function CustomerPicker({
             <li key={c.id}>
               <button
                 type="button"
-                onClick={() =>
-                  onChange({
-                    id: c.id,
-                    name: c.name,
-                    documentDigits: c.documentDigits,
-                    documentType: c.documentType,
-                    documentFormatted: c.documentFormatted,
-                  })
-                }
+                onClick={() => onChange(toSelected(c))}
                 className="w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
               >
                 <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{c.name}</p>

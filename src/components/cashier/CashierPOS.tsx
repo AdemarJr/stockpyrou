@@ -101,6 +101,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const [productLimit, setProductLimit] = useState(48);
   const fiscal = useFiscalReadiness({ refreshKey: showPayment });
   const emitNfce = documentType === 'nfce';
+  const emitNfe = documentType === 'nfe';
   const pricing = cartFinalTotal(
     cart,
     parseFloat(cartDiscountInput) || 0,
@@ -112,16 +113,19 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   const [isOffline, setIsOffline] = useState(
     () => typeof navigator !== 'undefined' && !navigator.onLine,
   );
-  // Offline = venda avulsa: nunca exige cliente (NFC-e/fiado ficam bloqueados)
+  // Offline = venda avulsa: nunca exige cliente (NFC-e/NF-e/fiado ficam bloqueados)
   const customerRequired =
     !isOffline &&
     (emitNfce ||
+      emitNfe ||
       (mixedMode
         ? mixedHasReceivable
         : paymentMethod === 'fiado' || paymentMethod === 'boleto'));
 
   useEffect(() => {
-    if (!fiscal.ready && documentType === 'nfce') setDocumentType('non_fiscal');
+    if (!fiscal.ready && (documentType === 'nfce' || documentType === 'nfe')) {
+      setDocumentType('non_fiscal');
+    }
   }, [fiscal.ready, documentType]);
 
   // Mantém caixa aberto em cache para Venda Manual / fila offline
@@ -543,10 +547,22 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       toast.error('Informe a data de vencimento');
       return;
     }
-    // Offline: venda avulsa sem cliente. Online: só exige em fiado/boleto/NFC-e.
+    // Offline: venda avulsa sem cliente. Online: só exige em fiado/boleto/NFC-e/NF-e.
     if (!offline && customerRequired && !selectedCustomer) {
       toast.error('Selecione ou cadastre o cliente (nome + CPF/CNPJ)');
       return;
+    }
+    if (!offline && emitNfe && selectedCustomer) {
+      const hasAddr =
+        !!selectedCustomer.logradouro?.trim() &&
+        !!selectedCustomer.municipio?.trim() &&
+        String(selectedCustomer.cep || '').replace(/\D/g, '').length === 8;
+      if (!hasAddr) {
+        toast.error(
+          'NF-e exige cliente com endereço completo (logradouro, município e CEP). Atualize o cadastro.',
+        );
+        return;
+      }
     }
 
     setIsProcessing(true);
@@ -576,6 +592,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       const methodToSend: string = mixedMode ? 'mixed' : paymentMethod;
       const baseDetails: Record<string, unknown> = {
         emitNfce: !!emitNfce,
+        emitNfe: !!emitNfe,
         subtotal: pricing.subtotal,
         cartDiscount: pricing.cartDiscount,
         cartDiscountType,
@@ -753,9 +770,11 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       // Success!
       console.log('🎉 Sale finalized successfully!');
       toast.success(
-        emitNfce
-          ? 'Venda finalizada — autorizando NFC-e...'
-          : 'Venda finalizada com sucesso!',
+        emitNfe
+          ? 'Venda finalizada — autorizando NF-e...'
+          : emitNfce
+            ? 'Venda finalizada — autorizando NFC-e...'
+            : 'Venda finalizada com sucesso!',
       );
       
       // Prepare completed sale data with full info
@@ -770,6 +789,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         paymentMethod: saleData.sale.paymentMethod,
         paymentDetails: saleData.sale.paymentDetails,
         emitNfce: !!emitNfce,
+        emitNfe: !!emitNfe,
         timestamp: saleData.sale.timestamp,
       };
       
@@ -972,7 +992,9 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   isOffline
                     ? 'Venda avulsa offline — sem cliente'
                     : customerRequired
-                      ? 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
+                      ? emitNfe
+                        ? 'Obrigatório para NF-e (CPF/CNPJ + endereço completo)'
+                        : 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
                       : 'Opcional — pode vender sem cliente'
                 }
               />
