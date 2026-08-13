@@ -74,6 +74,10 @@ export function NfeSaleActions({ saleId, autoEmit = false, compact = false }: Nf
     setBusy(true);
     try {
       const { html } = await NfeApi.getDanfe(nfe.id, companyId);
+      if (!html?.trim()) {
+        toast.error('DANFE vazio — tente baixar o XML');
+        return;
+      }
       if (!openDanfePrintWindow(html)) {
         toast.error('Permita pop-ups para imprimir o DANFE');
       }

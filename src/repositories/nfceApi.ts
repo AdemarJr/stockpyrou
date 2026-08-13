@@ -116,12 +116,37 @@ export class NfceApi {
 }
 
 export function openDanfePrintWindow(html: string) {
-  const w = window.open('', '_blank', 'noopener,noreferrer,width=420,height=800');
+  // NÃO usar feature "noopener": em Chrome/Safari window.open(..., 'noopener')
+  // retorna null mesmo com a janela aberta — popup fica em branco e a UI
+  // mostra "Permita pop-ups" incorretamente.
+  const w = window.open('', '_blank', 'width=900,height=900');
   if (!w) return false;
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  w.focus();
+
+  try {
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  } catch {
+    try {
+      w.close();
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+
+  try {
+    // Isola a janela após gravar o HTML (equivalente seguro ao noopener)
+    (w as Window & { opener: Window | null }).opener = null;
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    w.focus();
+  } catch {
+    /* ignore */
+  }
 
   const triggerPrint = () => {
     try {
@@ -131,10 +156,10 @@ export function openDanfePrintWindow(html: string) {
     }
   };
 
-  // Aguarda imagens (logo/QR data-URI) antes de imprimir — evita QR em branco
+  // Aguarda imagens (logo/QR data-URI) antes de imprimir — evita QR/DANFE em branco
   const imgs = Array.from(w.document.images || []);
   if (imgs.length === 0) {
-    setTimeout(triggerPrint, 300);
+    setTimeout(triggerPrint, 350);
     return true;
   }
 

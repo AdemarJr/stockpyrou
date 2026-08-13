@@ -18,6 +18,7 @@ import {
   type NfcePendingSale,
   type NfceSummary,
 } from '../../repositories/nfceApi';
+import { NfeApi, type NfeSummary } from '../../repositories/nfeApi';
 import { ApiClientError } from '../../lib/apiClient';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -34,6 +35,9 @@ import { Label } from '../ui/label';
 import { ListPaginationBar } from '../ui/list-pagination-bar';
 
 type Tab = 'emitidas' | 'pendentes';
+type DocKind = 'nfce' | 'nfe';
+
+type IssuedNote = NfceSummary | NfeSummary;
 
 const PAGE_SIZE = 12;
 
@@ -78,6 +82,7 @@ function downloadText(filename: string, content: string, mime = 'application/xml
 export function NfceManagement() {
   const { currentCompany } = useCompany();
   const now = new Date();
+  const [docKind, setDocKind] = useState<DocKind>('nfce');
   const [tab, setTab] = useState<Tab>('emitidas');
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -85,34 +90,46 @@ export function NfceManagement() {
   const [loading, setLoading] = useState(true);
   const [emittingId, setEmittingId] = useState<string | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
-  const [issued, setIssued] = useState<NfceSummary[]>([]);
+  const [issued, setIssued] = useState<IssuedNote[]>([]);
   const [pending, setPending] = useState<NfcePendingSale[]>([]);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [detail, setDetail] = useState<NfceSummary | null>(null);
+  const [detail, setDetail] = useState<IssuedNote | null>(null);
   const [danfeHtml, setDanfeHtml] = useState<string | null>(null);
   const [reprinting, setReprinting] = useState(false);
   const [downloadingXml, setDownloadingXml] = useState(false);
 
   const bounds = useMemo(() => monthBounds(year, month), [year, month]);
-  const issuedResetKey = `${bounds.from}|${bounds.to}|${tab}`;
-  const pendingResetKey = `${bounds.from}|${bounds.to}|${mode}|${tab}`;
+  const issuedResetKey = `${docKind}|${bounds.from}|${bounds.to}|${tab}`;
+  const pendingResetKey = `${docKind}|${bounds.from}|${bounds.to}|${mode}|${tab}`;
 
   const issuedPage = usePagination(issued, PAGE_SIZE, issuedResetKey);
   const pendingPage = usePagination(pending, PAGE_SIZE, pendingResetKey);
+  const docLabel = docKind === 'nfe' ? 'NF-e' : 'NFC-e';
 
   const load = useCallback(async () => {
     if (!currentCompany?.id) return;
     setLoading(true);
     try {
       if (tab === 'emitidas') {
-        const items = await NfceApi.list(currentCompany.id, {
-          limit: 200,
-          from: bounds.from,
-          to: bounds.to,
-        });
-        setIssued(items);
+        if (docKind === 'nfe') {
+          setIssued(
+            await NfeApi.list(currentCompany.id, {
+              limit: 200,
+              from: bounds.from,
+              to: bounds.to,
+            }),
+          );
+        } else {
+          setIssued(
+            await NfceApi.list(currentCompany.id, {
+              limit: 200,
+              from: bounds.from,
+              to: bounds.to,
+            }),
+          );
+        }
       } else {
         const sales = await NfceApi.listPendingSales(currentCompany.id, {
           from: bounds.from,
@@ -128,11 +145,15 @@ export function NfceManagement() {
     } finally {
       setLoading(false);
     }
-  }, [currentCompany?.id, tab, bounds.from, bounds.to, mode]);
+  }, [currentCompany?.id, tab, docKind, bounds.from, bounds.to, mode]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (docKind === 'nfe' && tab === 'pendentes') setTab('emitidas');
+  }, [docKind, tab]);
 
   const emitOne = async (saleId: string) => {
     setEmittingId(saleId);
@@ -181,7 +202,14 @@ export function NfceManagement() {
   const printDanfe = async (id: string) => {
     setReprinting(true);
     try {
-      const { html } = await NfceApi.getDanfe(id, currentCompany?.id);
+      const { html } =
+        docKind === 'nfe'
+          ? await NfeApi.getDanfe(id, currentCompany?.id)
+          : await NfceApi.getDanfe(id, currentCompany?.id);
+      if (!html?.trim()) {
+        toast.error('DANFE vazio — tente baixar o XML ou reemitir a nota');
+        return;
+      }
       if (!openDanfePrintWindow(html)) {
         toast.error('Permita pop-ups para imprimir o DANFE');
       }
@@ -193,17 +221,23 @@ export function NfceManagement() {
     }
   };
 
-  const openDetail = async (nfce: NfceSummary) => {
+  const openDetail = async (note: IssuedNote) => {
     setDetailOpen(true);
-    setDetail(nfce);
+    setDetail(note);
     setDanfeHtml(null);
     setDetailLoading(true);
     try {
-      const fresh = await NfceApi.get(nfce.id, currentCompany?.id);
+      const fresh =
+        docKind === 'nfe'
+          ? await NfeApi.get(note.id, currentCompany?.id)
+          : await NfceApi.get(note.id, currentCompany?.id);
       setDetail(fresh);
       if (fresh.hasDanfe && fresh.status === 'AUTHORIZED') {
         try {
-          const { html } = await NfceApi.getDanfe(fresh.id, currentCompany?.id);
+          const { html } =
+            docKind === 'nfe'
+              ? await NfeApi.getDanfe(fresh.id, currentCompany?.id)
+              : await NfceApi.getDanfe(fresh.id, currentCompany?.id);
           setDanfeHtml(html);
         } catch {
           setDanfeHtml(null);
@@ -220,8 +254,12 @@ export function NfceManagement() {
   const downloadXml = async (id: string, chave?: string | null) => {
     setDownloadingXml(true);
     try {
-      const { xml, chaveAcesso } = await NfceApi.getXml(id, currentCompany?.id);
-      const name = `NFCe-${chaveAcesso || chave || id}.xml`;
+      const { xml, chaveAcesso } =
+        docKind === 'nfe'
+          ? await NfeApi.getXml(id, currentCompany?.id)
+          : await NfceApi.getXml(id, currentCompany?.id);
+      const prefix = docKind === 'nfe' ? 'NFe' : 'NFCe';
+      const name = `${prefix}-${chaveAcesso || chave || id}.xml`;
       downloadText(name, xml);
       toast.success('XML baixado');
     } catch (err) {
@@ -248,16 +286,41 @@ export function NfceManagement() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <Receipt className="w-7 h-7 text-blue-600" aria-hidden />
-            Notas fiscais (NFC-e)
+            Notas fiscais
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Consulte, visualize e reimprima as emitidas; emita as pendentes do mês.
+            Consulte NFC-e e NF-e emitidas; reimprima DANFE e baixe XML.
           </p>
         </div>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => void load()}>
           <RefreshCw className="w-4 h-4" />
           Atualizar
         </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setDocKind('nfce')}
+          className={`rounded-md px-3 py-2 text-sm font-medium ${
+            docKind === 'nfce'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200'
+          }`}
+        >
+          NFC-e
+        </button>
+        <button
+          type="button"
+          onClick={() => setDocKind('nfe')}
+          className={`rounded-md px-3 py-2 text-sm font-medium ${
+            docKind === 'nfe'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200'
+          }`}
+        >
+          NF-e
+        </button>
       </div>
 
       <Card>
@@ -282,7 +345,7 @@ export function NfceManagement() {
               onChange={(e) => setYear(Number(e.target.value) || now.getFullYear())}
             />
           </div>
-          {tab === 'pendentes' && (
+          {tab === 'pendentes' && docKind === 'nfce' && (
             <div className="space-y-1.5 col-span-2">
               <Label>Filtro de pendentes</Label>
               <select
@@ -310,17 +373,19 @@ export function NfceManagement() {
         >
           Emitidas
         </button>
-        <button
-          type="button"
-          onClick={() => setTab('pendentes')}
-          className={`rounded-md px-3 py-2 text-sm font-medium ${
-            tab === 'pendentes'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200'
-          }`}
-        >
-          Pendentes do mês
-        </button>
+        {docKind === 'nfce' && (
+          <button
+            type="button"
+            onClick={() => setTab('pendentes')}
+            className={`rounded-md px-3 py-2 text-sm font-medium ${
+              tab === 'pendentes'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200'
+            }`}
+          >
+            Pendentes do mês
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -332,13 +397,17 @@ export function NfceManagement() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <FileText className="w-4 h-4" />
-              NFC-e do período ({issuedPage.total})
+              {docLabel} do período ({issuedPage.total})
             </CardTitle>
-            <CardDescription>Notas já geradas neste mês (qualquer status).</CardDescription>
+            <CardDescription>
+              {docKind === 'nfe'
+                ? 'NF-e modelo 55 geradas neste mês (qualquer status).'
+                : 'NFC-e modelo 65 geradas neste mês (qualquer status).'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             {issued.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhuma NFC-e neste período.</p>
+              <p className="text-sm text-muted-foreground">Nenhuma {docLabel} neste período.</p>
             ) : (
               <>
                 <table className="w-full text-sm">
@@ -538,7 +607,7 @@ export function NfceManagement() {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              NFC-e{' '}
+              {docLabel}{' '}
               {detail && detail.numero
                 ? `${detail.serie}/${detail.numero}`
                 : detail?.chaveAcesso
@@ -546,7 +615,7 @@ export function NfceManagement() {
                   : ''}
             </DialogTitle>
             <DialogDescription>
-              Detalhes da nota fiscal. Use Reimprimir para abrir o DANFE na impressora.
+              Detalhes da nota. Use Reimprimir para abrir o DANFE na impressora.
             </DialogDescription>
           </DialogHeader>
 
@@ -608,7 +677,7 @@ export function NfceManagement() {
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Prévia do DANFE</p>
                   <iframe
-                    title="Prévia DANFE NFC-e"
+                    title={`Prévia DANFE ${docLabel}`}
                     srcDoc={danfeHtml}
                     className="w-full h-[420px] rounded-md border border-gray-200 dark:border-gray-700 bg-white"
                     sandbox="allow-same-origin"
@@ -616,7 +685,7 @@ export function NfceManagement() {
                 </div>
               ) : detail.hasDanfe === false || detail.status !== 'AUTHORIZED' ? (
                 <p className="text-sm text-muted-foreground">
-                  Prévia do DANFE disponível apenas para NFC-e autorizada com cupom gerado.
+                  Prévia do DANFE disponível apenas para {docLabel} autorizada.
                 </p>
               ) : null}
             </div>
