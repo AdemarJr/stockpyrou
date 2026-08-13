@@ -12,14 +12,11 @@ import {
   TrendingUp,
   Truck,
   Command,
-  Users,
   LockKeyhole,
   Star,
   Receipt,
   CreditCard,
-  Camera,
   FileText,
-  Clock,
   CloudOff,
   Building2,
   UserRound,
@@ -46,87 +43,87 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
     {
       title: "PDV Offline com Sync Automático",
       description: "Venda com cupom não fiscal sem internet. Catálogo e caixa ficam em cache; a fila sincroniza sozinha ao reconectar, sem duplicar venda ou estoque.",
-      icon: <CloudOff className="w-6 h-6 text-blue-600" />,
+      icon: <CloudOff className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvZmZsaW5lJTIwdGVjaG5vbG9neSUyMG1vYmlsZXxlbnwxfHx8fDE3NjkyMDIzMDF8MA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: "NEW"
     },
     {
-      title: "NFC-e na Frente de Caixa",
-      description: "Escolha emitir NFC-e ou cupom interno na hora da venda. Fluxo fiscal preparado na operação, com cliente e documento quando necessário.",
-      icon: <FileText className="w-6 h-6 text-blue-600" />,
+      title: "NFC-e e NF-e na Venda",
+      description: "No checkout escolha cupom interno, NFC-e (mod. 65) ou NF-e (mod. 55). Cliente com busca rápida, cadastro inline e DANFE para reimpressão.",
+      icon: <FileText className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
       badge: "NEW"
     },
     {
       title: "Caixa / PDV Completo",
       description: "Abertura e fechamento de caixa, vendas rápidas, sangrias, reforços, recibo e catálogo só com produtos em estoque — pronto para o dia a dia do balcão.",
-      icon: <Receipt className="w-6 h-6 text-blue-600" />,
+      icon: <Receipt className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1556742521-9713bf272865?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyZXRhaWwlMjBwb3MlMjBzeXN0ZW18ZW58MXx8fHwxNzY5MjAyMzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: "HOT"
     },
     {
+      title: "Venda Manual e Baixa Avulsa",
+      description: "Venda com fiscal ou só baixa de estoque sem gerar cupom/nota. Ideal para desperdício, amostra e ajuste operacional no mesmo fluxo.",
+      icon: <Package className="w-6 h-6 text-sky-700" />,
+      image: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
+      badge: "NEW"
+    },
+    {
       title: "Baixa de Estoque via ZIG",
       description: "Busque vendas da ZIG, selecione os itens e dê baixa no estoque com consolidação por produto e dia — sem processar o que você não marcou.",
-      icon: <Zap className="w-6 h-6 text-blue-600" />,
+      icon: <Zap className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1740914994657-f1cdffdc418e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx3YXJlaG91c2UlMjBtYW5hZ2VtZW50JTIwaW52ZW50b3J5fGVufDF8fHx8MTc2OTE2NjY2OXww&ixlib=rb-4.1.0&q=80&w=1080",
       badge: "HOT"
     },
     {
       title: "Pagamentos Flexíveis",
       description: "Dinheiro, PIX, crédito, débito, pagamento misto, fiado e boleto. Controle de troco, sangrias e conferência no fechamento do caixa.",
-      icon: <CreditCard className="w-6 h-6 text-blue-600" />,
+      icon: <CreditCard className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1563013544-824ae1b704d3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwYXltZW50JTIwbWV0aG9kcyUyMGNhc2hpZXJ8ZW58MXx8fHwxNzY5MjAyMzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: null
     },
     {
-      title: "Clientes e Venda Avulsa",
-      description: "Cadastro rápido de cliente com CPF/CNPJ quando precisar. Offline, venda avulsa sem obrigar cliente — ideal para balcão e delivery.",
-      icon: <UserRound className="w-6 h-6 text-blue-600" />,
+      title: "Clientes no Checkout",
+      description: "Busca por nome ou CPF/CNPJ e cadastro no próprio PDV (sem modal). Para NF-e, endereço completo no mesmo fluxo.",
+      icon: <UserRound className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1556745757-8d76bdb6984b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
       badge: null
     },
     {
       title: "Estoque e Entrada Inteligente",
-      description: "Entradas, balanço, combos/promos com baixa nos itens filhos, scanner de câmera e importação de XML de NF-e para acelerar o recebimento.",
-      icon: <Package className="w-6 h-6 text-blue-600" />,
+      description: "Entradas, balanço, combos/promos com baixa nos itens filhos, scanner de câmera e importação/sincronização de NF-e de fornecedor.",
+      icon: <Truck className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
       badge: null
     },
     {
       title: "Relatórios Inteligentes",
       description: "Vendas, fechamentos, saídas (incluindo ZIG), desperdícios, lucratividade e previsão de demanda. Exporte e acompanhe a operação.",
-      icon: <TrendingUp className="w-6 h-6 text-blue-600" />,
+      icon: <TrendingUp className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkYXNoYm9hcmQlMjBhbmFseXRpY3MlMjByZXBvcnRzfGVufDF8fHx8MTc2OTIwMjMwMXww&ixlib=rb-4.1.0&q=80&w=1080",
       badge: null
     },
     {
       title: "PWA Instalável",
       description: "Instale no celular ou desktop como app. Atualização sob controle do operador — sem interrupção no meio da venda.",
-      icon: <Smartphone className="w-6 h-6 text-blue-600" />,
+      icon: <Smartphone className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1645226880663-81561dcab0ae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JpbGUlMjBhcHAlMjBzbWFydHBob25lJTIwYnVzaW5lc3N8ZW58MXx8fHwxNzY5MjAyMzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: null
     },
     {
       title: "Multi-Empresa e Permissões",
       description: "Várias empresas no mesmo login, dados isolados e papéis por usuário. Cada time vê só o que precisa operar.",
-      icon: <Building2 className="w-6 h-6 text-blue-600" />,
+      icon: <Building2 className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1748609339084-ea43ec1b8fbb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBidXNpbmVzcyUyMGRhc2hib2FyZHxlbnwxfHx8fDE3NjkyNDAxNTV8MA&ixlib=rb-4.1.0&q=80&w=1080",
       badge: null
     },
     {
       title: "Busca Instantânea (⌘K)",
       description: "Ache produto por nome, SKU ou código de barras em segundos. Atalho Cmd/Ctrl+K em qualquer tela.",
-      icon: <Command className="w-6 h-6 text-blue-600" />,
+      icon: <Command className="w-6 h-6 text-sky-700" />,
       image: "https://images.unsplash.com/photo-1763107228544-2ad5d71c21f0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2JpbGUlMjBhcHAlMjBwcm9kdWN0aXZpdHl8ZW58MXx8fHwxNjkyOTgyMzF8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
       badge: null
     },
-    {
-      title: "Histórico e Auditoria",
-      description: "Movimentações, vendas, fechamentos e ajustes com usuário, data/hora e motivo. Rastreabilidade completa da operação.",
-      icon: <Clock className="w-6 h-6 text-blue-600" />,
-      image: "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoaXN0b3J5JTIwdGltZWxpbmUlMjBhdWRpdHxlbnwxfHx8fDE3NjkyMDIzMDF8MA&ixlib=rb-4.1.0&q=80&w=1080",
-      badge: null
-    }
   ];
 
   const differentials = [
@@ -137,8 +134,13 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
     },
     {
       icon: <FileText className="w-6 h-6" />,
-      title: "NFC-e opcional",
-      description: "Emita nota ou cupom na venda"
+      title: "NFC-e e NF-e",
+      description: "Cupom fiscal ou nota modelo 55"
+    },
+    {
+      icon: <Package className="w-6 h-6" />,
+      title: "Baixa avulsa",
+      description: "Estoque sem venda nem nota"
     },
     {
       icon: <Zap className="w-6 h-6" />,
@@ -156,14 +158,9 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       description: "PIX, cartão, misto e fiado"
     },
     {
-      icon: <Camera className="w-6 h-6" />,
-      title: "Scanner nativo",
-      description: "Câmera para código de barras"
-    },
-    {
-      icon: <Users className="w-6 h-6" />,
-      title: "Permissões",
-      description: "Multi-usuário por empresa"
+      icon: <UserRound className="w-6 h-6" />,
+      title: "Cliente no PDV",
+      description: "Busca e cadastro sem modal"
     },
     {
       icon: <Smartphone className="w-6 h-6" />,
@@ -184,14 +181,14 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       name: "Ana Paula",
       role: "Gerente de Loja",
       company: "Moda Express",
-      content: "A baixa da ZIG no estoque e o PDV no celular aceleraram nossa rotina. Scanner, só produto em estoque na venda e relatórios claros — a equipe adotou rápido.",
+      content: "NFC-e no balcão e NF-e quando o cliente precisa de nota. Cadastro de cliente na hora da venda, sem sair do caixa — a equipe ganhou velocidade.",
       rating: 5
     },
     {
       name: "Roberto Lima",
       role: "Diretor de Operações",
       company: "DistribuMax",
-      content: "Multi-empresa com permissões e fechamento de caixa por unidade. Temos visão da operação sem misturar dados entre filiais.",
+      content: "Multi-empresa com permissões e fechamento de caixa por unidade. Baixa avulsa e ZIG no estoque sem misturar dados entre filiais.",
       rating: 5
     }
   ];
@@ -265,91 +262,73 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       </nav>
 
       {/* Hero Section */}
-      <section className="pt-32 pb-20 lg:pt-48 lg:pb-32 px-4 relative overflow-hidden">
-        <div className="absolute top-0 right-0 -z-10 w-1/3 h-full bg-gradient-to-br from-blue-50 to-indigo-50 rounded-l-[100px] hidden lg:block"></div>
-        <div className="absolute -top-40 -right-40 -z-10 w-96 h-96 bg-blue-200/30 rounded-full blur-3xl"></div>
-        <div className="absolute -bottom-40 -left-40 -z-10 w-96 h-96 bg-indigo-200/30 rounded-full blur-3xl"></div>
-        
-        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-16">
-          <div className="flex-1 space-y-8 text-center lg:text-left">
+      <section className="pt-28 pb-16 lg:pt-40 lg:pb-28 px-4 relative overflow-hidden">
+        <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,_rgba(14,165,233,0.12),_transparent_55%),radial-gradient(ellipse_at_bottom_left,_rgba(30,64,175,0.08),_transparent_50%)]" />
+        <div className="absolute inset-0 -z-10 opacity-[0.35] [background-image:linear-gradient(rgba(15,23,42,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.03)_1px,transparent_1px)] [background-size:48px_48px]" />
+
+        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-14 lg:gap-20">
+          <div className="flex-1 space-y-7 text-center lg:text-left">
             <motion.p
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-sm font-black tracking-[0.2em] uppercase text-blue-600"
+              className="text-sm font-black tracking-[0.22em] uppercase text-sky-700"
             >
               {APP_NAME}
             </motion.p>
             <motion.h1 
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="text-4xl md:text-6xl lg:text-7xl font-black text-gray-900 leading-[1.1]"
+              transition={{ delay: 0.08 }}
+              className="text-4xl md:text-5xl lg:text-6xl font-black text-slate-900 leading-[1.08] tracking-tight"
             >
-              Estoque e PDV que <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">não param offline.</span>
+              PDV, estoque e notas fiscais{' '}
+              <span className="bg-gradient-to-r from-sky-700 to-blue-800 bg-clip-text text-transparent">
+                no mesmo fluxo.
+              </span>
             </motion.h1>
             <motion.p 
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto lg:mx-0 leading-relaxed"
+              transition={{ delay: 0.16 }}
+              className="text-lg md:text-xl text-slate-600 max-w-xl mx-auto lg:mx-0 leading-relaxed"
             >
-              Venda com cupom sem internet, sincronize ao reconectar, emita NFC-e quando precisar e baixe estoque das vendas ZIG — tudo em um só sistema.
+              Venda offline, NFC-e ou NF-e no checkout, baixa avulsa e sincronização ZIG — operação de balcão sem sair do sistema.
             </motion.p>
 
             <motion.div 
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4"
+              transition={{ delay: 0.24 }}
+              className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3"
             >
               <a 
                 href={waHref(`Olá! Gostaria de falar com um consultor ${APP_NAME}`)}
-                className="w-full sm:w-auto px-10 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl font-bold text-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-2xl shadow-blue-200 flex items-center justify-center gap-2 group"
+                className="w-full sm:w-auto px-9 py-4 bg-slate-900 text-white rounded-xl font-bold text-base hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/15 flex items-center justify-center gap-2 group"
               >
                 Começar Agora
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </a>
               <button 
                 onClick={onLoginClick}
-                className="w-full sm:w-auto px-10 py-5 bg-white border-2 border-gray-200 text-gray-700 rounded-2xl font-bold text-lg hover:border-blue-300 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-9 py-4 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold text-base hover:border-sky-300 hover:bg-sky-50/80 transition-all flex items-center justify-center gap-2"
               >
                 Acessar Login
               </button>
             </motion.div>
-
           </div>
 
           <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.4 }}
-            className="flex-1 relative"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="flex-1 w-full"
           >
-            <div className="relative rounded-[2rem] overflow-hidden shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] border-8 border-white bg-gray-100 h-[400px] md:h-[500px]">
+            <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.35)] bg-slate-100 aspect-[4/3] max-h-[480px]">
               <ImageWithFallback 
                 src={image_e6773d54ec7685ec36adaaee57705c2d461a8da0} 
-                alt="Dashboard Preview" 
+                alt={`${APP_NAME} — PDV e estoque`} 
                 className="absolute inset-0 w-full h-full object-cover"
               />
-            </div>
-            {/* Floating Stats Card */}
-            <div className="absolute -bottom-10 -left-10 bg-white p-6 rounded-3xl shadow-2xl hidden lg:block border border-gray-50">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                  <TrendingUp className="w-6 h-6 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500 font-medium">Lucratividade</p>
-                  <p className="text-2xl font-black text-gray-900">+24.8%</p>
-                </div>
-              </div>
-              <div className="flex gap-1">
-                {[40, 70, 45, 90, 65, 80].map((h, i) => (
-                  <div key={i} className="w-2 bg-blue-100 rounded-full overflow-hidden flex items-end">
-                    <div className="w-full bg-blue-600 rounded-full" style={{ height: `${h}%` }}></div>
-                  </div>
-                ))}
-              </div>
             </div>
           </motion.div>
         </div>
@@ -369,28 +348,28 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       </section>
 
       {/* Differentials Grid */}
-      <section className="py-20 px-4 bg-gradient-to-br from-gray-50 to-blue-50/30">
+      <section className="py-20 px-4 bg-slate-50 border-y border-slate-100">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-blue-600 font-bold text-lg mb-4">Por que escolher o {APP_NAME}?</h2>
-            <p className="text-3xl md:text-4xl font-black text-gray-900">Diferenciais que fazem a diferença</p>
+            <h2 className="text-sky-700 font-bold text-sm tracking-widest uppercase mb-3">Por que escolher o {APP_NAME}?</h2>
+            <p className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight">Operação completa no balcão</p>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {differentials.map((item, idx) => (
               <motion.div 
                 key={idx}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ delay: idx * 0.1 }}
-                className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-lg transition-all"
+                transition={{ delay: idx * 0.05 }}
+                className="bg-white p-6 rounded-2xl border border-slate-200/80 hover:border-sky-200 hover:shadow-md transition-all"
               >
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-50 to-indigo-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+                <div className="w-11 h-11 bg-sky-50 text-sky-800 rounded-xl flex items-center justify-center mb-4">
                   {item.icon}
                 </div>
-                <h3 className="text-lg font-bold mb-2 text-gray-900">{item.title}</h3>
-                <p className="text-sm text-gray-600">{item.description}</p>
+                <h3 className="text-base font-bold mb-1.5 text-slate-900">{item.title}</h3>
+                <p className="text-sm text-slate-600 leading-snug">{item.description}</p>
               </motion.div>
             ))}
           </div>
@@ -398,37 +377,36 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-24 lg:py-32 px-4">
+      <section id="features" className="py-24 lg:py-28 px-4">
         <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-3xl mx-auto mb-20">
-            <h2 className="text-blue-600 font-bold text-lg mb-4">Funcionalidades</h2>
-            <p className="text-3xl md:text-5xl font-black text-gray-900 mb-6">Do balcão ao estoque, online ou offline</p>
-            <p className="text-lg text-gray-600 leading-relaxed">PDV, caixa, NFC-e, baixa ZIG, clientes e relatórios — pensados para operação real, inclusive com internet instável.</p>
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <h2 className="text-sky-700 font-bold text-sm tracking-widest uppercase mb-3">Funcionalidades</h2>
+            <p className="text-3xl md:text-4xl font-black text-slate-900 mb-5 tracking-tight">Do balcão ao estoque, online ou offline</p>
+            <p className="text-lg text-slate-600 leading-relaxed">NFC-e, NF-e, baixa avulsa, ZIG, clientes no checkout e relatórios — pensados para operação real.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {features.map((feature, idx) => (
               <motion.div 
                 key={idx}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ delay: idx * 0.1 }}
-                whileHover={{ y: -10 }}
-                className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-2xl transition-all relative overflow-hidden"
+                transition={{ delay: Math.min(idx * 0.04, 0.3) }}
+                className="bg-white p-7 rounded-2xl border border-slate-200/80 hover:border-sky-200 hover:shadow-lg transition-all relative overflow-hidden group"
               >
                 {feature.badge && (
-                  <div className="absolute top-4 right-4 px-3 py-1 bg-gradient-to-r from-green-400 to-emerald-500 text-white text-xs font-black rounded-full shadow-lg">
+                  <div className="absolute top-4 right-4 px-2.5 py-0.5 bg-sky-800 text-white text-[10px] font-bold tracking-wide rounded-md">
                     {feature.badge}
                   </div>
                 )}
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl flex items-center justify-center mb-6 text-blue-600">
+                <div className="w-12 h-12 bg-sky-50 rounded-xl flex items-center justify-center mb-5 text-sky-800">
                   {feature.icon}
                 </div>
-                <h3 className="text-2xl font-bold mb-4 text-gray-900">{feature.title}</h3>
-                <p className="text-gray-600 leading-relaxed mb-6">{feature.description}</p>
-                <div className="rounded-2xl overflow-hidden bg-gray-100 h-48">
-                  <ImageWithFallback src={feature.image} alt={feature.title} className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500" />
+                <h3 className="text-xl font-bold mb-3 text-slate-900 pr-12">{feature.title}</h3>
+                <p className="text-slate-600 leading-relaxed mb-5 text-[15px]">{feature.description}</p>
+                <div className="rounded-xl overflow-hidden bg-slate-100 h-40">
+                  <ImageWithFallback src={feature.image} alt={feature.title} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity duration-500" />
                 </div>
               </motion.div>
             ))}
@@ -499,9 +477,9 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
                 "Cupom não fiscal enfileirado sem internet",
                 "Catálogo e caixa em cache no aparelho",
                 "Sync automático ao reconectar (sem duplicar)",
-                "NFC-e opcional quando houver conexão",
-                "Instale como PWA — sem loja de apps",
-                "Scanner de câmera para código de barras"
+                "NFC-e ou NF-e no checkout com cliente inline",
+                "Baixa avulsa de estoque sem gerar nota",
+                "Instale como PWA — sem loja de apps"
               ].map((text, i) => (
                 <div key={i} className="flex items-center gap-4">
                   <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
@@ -527,7 +505,7 @@ export function LandingPage({ onLoginClick, onAdminClick }: LandingPageProps) {
         <div className="max-w-5xl mx-auto bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[3rem] p-8 md:p-16 text-center text-white relative overflow-hidden shadow-2xl">
           <div className="relative z-10 space-y-8">
             <h2 className="text-3xl md:text-5xl font-black">Pronto para vender sem medo da internet?</h2>
-            <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">Agende uma demonstração e veja o {APP_NAME} com PDV offline, NFC-e, baixa ZIG e estoque no mesmo fluxo.</p>
+            <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">Agende uma demonstração e veja o {APP_NAME} com PDV offline, NFC-e/NF-e, baixa avulsa, ZIG e estoque no mesmo fluxo.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4">
               <a 
                 href={waHref(`Olá! Gostaria de agendar uma demonstração do ${APP_NAME}`)}

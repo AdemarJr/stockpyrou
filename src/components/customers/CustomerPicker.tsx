@@ -32,6 +32,8 @@ interface CustomerPickerProps {
    * Mostra aviso e permite seguir sem cliente.
    */
   allowWalkInWithoutCustomer?: boolean;
+  /** Exige endereço no cadastro (obrigatório para NF-e). */
+  requireAddress?: boolean;
 }
 
 function onlyDigits(v: string) {
@@ -71,8 +73,27 @@ function formatDocInput(raw: string) {
     .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
 }
 
+function formatCepInput(raw: string) {
+  const d = onlyDigits(raw).slice(0, 8);
+  if (d.length <= 5) return d;
+  return `${d.slice(0, 5)}-${d.slice(5)}`;
+}
+
+const emptyCreate = () => ({
+  name: '',
+  doc: '',
+  phone: '',
+  logradouro: '',
+  numero: '',
+  complemento: '',
+  bairro: '',
+  municipio: '',
+  uf: 'AM',
+  cep: '',
+});
+
 /**
- * Busca / seleciona / cadastra cliente (nome + CPF/CNPJ).
+ * Busca e seleciona cliente; cadastro novo fica no próprio painel (sem modal).
  */
 export function CustomerPicker({
   value,
@@ -81,6 +102,7 @@ export function CustomerPicker({
   label = 'Cliente',
   hint,
   allowWalkInWithoutCustomer = false,
+  requireAddress = false,
 }: CustomerPickerProps) {
   const { currentCompany } = useCompany();
   const [query, setQuery] = useState('');
@@ -88,9 +110,7 @@ export function CustomerPicker({
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newDoc, setNewDoc] = useState('');
-  const [newPhone, setNewPhone] = useState('');
+  const [form, setForm] = useState(emptyCreate);
 
   const walkIn = allowWalkInWithoutCustomer || (typeof navigator !== 'undefined' && !navigator.onLine);
   const effectivelyRequired = required && !walkIn;
@@ -114,18 +134,27 @@ export function CustomerPicker({
   }, [query, currentCompany?.id, walkIn]);
 
   const filteredHint = useMemo(() => {
-    if (walkIn) {
-      return 'Venda avulsa offline — cliente não é necessário';
-    }
+    if (walkIn) return 'Venda avulsa offline — cliente não é necessário';
     if (hint) return hint;
-    if (effectivelyRequired) return 'Obrigatório: nome e CPF ou CNPJ';
-    return 'Busque ou cadastre (nome + CPF/CNPJ)';
-  }, [hint, effectivelyRequired, walkIn]);
+    if (requireAddress) {
+      return 'Busque ou cadastre: nome, CPF/CNPJ e endereço (obrigatório para NF-e)';
+    }
+    if (effectivelyRequired) return 'Busque ou cadastre: nome e CPF/CNPJ';
+    return 'Busque por nome ou documento — ou cadastre um novo abaixo';
+  }, [hint, effectivelyRequired, walkIn, requireAddress]);
+
+  const openCreate = () => {
+    const next = emptyCreate();
+    if (query && !onlyDigits(query)) next.name = query.trim();
+    if (onlyDigits(query).length >= 11) next.doc = formatDocInput(query);
+    setForm(next);
+    setShowCreate(true);
+  };
 
   const handleCreate = async () => {
     if (!currentCompany?.id) return;
-    const name = newName.trim();
-    const doc = onlyDigits(newDoc);
+    const name = form.name.trim();
+    const doc = onlyDigits(form.doc);
     if (name.length < 2) {
       toast.error('Informe o nome do cliente');
       return;
@@ -134,19 +163,42 @@ export function CustomerPicker({
       toast.error('Informe CPF (11) ou CNPJ (14 dígitos)');
       return;
     }
+    if (requireAddress) {
+      const cep = onlyDigits(form.cep);
+      if (!form.logradouro.trim() || !form.municipio.trim() || cep.length !== 8) {
+        toast.error('NF-e exige logradouro, município e CEP');
+        return;
+      }
+    }
     setCreating(true);
     try {
       const customer = await CustomerApi.create(
-        { name, document: doc, phone: newPhone.trim() || undefined },
+        {
+          name,
+          document: doc,
+          phone: form.phone.trim() || undefined,
+          logradouro: form.logradouro.trim() || undefined,
+          numero: form.numero.trim() || undefined,
+          complemento: form.complemento.trim() || undefined,
+          bairro: form.bairro.trim() || undefined,
+          municipio: form.municipio.trim() || undefined,
+          uf: form.uf.trim() || undefined,
+          cep: onlyDigits(form.cep) || undefined,
+        },
         currentCompany.id,
       );
       onChange(toSelected(customer));
       setShowCreate(false);
-      setNewName('');
-      setNewDoc('');
-      setNewPhone('');
+      setForm(emptyCreate());
       setQuery('');
-      toast.success('Cliente cadastrado');
+      // Recarrega lista para o cliente aparecer nas próximas buscas
+      try {
+        const refreshed = await CustomerApi.search(customer.name, currentCompany.id);
+        setResults(refreshed);
+      } catch {
+        /* ignore */
+      }
+      toast.success('Cliente cadastrado e selecionado');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro ao cadastrar cliente';
       toast.error(msg);
@@ -158,17 +210,16 @@ export function CustomerPicker({
   if (walkIn && !value) {
     return (
       <div className="space-y-1.5 rounded-xl border border-dashed border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-800 p-3">
-        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
-          {label}
-        </label>
+        <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">{label}</label>
         <p className="text-sm text-emerald-800 dark:text-emerald-200">
-          Venda avulsa — sem dados de cliente. A busca/cadastro de clientes precisa de internet.
+          Venda avulsa — sem dados de cliente. A busca/cadastro precisa de internet.
         </p>
       </div>
     );
   }
 
   if (value) {
+    const hasAddr = !!(value.logradouro && value.municipio && onlyDigits(value.cep || '').length === 8);
     return (
       <div className="space-y-1.5">
         <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">
@@ -182,10 +233,24 @@ export function CustomerPicker({
             <p className="text-xs text-gray-600 dark:text-gray-400">
               {value.documentType.toUpperCase()}: {value.documentFormatted}
             </p>
+            {hasAddr ? (
+              <p className="text-[11px] text-gray-500 mt-0.5 truncate">
+                {value.logradouro}
+                {value.numero ? `, ${value.numero}` : ''} — {value.municipio}/{value.uf || '—'}
+              </p>
+            ) : requireAddress ? (
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                Endereço incompleto — cadastre outro cliente ou complete no menu Clientes
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
-            onClick={() => onChange(null)}
+            onClick={() => {
+              onChange(null);
+              setShowCreate(false);
+              setQuery('');
+            }}
             className="p-1.5 rounded-lg text-gray-500 hover:bg-white/80 dark:hover:bg-gray-800"
             aria-label="Trocar cliente"
           >
@@ -209,92 +274,168 @@ export function CustomerPicker({
         <input
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (showCreate) setShowCreate(false);
+          }}
           placeholder="Buscar por nome ou CPF/CNPJ"
-          className="w-full pl-9 pr-3 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          className="w-full pl-9 pr-10 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          autoComplete="off"
         />
         {loading && (
           <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" />
         )}
       </div>
 
-      {results.length > 0 && (
-        <ul className="max-h-40 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
-          {results.slice(0, 8).map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                onClick={() => onChange(toSelected(c))}
-                className="w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
-              >
-                <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{c.name}</p>
-                <p className="text-xs text-gray-500">
-                  {c.documentType.toUpperCase()} {c.documentFormatted}
-                </p>
-              </button>
-            </li>
-          ))}
+      {results.length > 0 && !showCreate && (
+        <ul className="max-h-44 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+          {results.slice(0, 10).map((c) => {
+            const addrOk =
+              !!(c.logradouro && c.municipio && onlyDigits(c.cep || '').length === 8);
+            return (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => onChange(toSelected(c))}
+                  className="w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                >
+                  <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{c.name}</p>
+                  <p className="text-xs text-gray-500">
+                    {c.documentType.toUpperCase()} {c.documentFormatted}
+                    {requireAddress && !addrOk ? ' · endereço incompleto' : ''}
+                  </p>
+                </button>
+              </li>
+            );
+          })}
         </ul>
+      )}
+
+      {!loading && query.trim() && results.length === 0 && !showCreate && (
+        <p className="text-xs text-gray-500 px-1">Nenhum cliente encontrado. Cadastre um novo abaixo.</p>
       )}
 
       {!showCreate ? (
         <button
           type="button"
-          onClick={() => {
-            setShowCreate(true);
-            if (query && !onlyDigits(query)) setNewName(query);
-            if (onlyDigits(query).length >= 11) setNewDoc(formatDocInput(query));
-          }}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 text-sm font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30"
+          onClick={openCreate}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-blue-300 dark:border-blue-700 text-sm font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30"
         >
           <Plus className="w-4 h-4" />
           Cadastrar novo cliente
         </button>
       ) : (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 space-y-2">
-          <p className="text-xs font-bold text-gray-600 uppercase">Novo cliente</p>
+        <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-bold text-blue-800 dark:text-blue-200 uppercase tracking-wide">
+              Novo cliente
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowCreate(false)}
+              className="text-xs font-medium text-gray-500 hover:text-gray-800"
+              disabled={creating}
+            >
+              Voltar à busca
+            </button>
+          </div>
           <input
             type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="Nome completo *"
             className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
             autoFocus
           />
           <input
             type="text"
-            value={newDoc}
-            onChange={(e) => setNewDoc(formatDocInput(e.target.value))}
+            value={form.doc}
+            onChange={(e) => setForm((f) => ({ ...f, doc: formatDocInput(e.target.value) }))}
             placeholder="CPF ou CNPJ *"
             inputMode="numeric"
             className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
           />
           <input
             type="text"
-            value={newPhone}
-            onChange={(e) => setNewPhone(e.target.value)}
+            value={form.phone}
+            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
             placeholder="Telefone (opcional)"
             className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
           />
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setShowCreate(false)}
-              className="flex-1 py-2 rounded-lg border border-gray-300 text-sm font-medium"
-              disabled={creating}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={creating}
-              className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Salvar
-            </button>
-          </div>
+
+          {(requireAddress || showCreate) && (
+            <div className="pt-1 space-y-2 border-t border-blue-100 dark:border-blue-900">
+              <p className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase">
+                Endereço{requireAddress ? ' *' : ' (opcional)'}
+              </p>
+              <input
+                type="text"
+                value={form.logradouro}
+                onChange={(e) => setForm((f) => ({ ...f, logradouro: e.target.value }))}
+                placeholder={requireAddress ? 'Logradouro *' : 'Logradouro'}
+                className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+              />
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  value={form.numero}
+                  onChange={(e) => setForm((f) => ({ ...f, numero: e.target.value }))}
+                  placeholder="Nº"
+                  className="col-span-1 px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                />
+                <input
+                  type="text"
+                  value={form.bairro}
+                  onChange={(e) => setForm((f) => ({ ...f, bairro: e.target.value }))}
+                  placeholder="Bairro"
+                  className="col-span-2 px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  value={form.municipio}
+                  onChange={(e) => setForm((f) => ({ ...f, municipio: e.target.value }))}
+                  placeholder={requireAddress ? 'Município *' : 'Município'}
+                  className="col-span-2 px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                />
+                <input
+                  type="text"
+                  value={form.uf}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, uf: e.target.value.toUpperCase().slice(0, 2) }))
+                  }
+                  placeholder="UF"
+                  className="col-span-1 px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm uppercase"
+                />
+              </div>
+              <input
+                type="text"
+                value={form.cep}
+                onChange={(e) => setForm((f) => ({ ...f, cep: formatCepInput(e.target.value) }))}
+                placeholder={requireAddress ? 'CEP *' : 'CEP'}
+                inputMode="numeric"
+                className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+              />
+              <input
+                type="text"
+                value={form.complemento}
+                onChange={(e) => setForm((f) => ({ ...f, complemento: e.target.value }))}
+                placeholder="Complemento"
+                className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+              />
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void handleCreate()}
+            disabled={creating}
+            className="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Salvar e selecionar
+          </button>
         </div>
       )}
     </div>

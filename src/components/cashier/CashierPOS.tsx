@@ -988,14 +988,15 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                 onChange={setSelectedCustomer}
                 required={customerRequired}
                 allowWalkInWithoutCustomer={isOffline}
+                requireAddress={emitNfe}
                 hint={
                   isOffline
                     ? 'Venda avulsa offline — sem cliente'
                     : customerRequired
                       ? emitNfe
-                        ? 'Obrigatório para NF-e (CPF/CNPJ + endereço completo)'
-                        : 'Obrigatório para fiado, boleto e NFC-e (nome + CPF/CNPJ)'
-                      : 'Opcional — pode vender sem cliente'
+                        ? 'Busque ou cadastre: CPF/CNPJ + endereço completo (NF-e)'
+                        : 'Busque ou cadastre: nome + CPF/CNPJ'
+                      : 'Busque por nome/documento ou cadastre um novo'
                 }
               />
 
