@@ -116,18 +116,50 @@ export class NfceApi {
 }
 
 export function openDanfePrintWindow(html: string) {
-  const w = window.open('', '_blank', 'noopener,noreferrer,width=480,height=800');
+  const w = window.open('', '_blank', 'noopener,noreferrer,width=420,height=800');
   if (!w) return false;
   w.document.open();
   w.document.write(html);
   w.document.close();
   w.focus();
-  setTimeout(() => {
+
+  const triggerPrint = () => {
     try {
       w.print();
     } catch {
       /* ignore */
     }
-  }, 400);
+  };
+
+  // Aguarda imagens (logo/QR data-URI) antes de imprimir — evita QR em branco
+  const imgs = Array.from(w.document.images || []);
+  if (imgs.length === 0) {
+    setTimeout(triggerPrint, 300);
+    return true;
+  }
+
+  let pending = imgs.length;
+  let printed = false;
+  const done = () => {
+    if (printed) return;
+    printed = true;
+    setTimeout(triggerPrint, 80);
+  };
+  const onOne = () => {
+    pending -= 1;
+    if (pending <= 0) done();
+  };
+
+  for (const img of imgs) {
+    if (img.complete && img.naturalWidth > 0) {
+      onOne();
+    } else {
+      img.addEventListener('load', onOne, { once: true });
+      img.addEventListener('error', onOne, { once: true });
+    }
+  }
+
+  // Fallback: não trava a impressão se alguma imagem falhar
+  setTimeout(done, 2500);
   return true;
 }
