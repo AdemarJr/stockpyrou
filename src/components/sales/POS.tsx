@@ -30,6 +30,7 @@ import {
   loadCachedRegister,
   resolveOfflineCatalog,
 } from '../../offline/offlineSaleQueue';
+import { buildPricedSaleItems, cartFinalTotal } from '../../utils/salePricing';
 
 interface POSProps {
   products: Product[];
@@ -75,6 +76,10 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     saleId?: string | null;
     emitNfce?: boolean;
     emitNfe?: boolean;
+    subtotal?: number;
+    cartDiscount?: number;
+    surcharge?: number;
+    surchargePercent?: number;
   } | null>(null);
   const [posTab, setPosTab] = useState<'manual' | 'zig'>('manual');
   /** Dentro de Venda manual: venda fiscal/não fiscal ou só baixa de estoque. */
@@ -86,6 +91,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
   const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
   const [dueDate, setDueDate] = useState(defaultDueDateYmd);
   const [cashReceived, setCashReceived] = useState('');
+  const [surchargePercent, setSurchargePercent] = useState('');
   const [documentType, setDocumentType] = useState<SaleDocumentType>('non_fiscal');
   const [productLimit, setProductLimit] = useState(48);
   const fiscal = useFiscalReadiness({ refreshKey: isConfirmOpen });
@@ -419,12 +425,23 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     }));
   };
 
-  const totalAmount = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+  const pricing = cartFinalTotal(cart, 0, 'value', parseFloat(surchargePercent) || 0);
+  const saleTotal = pricing.total;
+  const pricedSaleItems = buildPricedSaleItems(
+    cart.map((item) => ({
+      id: item.id,
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity,
+    })),
+    0,
+    pricing.surcharge,
+  );
 
   const isReceivable = paymentMethod === 'fiado' || paymentMethod === 'boleto';
   const cashChange =
     paymentMethod === 'money' && cashReceived
-      ? parseFloat(cashReceived) - totalAmount
+      ? parseFloat(cashReceived) - saleTotal
       : 0;
 
   const resetCheckoutForm = () => {
@@ -432,6 +449,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
     setSelectedCustomer(null);
     setDueDate(defaultDueDateYmd());
     setCashReceived('');
+    setSurchargePercent('');
     setDocumentType('non_fiscal');
   };
 
@@ -518,24 +536,29 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           throw new Error(stockGate.reason);
         }
 
-        const paymentDetails: Record<string, unknown> = { emitNfce: false };
+        const paymentDetails: Record<string, unknown> = {
+          emitNfce: false,
+          subtotal: pricing.subtotal,
+          surcharge: pricing.surcharge,
+          surchargePercent: pricing.surchargePercent,
+        };
         if (paymentMethod === 'money') {
           paymentDetails.cashReceived = cashReceived
             ? parseFloat(cashReceived)
-            : totalAmount;
+            : saleTotal;
           paymentDetails.change = cashReceived ? cashChange : 0;
         }
 
         const salePayload = {
           registerId,
           clientRequestId: checkoutId,
-          items: cart.map((item) => ({
-            productId: item.type === 'product' ? item.id : undefined,
+          items: pricedSaleItems.map((item) => ({
+            productId: item.productId,
             name: item.name,
             price: item.price,
             quantity: item.quantity,
           })),
-          total: totalAmount,
+          total: saleTotal,
           paymentMethod,
           paymentDetails,
         };
@@ -563,12 +586,15 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             unitPrice: item.price,
             total: item.price * item.quantity,
           })),
-          total: totalAmount,
+          total: saleTotal,
           date: new Date(),
           paymentMethod,
           customerName: selectedCustomer?.name,
           saleId: queued.id,
           emitNfce: false,
+          subtotal: pricing.subtotal,
+          surcharge: pricing.surcharge,
+          surchargePercent: pricing.surchargePercent,
         });
         setCart([]);
         setIsConfirmOpen(false);
@@ -636,6 +662,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           const paymentDetails: Record<string, unknown> = {
             emitNfce: !!emitNfce,
             emitNfe: !!emitNfe,
+            subtotal: pricing.subtotal,
+            surcharge: pricing.surcharge,
+            surchargePercent: pricing.surchargePercent,
           };
           if (selectedCustomer) {
             paymentDetails.customerId = selectedCustomer.id;
@@ -646,7 +675,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           if (paymentMethod === 'money') {
             paymentDetails.cashReceived = cashReceived
               ? parseFloat(cashReceived)
-              : totalAmount;
+              : saleTotal;
             paymentDetails.change = cashReceived ? cashChange : 0;
           }
           if (isReceivable) {
@@ -656,13 +685,14 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           const salePayload = {
             registerId,
             clientRequestId: checkoutId,
-            items: cart.map((item) => ({
-              productId: item.type === 'product' ? item.id : undefined,
+            items: pricedSaleItems.map((item) => ({
+              productId: item.productId,
               name: item.name,
               price: item.price,
               quantity: item.quantity,
+              discount: item.discount,
             })),
-            total: totalAmount,
+            total: saleTotal,
             paymentMethod,
             paymentDetails,
           };
@@ -771,13 +801,16 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           unitPrice: item.price,
           total: item.price * item.quantity
         })),
-        total: totalAmount,
+        total: saleTotal,
         date: new Date(),
         paymentMethod,
         customerName: selectedCustomer?.name,
         saleId,
         emitNfce: !!emitNfce,
         emitNfe: !!emitNfe,
+        subtotal: pricing.subtotal,
+        surcharge: pricing.surcharge,
+        surchargePercent: pricing.surchargePercent,
       });
       setCart([]);
       setIsConfirmOpen(false);
@@ -1097,11 +1130,41 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             </div>
 
             <div className="p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0">
-              <div className="flex justify-between items-end mb-4">
-                <span className="text-gray-500 text-sm font-medium">Total</span>
-                <span className="text-xl md:text-2xl font-bold text-gray-900">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalAmount)}
-                </span>
+              <div className="flex items-center gap-2 mb-3">
+                <label className="text-xs font-bold text-gray-600 shrink-0">Acréscimo %</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={surchargePercent}
+                  onChange={(e) => setSurchargePercent(e.target.value)}
+                  placeholder="0"
+                  className="flex-1 h-9 px-2 rounded-lg border border-gray-300 bg-white text-sm"
+                />
+              </div>
+              <div className="space-y-0.5 mb-4">
+                {pricing.surcharge > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>Subtotal</span>
+                      <span className="tabular-nums">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pricing.subtotal)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm text-sky-700">
+                      <span>Acréscimo {pricing.surchargePercent}%</span>
+                      <span className="tabular-nums">
+                        + {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pricing.surcharge)}
+                      </span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between items-end">
+                  <span className="text-gray-500 text-sm font-medium">Total</span>
+                  <span className="text-xl md:text-2xl font-bold text-gray-900">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saleTotal)}
+                  </span>
+                </div>
               </div>
 
               <button
@@ -1137,7 +1200,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             <div className="min-w-0 flex-1">
               <p className="text-xs text-gray-500 truncate">{cart.length} itens</p>
               <p className="text-lg font-black text-gray-900 tabular-nums">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalAmount)}
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saleTotal)}
               </p>
             </div>
             <button
@@ -1170,11 +1233,29 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
             </div>
             
             <div className="p-6 overflow-y-auto flex-1 min-h-0 space-y-5">
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
-                <span className="text-blue-800 font-medium">Total</span>
-                <span className="font-bold text-blue-900 text-xl">
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalAmount)}
-                </span>
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 space-y-1">
+                {pricing.surcharge > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm text-blue-800">
+                      <span>Subtotal</span>
+                      <span>
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pricing.subtotal)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm text-blue-800">
+                      <span>Acréscimo {pricing.surchargePercent}%</span>
+                      <span>
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pricing.surcharge)}
+                      </span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-blue-800 font-medium">Total</span>
+                  <span className="font-bold text-blue-900 text-xl">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saleTotal)}
+                  </span>
+                </div>
               </div>
 
               <SaleCheckoutFields
@@ -1214,7 +1295,7 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
                       step="0.01"
                       value={cashReceived}
                       onChange={(e) => setCashReceived(e.target.value)}
-                      placeholder={totalAmount.toFixed(2)}
+                      placeholder={saleTotal.toFixed(2)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
                     />
                     {cashReceived !== '' && (
@@ -1308,6 +1389,9 @@ export function POS({ products, recipes, onSaleComplete, onOpenIntegrations }: P
           saleId={lastSale.saleId}
           emitNfce={lastSale.emitNfce}
           emitNfe={lastSale.emitNfe}
+          subtotal={lastSale.subtotal}
+          surcharge={lastSale.surcharge}
+          surchargePercent={lastSale.surchargePercent}
           onClose={() => setShowReceipt(false)}
         />
       )}

@@ -91,6 +91,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
   ]);
   const [cartDiscountInput, setCartDiscountInput] = useState('');
   const [cartDiscountType, setCartDiscountType] = useState<'value' | 'percent'>('value');
+  const [surchargePercent, setSurchargePercent] = useState('');
   const [fiadoDueDate, setFiadoDueDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 30);
@@ -106,6 +107,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
     cart,
     parseFloat(cartDiscountInput) || 0,
     cartDiscountType,
+    parseFloat(surchargePercent) || 0,
   );
   const mixedHasReceivable = paymentLines.some(
     (l) => l.method === 'fiado' || l.method === 'boleto',
@@ -588,7 +590,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
             }
           : {};
 
-      const pricedItems = buildPricedSaleItems(cart, pricing.cartDiscount);
+      const pricedItems = buildPricedSaleItems(cart, pricing.cartDiscount, pricing.surcharge);
       const methodToSend: string = mixedMode ? 'mixed' : paymentMethod;
       const baseDetails: Record<string, unknown> = {
         emitNfce: !!emitNfce,
@@ -597,6 +599,8 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         cartDiscount: pricing.cartDiscount,
         cartDiscountType,
         cartDiscountInput: parseFloat(cartDiscountInput) || 0,
+        surcharge: pricing.surcharge,
+        surchargePercent: pricing.surchargePercent,
         ...customerPayload,
       };
 
@@ -679,6 +683,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
         setShowPayment(false);
         setCashReceived('');
         setCartDiscountInput('');
+        setSurchargePercent('');
         setMixedMode(false);
         setPaymentLines([{ id: newPaymentLineId(), method: 'money', amount: 0 }]);
         setSelectedCustomer(null);
@@ -804,6 +809,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       setPaymentLines([{ id: newPaymentLineId(), method: 'money', amount: 0 }]);
       setCartDiscountInput('');
       setCartDiscountType('value');
+      setSurchargePercent('');
       setSelectedCustomer(null);
       setDocumentType('non_fiscal');
       
@@ -855,6 +861,7 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
       cart,
       parseFloat(cartDiscountInput) || 0,
       cartDiscountType,
+      parseFloat(surchargePercent) || 0,
     ).total;
     setPaymentLines([{ id: newPaymentLineId(), method: paymentMethod, amount: t }]);
     if (paymentMethod === 'money') setCashReceived(t.toFixed(2));
@@ -930,10 +937,15 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
               <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white text-center">
                 <p className="text-sm opacity-90 font-bold mb-1">Total da Venda</p>
                 <p className="text-4xl md:text-5xl font-black tabular-nums">{formatCurrency(getTotal())}</p>
-                {pricing.cartDiscount > 0 && (
+                {(pricing.cartDiscount > 0 || pricing.surcharge > 0) && (
                   <p className="text-sm opacity-90 mt-1">
-                    Subtotal {formatCurrency(pricing.subtotal)} − desconto{' '}
-                    {formatCurrency(pricing.cartDiscount)}
+                    Subtotal {formatCurrency(pricing.subtotal)}
+                    {pricing.cartDiscount > 0
+                      ? ` − desconto ${formatCurrency(pricing.cartDiscount)}`
+                      : ''}
+                    {pricing.surcharge > 0
+                      ? ` + acréscimo ${pricing.surchargePercent}% ${formatCurrency(pricing.surcharge)}`
+                      : ''}
                   </p>
                 )}
                 <p className="text-sm opacity-75 mt-2">{cart.length} {cart.length === 1 ? 'item' : 'itens'}</p>
@@ -1397,6 +1409,20 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   className="flex-1 h-9 px-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"
                 />
               </div>
+              <div className="flex items-center gap-2">
+                <label className="h-9 flex items-center shrink-0 text-xs font-bold text-gray-600 dark:text-gray-300">
+                  Acréscimo %
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={surchargePercent}
+                  onChange={(e) => setSurchargePercent(e.target.value)}
+                  placeholder="0"
+                  className="flex-1 h-9 px-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm"
+                />
+              </div>
               <div className="space-y-0.5 text-sm">
                 <div className="flex justify-between text-gray-500">
                   <span>Subtotal</span>
@@ -1406,6 +1432,12 @@ export function CashierPOS({ register, onSaleComplete }: CashierPOSProps) {
                   <div className="flex justify-between text-amber-700 dark:text-amber-300">
                     <span>Desconto</span>
                     <span className="tabular-nums">− {formatCurrency(pricing.cartDiscount)}</span>
+                  </div>
+                )}
+                {pricing.surcharge > 0 && (
+                  <div className="flex justify-between text-sky-700 dark:text-sky-300">
+                    <span>Acréscimo {pricing.surchargePercent}%</span>
+                    <span className="tabular-nums">+ {formatCurrency(pricing.surcharge)}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between pt-1">

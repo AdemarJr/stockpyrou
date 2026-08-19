@@ -26,6 +26,9 @@ interface SaleReceiptProps {
   saleId?: string | null;
   emitNfce?: boolean;
   emitNfe?: boolean;
+  subtotal?: number;
+  surcharge?: number;
+  surchargePercent?: number;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -47,6 +50,9 @@ export function SaleReceipt({
   saleId,
   emitNfce,
   emitNfe,
+  subtotal,
+  surcharge,
+  surchargePercent,
 }: SaleReceiptProps) {
   const { currentCompany } = useCompany();
   const { user } = useAuth();
@@ -123,6 +129,10 @@ export function SaleReceipt({
     });
 
     lines.push('========================================');
+    if ((surcharge || 0) > 0) {
+      lines.push(`Subtotal: ${formatCurrency(subtotal ?? items.reduce((s, i) => s + i.total, 0))}`);
+      lines.push(`Acréscimo ${surchargePercent || 0}%: ${formatCurrency(surcharge || 0)}`);
+    }
     lines.push(`TOTAL: ${formatCurrency(total)}`);
     lines.push('========================================');
     lines.push('');
@@ -239,7 +249,19 @@ export function SaleReceipt({
           <div className="border-t-2 border-dashed border-gray-300 dark:border-gray-600 print:border-gray-400 my-4"></div>
 
           {/* Total */}
-          <div className="bg-gray-50 dark:bg-gray-700 print:bg-gray-100 rounded-lg p-4 mb-4">
+          <div className="bg-gray-50 dark:bg-gray-700 print:bg-gray-100 rounded-lg p-4 mb-4 space-y-1">
+            {(surcharge || 0) > 0 && (
+              <>
+                <div className="flex justify-between text-sm dark:text-gray-200 print:text-black">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(subtotal ?? items.reduce((s, i) => s + i.total, 0))}</span>
+                </div>
+                <div className="flex justify-between text-sm dark:text-gray-200 print:text-black">
+                  <span>Acréscimo {surchargePercent || 0}%</span>
+                  <span>{formatCurrency(surcharge || 0)}</span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between items-center">
               <span className="text-lg font-bold dark:text-white print:text-black">TOTAL</span>
               <span className="text-2xl font-bold text-green-600 dark:text-green-400 print:text-green-700">{formatCurrency(total)}</span>

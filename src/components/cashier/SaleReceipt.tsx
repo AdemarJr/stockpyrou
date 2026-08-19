@@ -36,6 +36,10 @@ interface SaleReceiptProps {
       emitNfe?: boolean;
       customerName?: string;
       dueDate?: string;
+      subtotal?: number;
+      cartDiscount?: number;
+      surcharge?: number;
+      surchargePercent?: number;
     };
     emitNfce?: boolean;
     emitNfe?: boolean;
@@ -167,6 +171,16 @@ export function SaleReceipt({
     });
 
     lines.push(`───────────────────────────────────`);
+    const details = sale.paymentDetails;
+    if ((details?.surcharge || 0) > 0 || (details?.cartDiscount || 0) > 0) {
+      lines.push(`Subtotal: R$ ${(details?.subtotal ?? sale.total).toFixed(2)}`);
+      if ((details?.cartDiscount || 0) > 0) {
+        lines.push(`Desconto: R$ ${details!.cartDiscount!.toFixed(2)}`);
+      }
+      if ((details?.surcharge || 0) > 0) {
+        lines.push(`Acréscimo ${details?.surchargePercent || 0}%: R$ ${details!.surcharge!.toFixed(2)}`);
+      }
+    }
     lines.push(`TOTAL: R$ ${sale.total.toFixed(2)}`);
     lines.push(`───────────────────────────────────`);
     lines.push(`Pagamento: ${paymentLabel}`);
@@ -300,6 +314,26 @@ export function SaleReceipt({
 
             {/* Total */}
             <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-4 border-2 border-blue-200">
+              {((sale.paymentDetails?.surcharge || 0) > 0 || (sale.paymentDetails?.cartDiscount || 0) > 0) && (
+                <div className="space-y-1 text-sm mb-3">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Subtotal</span>
+                    <span>R$ {(sale.paymentDetails?.subtotal ?? sale.total).toFixed(2)}</span>
+                  </div>
+                  {(sale.paymentDetails?.cartDiscount || 0) > 0 && (
+                    <div className="flex justify-between text-gray-600">
+                      <span>Desconto</span>
+                      <span>− R$ {sale.paymentDetails!.cartDiscount!.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {(sale.paymentDetails?.surcharge || 0) > 0 && (
+                    <div className="flex justify-between text-gray-600">
+                      <span>Acréscimo {sale.paymentDetails?.surchargePercent || 0}%</span>
+                      <span>+ R$ {sale.paymentDetails!.surcharge!.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-bold text-gray-700 uppercase">
                   Total da Venda
