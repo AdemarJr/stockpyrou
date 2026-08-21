@@ -10,6 +10,7 @@ import {
   Smartphone,
   Banknote,
   Calendar,
+  Clock,
   User,
   Send
 } from 'lucide-react';
