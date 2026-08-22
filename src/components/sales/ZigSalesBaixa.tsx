@@ -104,6 +104,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
   const [productSearch, setProductSearch] = useState('');
   const [showOnlyNotFound, setShowOnlyNotFound] = useState(false);
   const [previewRange, setPreviewRange] = useState<{ start: string; end: string } | null>(null);
+  /** Dias civis do período buscado (inclusive), para exibir seções mesmo sem vendas. */
+  const [daysInRange, setDaysInRange] = useState<string[]>([]);
   /** ID da sessão gravada no servidor no último preview — confirmação usa KV em vez de refazer GET na ZIG. */
   const [previewSessionId, setPreviewSessionId] = useState<string | null>(null);
 
@@ -287,6 +289,25 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     return `${yy}-${mm}-${dd}`;
   };
 
+  /** Lista YYYY-MM-DD inclusiva entre start e end (calendário civil). */
+  const eachYmdInRange = (startYmd: string, endYmd: string): string[] => {
+    if (!startYmd || !endYmd || startYmd > endYmd) return [];
+    const out: string[] = [];
+    let cur = startYmd;
+    for (let guard = 0; guard < 400 && cur <= endYmd; guard++) {
+      out.push(cur);
+      if (cur === endYmd) break;
+      const [y, mo, d] = cur.split('-').map((x) => parseInt(x, 10));
+      const dt = new Date(Date.UTC(y, mo - 1, d));
+      dt.setUTCDate(dt.getUTCDate() + 1);
+      const yy = dt.getUTCFullYear();
+      const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getUTCDate()).padStart(2, '0');
+      cur = `${yy}-${mm}-${dd}`;
+    }
+    return out;
+  };
+
   const getDateRange = () => {
     const todaySp = ymdSaoPaulo(new Date());
     const yesterdaySp = yesterdayYmdSaoPaulo();
@@ -303,10 +324,14 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
         start = todaySp;
         end = todaySp;
         break;
-      case 'custom':
-        start = customStartDate || yesterdaySp;
-        end = customEndDate || todaySp;
-        break;
+      case 'custom': {
+        let start = customStartDate || yesterdaySp;
+        let end = customEndDate || todaySp;
+        if (start > end) {
+          [start, end] = [end, start];
+        }
+        return { start, end };
+      }
       default:
         start = yesterdaySp;
         end = yesterdaySp;
@@ -346,10 +371,12 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
     }
 
     const { start, end } = getDateRange();
+    const spanDays = eachYmdInRange(start, end);
 
     try {
       setLoadingPreview(true);
       setSalesByDate({});
+      setDaysInRange([]);
       setPreviewSessionId(null);
 
       const res = await fetch(`${SERVER_URL}/zig/preview`, {
@@ -372,10 +399,15 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
       }
 
       const data = await res.json();
-      
+      const rangeDays: string[] =
+        Array.isArray(data.daysInRange) && data.daysInRange.length > 0
+          ? data.daysInRange
+          : spanDays;
+
       if (data.salesByDate && Object.keys(data.salesByDate).length > 0) {
         setSalesByDate(data.salesByDate);
         setPreviewRange({ start, end });
+        setDaysInRange(rangeDays);
         setProductSearch('');
         setShowOnlyNotFound(false);
         setPreviewSessionId(
@@ -386,19 +418,31 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
 
         // Não pré-seleciona nada: só dá baixa nos produtos que o usuário marcar na lista.
         setSelectedSales([]);
-        
-        // Expandir todas as datas por padrão
-        setExpandedDates(Object.keys(data.salesByDate));
-        
+
+        // Expandir todas as datas do período (inclui dias sem vendas)
+        setExpandedDates(rangeDays.length > 0 ? rangeDays : Object.keys(data.salesByDate));
+
         setShowPreview(true);
+        const daysWithSales = Object.keys(data.salesByDate).length;
         toast.success(
           includeProcessed
-            ? `${data.totalSales} linhas (total ZIG) em ${Object.keys(data.salesByDate).length} dias!`
-            : `${data.totalSales} vendas pendentes em ${Object.keys(data.salesByDate).length} dias!`,
+            ? `${data.totalSales} linhas (total ZIG) em ${daysWithSales} de ${rangeDays.length} dia(s)!`
+            : `${data.totalSales} vendas pendentes em ${daysWithSales} de ${rangeDays.length} dia(s)!`,
         );
       } else {
         setPreviewSessionId(null);
-        toast.info('Nenhuma venda nova encontrada neste período.');
+        if (rangeDays.length > 1) {
+          setSalesByDate({});
+          setPreviewRange({ start, end });
+          setDaysInRange(rangeDays);
+          setExpandedDates(rangeDays);
+          setShowPreview(true);
+          toast.info(
+            `Nenhuma venda nova no período ${start} a ${end} (${rangeDays.length} dias).`,
+          );
+        } else {
+          toast.info('Nenhuma venda nova encontrada neste período.');
+        }
       }
       
     } catch (error: any) {
@@ -495,6 +539,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
       setSalesByDate({});
       setSelectedSales([]);
       setPreviewRange(null);
+      setDaysInRange([]);
       setPreviewSessionId(null);
       setProductSearch('');
       setShowOnlyNotFound(false);
@@ -810,7 +855,7 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                   : 'bg-white text-gray-700 border border-gray-200 hover:border-indigo-300'
               }`}
             >
-              Custom
+              Período
             </button>
           </div>
 
@@ -822,7 +867,10 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                 <input
                   type="date"
                   value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  onChange={(e) => {
+                    setDateFilter('custom');
+                    setCustomStartDate(e.target.value);
+                  }}
                   className="w-full rounded-lg border-indigo-200 text-sm focus:border-indigo-500 focus:ring-indigo-500"
                 />
               </div>
@@ -831,15 +879,34 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                 <input
                   type="date"
                   value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  onChange={(e) => {
+                    setDateFilter('custom');
+                    setCustomEndDate(e.target.value);
+                  }}
                   className="w-full rounded-lg border-indigo-200 text-sm focus:border-indigo-500 focus:ring-indigo-500"
                 />
               </div>
             </div>
             <p className="text-xs text-indigo-900/70">
-              Noites que cruzam meia-noite (ex.: quarta → quinta): selecione os dois dias para trazer todas as vendas do período.
+              Selecione <strong className="font-semibold">Período</strong> e informe início e fim.
+              Noites que cruzam meia-noite: inclua os dois dias para trazer todas as vendas.
             </p>
+            {customStartDate && customEndDate && (
+              <p className="text-xs font-medium text-indigo-800">
+                {eachYmdInRange(
+                  customStartDate <= customEndDate ? customStartDate : customEndDate,
+                  customStartDate <= customEndDate ? customEndDate : customStartDate,
+                ).length}{' '}
+                dia(s) no intervalo selecionado
+              </p>
+            )}
             </div>
+          )}
+
+          {dateFilter !== 'custom' && (
+            <p className="text-xs text-indigo-900/60">
+              Para buscar vários dias, clique em <strong className="font-semibold">Período</strong> e escolha data inicial e final.
+            </p>
           )}
 
           <button
@@ -875,8 +942,15 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
                   {filteredGroupsCount} de {totalGroups} produtos • {selectedGroupCount} selecionados
+                  {previewRange && (
+                    <span className="block text-xs text-indigo-600 mt-0.5">
+                      Período: {previewRange.start} a {previewRange.end}
+                      {daysInRange.length > 1 ? ` (${daysInRange.length} dias)` : ''}
+                    </span>
+                  )}
                   <span className="block text-xs text-indigo-700 mt-0.5">
                     Marque os produtos — a baixa só ocorre nos itens selecionados.
+                    Produtos não cadastrados podem ser processados (cadastro automático).
                   </span>
                 </p>
               </div>
@@ -922,8 +996,12 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                 </label>
               </div>
               <div className="space-y-4">
-                {Object.keys(groupedSalesByDate).sort((a, b) => b.localeCompare(a)).map((date) => {
+                {(daysInRange.length > 0 ? daysInRange : Object.keys(groupedSalesByDate))
+                  .slice()
+                  .sort((a, b) => b.localeCompare(a))
+                  .map((date) => {
                   const dateGroups = getFilteredGroupsByDate(date);
+                  const allDateGroups = groupedSalesByDate[date] || [];
                   const validCount = dateGroups.filter(g => !g.notFound).length;
                   const notFoundCount = dateGroups.filter(g => g.notFound).length;
                   const totalValue = dateGroups.reduce((sum, g) => sum + (g.totalValue || 0), 0);
@@ -931,7 +1009,8 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                   const isExpanded = expandedDates.includes(date);
                   const dateTransactionIds = dateGroups.flatMap(g => g.transactionIds);
                   const allSelected = dateTransactionIds.length > 0 && dateTransactionIds.every(id => selectedSales.includes(id));
-                  const hasAny = dateTransactionIds.length > 0;
+                  const hasAny = allDateGroups.length > 0;
+                  const hasFiltered = dateGroups.length > 0;
                   
                   return (
                     <div key={date} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
@@ -955,20 +1034,28 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                               📅 {formatDate(date)}
                             </h4>
                             <div className="flex items-center gap-3 mt-1">
-                              <span className="text-xs text-gray-600">
-                                {validCount} produtos válidos
-                              </span>
-                              <span className="text-xs text-gray-600">
-                                Qtd {totalQty.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
-                              </span>
-                              {notFoundCount > 0 && (
-                                <span className="text-xs text-amber-600">
-                                  {notFoundCount} não encontradas
-                                </span>
-                              )}
-                              {totalValue > 0 && (
-                                <span className="text-xs font-semibold text-indigo-700">
-                                  R$ {totalValue.toFixed(2)}
+                              {hasAny ? (
+                                <>
+                                  <span className="text-xs text-gray-600">
+                                    {validCount} produtos válidos
+                                  </span>
+                                  <span className="text-xs text-gray-600">
+                                    Qtd {totalQty.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                  </span>
+                                  {notFoundCount > 0 && (
+                                    <span className="text-xs text-amber-600">
+                                      {notFoundCount} não cadastrados
+                                    </span>
+                                  )}
+                                  {totalValue > 0 && (
+                                    <span className="text-xs font-semibold text-indigo-700">
+                                      R$ {totalValue.toFixed(2)}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-xs text-gray-500 italic">
+                                  Nenhuma venda pendente neste dia
                                 </span>
                               )}
                             </div>
@@ -1002,6 +1089,11 @@ export function ZigSalesBaixa({ onSyncComplete }: { onSyncComplete?: () => void 
                       
                       {isExpanded && (
                         <div className="p-4 space-y-3 bg-gray-50">
+                          {!hasFiltered && (
+                            <p className="text-sm text-gray-500 text-center py-4">
+                              Sem vendas ZIG pendentes para este dia no período selecionado.
+                            </p>
+                          )}
                           {dateGroups.map((group) => {
                             const isSelected = group.transactionIds.every(id => selectedSales.includes(id));
                             return (
